@@ -407,19 +407,26 @@ func Test_ServerGroup_httpRootPath(t *testing.T){
         root    string
     }{
         {
-            r:&http.Request{URL:&url.URL{Path:"/abc"}},
+            r:&http.Request{URL:&url.URL{Path:"/A/B/C"}},
             conf:&ConfigSiteDirectory{
-            	Root:"\\123\\456\\789",
-                Virtual:[]string{"/abc"},
+            	Root:"G:\\123\\456\\789",
+                Virtual:[]string{"D:/123/456/A","G:/abc", "C:/abc"},
             },
-            root:"\\",
+            root:"D:\\123\\456",
         },{
             r:&http.Request{URL:&url.URL{Path:"/abc"}},
             conf:&ConfigSiteDirectory{
-            	Root:"\\123\\456\\789",
+            	Root:"/123/456/789",
+                Virtual:[]string{"/abc"},
+            },
+            root:"/",
+        },{
+            r:&http.Request{URL:&url.URL{Path:"/abc"}},
+            conf:&ConfigSiteDirectory{
+            	Root:"/123/456/789",
                 Virtual:[]string{"aaa/bbbb/abc"},
             },
-            root:"aaa\\bbbb",
+            root:"aaa/bbbb",
         },{
             r:&http.Request{URL:&url.URL{Path:"/"}},
             conf:&ConfigSiteDirectory{
@@ -435,24 +442,17 @@ func Test_ServerGroup_httpRootPath(t *testing.T){
             },
             root:"D:\\123\\456",
         },{
-            r:&http.Request{URL:&url.URL{Path:"/A/B/C"}},
-            conf:&ConfigSiteDirectory{
-            	Root:"G:\\123\\456\\789",
-                Virtual:[]string{"G:/abc", "C:/abc", "D:/123/456/A/"},
-            },
-            root:"D:\\123\\456",
-        },{
             r:&http.Request{URL:&url.URL{Path:"/A/B/C/"}},
             conf:&ConfigSiteDirectory{
             	Root:"G:\\123\\456\\789",
-                Virtual:[]string{"G:/abc", "C:/abc", "D:/123\\456\\A/"},
+                Virtual:[]string{"G:/abc", "C:/abc", "D:/123\\456\\A"},
             },
             root:"D:\\123\\456",
         },{
             r:&http.Request{URL:&url.URL{Path:"/B/C/"}},
             conf:&ConfigSiteDirectory{
             	Root:"G:\\123\\456\\789",
-                Virtual:[]string{":/abc", "C:/abc", "D:\\123\\---\\B/"},
+                Virtual:[]string{":/abc", "C:/abc", "D:\\123\\---\\B"},
             },
             root:"D:\\123\\---",
         },{
@@ -461,15 +461,15 @@ func Test_ServerGroup_httpRootPath(t *testing.T){
             	Root:"",
                 Virtual:[]string{},
             },
-            root:".",
+            root:"",
         },
     }
 
     sg := NewServerGroup()
-    for _, test := range tests {
+    for i, test := range tests {
         root := sg.httpRootPath(test.conf, test.r)
-        if root != test.root {
-        	t.Fatalf("返回根目录和预先设定的不匹配。返回（%s），预先（%s）", root, test.root)
+        if root != filepath.FromSlash(test.root) {
+        	t.Fatalf("%d,返回根目录和预先设定的不匹配。返回（%s），预先（%s）", i, root,filepath.FromSlash(test.root))
         }
     }
 

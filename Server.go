@@ -458,17 +458,18 @@ func (T *ServerGroup) httpTypeByExtension(ext string, me map[string]string) stri
 //	string			    		根目录路径
 func (T *ServerGroup) httpRootPath(dir *ConfigSiteDirectory, r *http.Request) string {
     var (
-        p		= filepath.Clean(r.URL.Path)
-        root    = filepath.Clean(dir.Root)
+        p			= filepath.Clean(r.URL.Path)
+        root    	= filepath.FromSlash(dir.Root)
+        separator	= string(filepath.Separator)
     )
 
     for _, v := range dir.Virtual {
         if v == ""{
         	continue
         }
-    	v = filepath.Clean(v)
-        pos	:= strings.LastIndex(v, "\\")
-        if strings.HasPrefix(p+"\\", "\\"+v[pos+1:]+"\\") {
+    	v = filepath.FromSlash(v)
+        pos	:= strings.LastIndex(v, separator)
+        if strings.HasPrefix(p+separator, separator+v[pos+1:]+separator) {
         	if pos == 0 {
         		pos=1
         	}
