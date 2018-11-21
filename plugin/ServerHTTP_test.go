@@ -44,13 +44,13 @@ func Test_Server_HTTP_1(t *testing.T) {
 	httpClient := &http.Client{}
 	httpResponse, err := httpClient.Get("http://"+sh.L.Addr().String()+"/123")
 	if err != nil {
-		t.Fatal("请求连接失败，错误：%v", err)
+		t.Fatalf("请求连接失败，错误：%v", err)
 	}
 	body := httpResponse.Body
 	b, err := ioutil.ReadAll(body)
 	body.Close()
 	if err != nil {
-		t.Fatal("读出数据出错，错误：%v", err)
+		t.Fatalf("读出数据出错，错误：%v", err)
 	}
     if !bytes.Equal(sendTest, b) {
         t.Fatalf("\r\n本地：%s\r\n远程：%s", sendTest, b)
@@ -64,7 +64,7 @@ func Test_Server_HTTP_2(t *testing.T) {
 	//监听
 	netListener, err := net.Listen("tcp", "127.0.0.1:5003")
 	if err != nil {
-		t.Fatal("端口可能被占用，错误：%v", err)
+		t.Fatalf("端口可能被占用，错误：%v", err)
 	}
 	defer netListener.Close()
 
@@ -81,13 +81,13 @@ func Test_Server_HTTP_2(t *testing.T) {
 	httpClient := &http.Client{}
 	httpResponse, err := httpClient.Get("http://"+sh.L.Addr().String()+"/123")
 	if err != nil {
-		t.Fatal("请求连接失败，错误：%v", err)
+		t.Fatalf("请求连接失败，错误：%v", err)
 	}
 	body := httpResponse.Body
 	b, err := ioutil.ReadAll(body)
 	body.Close()
 	if err != nil {
-		t.Fatal("读出数据出错，错误：%v", err)
+		t.Fatalf("读出数据出错，错误：%v", err)
 	}
     if !bytes.Equal(sendTest, b) {
         t.Fatalf("\r\n本地：%s\r\n远程：%s", sendTest, b)
@@ -100,7 +100,7 @@ func Test_Server_HTTP_3(t *testing.T) {
 	//监听
 	netListener, err := net.Listen("tcp", "127.0.0.1:5002")
 	if err != nil {
-		t.Fatal("端口可能被占用，错误：%v", err)
+		t.Fatalf("端口可能被占用，错误：%v", err)
 	}
 	defer netListener.Close()
 	var serverHTTP = NewServerHTTP()
@@ -116,13 +116,13 @@ func Test_Server_HTTP_3(t *testing.T) {
 	httpClient := &http.Client{}
 	httpResponse, err := httpClient.Get("http://"+serverHTTP.L.Addr().String()+"/123")
 	if err != nil {
-		t.Fatal("请求连接失败，错误：%v", err)
+		t.Fatalf("请求连接失败，错误：%v", err)
 	}
 	body := httpResponse.Body
 	b, err := ioutil.ReadAll(body)
 	body.Close()
 	if err != nil {
-		t.Fatal("读出数据出错，错误：%v", err)
+		t.Fatalf("读出数据出错，错误：%v", err)
 	}
     if !bytes.Equal(sendTest, b) {
         t.Fatalf("\r\n本地：%s\r\n远程：%s", sendTest, b)
@@ -135,7 +135,7 @@ func Test_Server_HTTP_4(t *testing.T) {
 	//监听
 	netListener, err := net.Listen("tcp", "127.0.0.1:5001")
 	if err != nil {
-		t.Fatal("端口可能被占用，错误：%v", err)
+		t.Fatalf("端口可能被占用，错误：%v", err)
 	}
 	defer netListener.Close()
 	var serverHTTP = NewServerHTTP()
@@ -150,7 +150,7 @@ func Test_Server_HTTP_4(t *testing.T) {
 	conf :=&tls.Config{}
     err = serverHTTP.LoadTLS(conf, files)
 	if err != nil {
-		t.Fatal("错误：%v", err)
+		t.Fatalf("错误：%v", err)
 	}
 
 	go serverHTTP.Serve(netListener)
@@ -169,13 +169,13 @@ func Test_Server_HTTP_4(t *testing.T) {
     }
     httpResponse, err := httpClient.Do(req)
     	if err != nil {
-		t.Fatal("请求连接失败，错误：%v", err)
+		t.Fatalf("请求连接失败，错误：%v", err)
 	}
 	body := httpResponse.Body
 	b, err := ioutil.ReadAll(body)
 	body.Close()
 	if err != nil {
-		t.Fatal("读出数据出错，错误：%v", err)
+		t.Fatalf("读出数据出错，错误：%v", err)
 	}
     if !bytes.Equal(sendTest, b) {
         t.Fatalf("\r\n本地：%s\r\n远程：%s", sendTest, b)
