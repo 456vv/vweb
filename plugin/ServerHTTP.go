@@ -1,6 +1,6 @@
 package plugin
 import(
-	"github.com/456vv/vweb/v2.4"
+	"github.com/456vv/vweb"
 	"net"
 	"net/http"
     "crypto/tls"
