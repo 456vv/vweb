@@ -409,10 +409,10 @@ func Test_ServerGroup_httpRootPath(t *testing.T){
         {
             r:&http.Request{URL:&url.URL{Path:"/A/B/C"}},
             conf:&ConfigSiteDirectory{
-            	Root:"G:\\123\\456\\789",
+            	Root:"G:/123/456/789",
                 Virtual:[]string{"D:/123/456/A","G:/abc", "C:/abc"},
             },
-            root:"D:\\123\\456",
+            root:"D:/123/456",
         },{
             r:&http.Request{URL:&url.URL{Path:"/abc"}},
             conf:&ConfigSiteDirectory{
@@ -430,31 +430,31 @@ func Test_ServerGroup_httpRootPath(t *testing.T){
         },{
             r:&http.Request{URL:&url.URL{Path:"/"}},
             conf:&ConfigSiteDirectory{
-            	Root:"G:\\123\\456\\789",
+            	Root:"G:/123/456/789",
                 Virtual:[]string{"G:/abc", "C:/abc"},
             },
-            root:"G:\\123\\456\\789",
+            root:"G:/123/456/789",
         },{
             r:&http.Request{URL:&url.URL{Path:"/A/B/C"}},
             conf:&ConfigSiteDirectory{
-            	Root:"G:\\123\\456\\789",
+            	Root:"G:/123/456/789",
                 Virtual:[]string{"G:/abc", "C:/abc", "D:/123/456/A"},
             },
-            root:"D:\\123\\456",
+            root:"D:/123/456",
         },{
             r:&http.Request{URL:&url.URL{Path:"/A/B/C/"}},
             conf:&ConfigSiteDirectory{
-            	Root:"G:\\123\\456\\789",
-                Virtual:[]string{"G:/abc", "C:/abc", "D:/123\\456\\A"},
+            	Root:"G:/123/456/789",
+                Virtual:[]string{"G:/abc", "C:/abc", "D:/123/456/A"},
             },
-            root:"D:\\123\\456",
+            root:"D:/123/456",
         },{
             r:&http.Request{URL:&url.URL{Path:"/B/C/"}},
             conf:&ConfigSiteDirectory{
-            	Root:"G:\\123\\456\\789",
-                Virtual:[]string{":/abc", "C:/abc", "D:\\123\\---\\B"},
+            	Root:"G:/123/456/789",
+                Virtual:[]string{":/abc", "C:/abc", "D:/123/---/B"},
             },
-            root:"D:\\123\\---",
+            root:"D:/123/---",
         },{
             r:&http.Request{URL:&url.URL{Path:"/B/C/"}},
             conf:&ConfigSiteDirectory{
