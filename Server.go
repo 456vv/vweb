@@ -465,16 +465,13 @@ func (T *ServerGroup) httpRootPath(dir *ConfigSiteDirectory, r *http.Request) st
     for _, v := range dir.Virtual {
         if v == ""{
         	continue
-        }else if !filepath.IsAbs(v) {
-            var err error
-        	v, err = filepath.Abs(v)
-            if err != nil {
-            	continue
-            }
         }
     	v = filepath.Clean(v)
         pos	:= strings.LastIndex(v, "\\")
         if strings.HasPrefix(p+"\\", "\\"+v[pos+1:]+"\\") {
+        	if pos == 0 {
+        		pos=1
+        	}
 			root = v[:pos]
 			break
 		}

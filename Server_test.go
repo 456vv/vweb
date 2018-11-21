@@ -409,10 +409,17 @@ func Test_ServerGroup_httpRootPath(t *testing.T){
         {
             r:&http.Request{URL:&url.URL{Path:"/abc"}},
             conf:&ConfigSiteDirectory{
-            	Root:"G:\\123\\456\\789",
-                Virtual:[]string{"C:/abc"},
+            	Root:"\\123\\456\\789",
+                Virtual:[]string{"/abc"},
             },
-            root:"C:",
+            root:"\\",
+        },{
+            r:&http.Request{URL:&url.URL{Path:"/abc"}},
+            conf:&ConfigSiteDirectory{
+            	Root:"\\123\\456\\789",
+                Virtual:[]string{"aaa/bbbb/abc"},
+            },
+            root:"aaa\\bbbb",
         },{
             r:&http.Request{URL:&url.URL{Path:"/"}},
             conf:&ConfigSiteDirectory{
@@ -445,7 +452,7 @@ func Test_ServerGroup_httpRootPath(t *testing.T){
             r:&http.Request{URL:&url.URL{Path:"/B/C/"}},
             conf:&ConfigSiteDirectory{
             	Root:"G:\\123\\456\\789",
-                Virtual:[]string{":/abc", "C:/abc", "D:123\\---\\B/"},
+                Virtual:[]string{":/abc", "C:/abc", "D:\\123\\---\\B/"},
             },
             root:"D:\\123\\---",
         },{
