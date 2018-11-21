@@ -39,9 +39,6 @@ import(
 )
 
 var dotFuncMap = map[string]map[string]interface{}{
-	"errors":{
-		"New": errors.New,
-	},
 	"fmt":{
 		"Errorf": fmt.Errorf,
 		"Fprint": fmt.Fprint,
