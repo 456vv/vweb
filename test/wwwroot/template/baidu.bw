@@ -1,0 +1,17 @@
+//template
+
+{{
+	//$Reflect := .PKG "reflect"
+	$bw := .PluginHTTP "bw"
+	$Request := .Request
+	$ResponseWriter	:= .ResponseWriter
+
+	//$RequestValue := call $Reflect.ValueOf $Request
+	//$RequestValue1 := $RequestValue.Elem
+	//$Method := $RequestValue1.FieldByName "Method"
+	//$Method.SetString "PUT"
+
+	$bw.ServeHTTP $ResponseWriter $Request
+}}
+
+111

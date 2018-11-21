@@ -1,0 +1,44 @@
+﻿类型
+type PluginType int                                                 //插件-类型
+const(
+    PluginTypeHTTP   PluginType = iota                                      // HTTP
+    PluginTypeRPC                                                           // RPC
+)
+type PluginExtra struct{                                            // 插件-额外信息
+}
+type Plugin struct{                                                 // 插件
+	Type		PluginType													// 类型
+	Version		float64														// 版本
+	Name, Addr  string														// 名称，IP地址
+    Extra       PluginExtra                                                 // 额外信息
+}
+    func (p *Plugin) String() string                                        // 标准输出，输出配置。客户端解析。
+
+type ServerRPC struct{                                             // RPC服务器
+    Addr        string                                                      // 地址
+    *rpc.Server                                                             // RPC
+    L           net.Listener                                                // 监听器
+    handled     bool                                                        // 使用路径
+}
+    func NewServerRPC() *ServerRPC                                          // 服务器对象
+    func (srpc *ServerRPC) Register(value interface{})                      // 注册类型
+    func (srpc *ServerRPC) RegisterName(name string, rcvr interface{}) error      // 注册
+    func (srpc *ServerRPC) AutoFill(p *Plugin)                              // 打印插件配置
+    func (srpc *ServerRPC) HandleHTTP(rpcPath, debugPath string)            // 支持路径方式
+    func (srpc *ServerRPC) ListenAndServe() error                           // 快速启动
+    func (srpc *ServerRPC) Serve(l net.Listener) error                      // 监听
+    func (srpc *ServerRPC) Close() error                                    // 关闭监听
+type ServerTLSFile struct {                                         // 证书文件
+    CertFile, KeyFile   string                                              // 证书，key 文件地址
+}
+type ServerHTTP struct {                                            // HTTP服务器
+	*http.Server													        // HTTP
+	L           net.Listener										        // 监听器
+    Route       *vweb.Route                                     			// 路由表
+}
+    NewServerHTTP() *ServerHTTP                                             // 服务器对象
+    func (shttp *ServerHTTP) LoadTLS(config *tls.Config, files []ServerTLSFile) error                   // SSL证书
+    func (shttp *ServerHTTP) AutoFill(p *Plugin)                            // 打印插件配置
+    func (shttp *ServerHTTP) ListenAndServe() error                         // 快速启动
+    func (shttp *ServerHTTP) Serve(l net.Listener) error                    // 监听
+    func (shttp *ServerHTTP) Close() error                                  // 关闭监听

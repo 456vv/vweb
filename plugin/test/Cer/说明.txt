@@ -1,0 +1,13 @@
+CA-test.cer       CA根证书（二进制格式，计算机使用），安装入计算机
+CA-test.pem       CA根证书（PEM格式，Go程序使用）
+CA-test.key       CA根证书密钥
+
+CA1-test.cer      中级证书（二进制格式，计算机使用），安装入计算机
+CA1-test.pem      中级证书（PEM格式，Go程序使用）
+CA1-test.key      中级证书密钥
+
+Cert-test.cer     域名证书（二进制格式，计算机使用）
+Cert-test.pem     域名证书（PEM格式，Go程序使用）
+Cert-test.key     域名证书密钥
+
+CRL-test.crl      中级发布的证书吊销域名证书

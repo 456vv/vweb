@@ -1,0 +1,13 @@
+//template
+//file=a1.tmpl
+
+ddddddddddd
+
+{{template "a1" .}}
+
+{{
+.PKG "33"
+$rw := .ResponseWriter
+$rw.WriteString "11111111"
+}}
+

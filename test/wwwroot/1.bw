@@ -1,0 +1,35 @@
+//template
+
+<textarea style="width:100%;height:100%;">
+{{
+	$vmap := .PKG "vmap"
+	$m :=  call $vmap.NewMap
+	$m.Set "1" "2"
+	$m.Has "1"
+	$v := $m.GetHas "1"
+	index $v 0
+	index $v 1
+	$v1 := $m.Get "1"
+	$v1
+	$m.MarshalJSON
+	$m.Reset
+	$m
+}}
+
+{{
+	$Reflect := .PKG "reflect"
+	$Request := .Request
+	$RequestValue := call $Reflect.ValueOf $Request
+	$RequestValue1 := $RequestValue.Elem
+	$RequestValue1
+	$Method := $RequestValue1.FieldByName "Method"
+	$Method
+	$Method.SetString "POST"
+	$Method
+//	ForType $RequestValue1
+//	ForMethod $RequestValue1
+}}
+
+
+
+</textarea>

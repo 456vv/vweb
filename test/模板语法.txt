@@ -1,0 +1,56 @@
+    {{if pipeline}} T1 {{end}}
+    {{if pipeline}} T1 {{else}} T0 {{end}}
+    {{if pipeline}} T1 {{else if pipeline}} T0 {{end}}
+    {{range pipeline}} T1 {{end}}
+    {{range pipeline}} T1 {{else}} T0 {{end}}
+    {{template "name"}}
+    {{template "name" pipeline}}
+    {{define "name"}} T1 {{end}}
+    {{block "inner" .}}bar{{.}}baz{{end}} 等介：{{define "inner"}} T1{{.}} dd {{end}}{{template "inner" .}}
+    aaa   {{- "222"}} 结果：aaa222
+    {{"222" -}}  aaa 结果：222aaa
+    {{with pipeline}} T1 {{end}}
+    {{with pipeline}} T1 {{else}} T0 {{end}}
+        .Field
+        .Field1.Field2
+        $x.Field1.Field2
+        .Key
+        .Field1.Key1.Field2.Key2
+        $x.key1.key2
+        .Method
+        .Field1.Key1.Method1.Field2.Key2.Method2
+        $x.Method1.Field
+        fun
+        print (.F1 arg1) (.F2 arg2)
+        (.StructValuedMethod "arg").Field
+    $variable := pipeline
+    range $index, $element := pipeline
+    {{"\"output\""}}
+    {{`"output"`}}
+    {{printf "%q" "output"}}
+    {{"output" | printf "%q"}}
+    {{printf "%q" (print "out" "put")}}
+    {{"put" | printf "%s%s" "out" | printf "%q"}}
+    {{"output" | printf "%s" | printf "%q"}}
+    {{with "output"}}{{printf "%q" .}}{{end}}
+    {{with $x := "output" | printf "%q"}}{{$x}}{{end}}
+    {{with $x := "output"}}{{printf "%q" $x}}{{end}}
+    {{with $x := "output"}}{{$x | printf "%q"}}{{end}}
+    and x y
+    or x y
+    call .X.Y 1 2
+    html x
+    index x 1 2 3
+    js x
+    len x
+    not x
+    print x  as fmt.Sprint
+    printf x as fmt.Sprintf
+    println x as fmt.Sprintln
+    urlquery x
+    eq x y as == 或 eq x1 y1 x2 x2 ... as x1==y1 || x2==y2
+    ne x y as !=
+    lt x y as <
+    le x y as <=
+    gt x y as >
+    ge x y as >=

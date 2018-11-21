@@ -1,0 +1,9 @@
+//template
+//file=b1.tmpl
+
+{{block "foot" .}}这里显示，因为不存在 define 设置{{end}}
+</br>
+{{block "inner1" .}}由于b1.tmpl里面已经使用了 define，所以这里不显示{{.}}{{end}}
+</br>
+
+{{"222" -}}  aaa

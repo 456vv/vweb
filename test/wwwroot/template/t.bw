@@ -1,0 +1,9 @@
+//template
+//file=./2.tmpl
+//file=./3.tmpl
+//file=/5.tmpl
+
+1234567890
+<pre>
+{{ForMethod .}}
+</pre>
