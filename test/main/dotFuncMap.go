@@ -39,6 +39,18 @@ import(
 )
 
 var dotFuncMap = map[string]map[string]interface{}{
+	"errors":{
+		"New": errors.New,
+	},
+	"fmt":{
+		"Errorf": fmt.Errorf,
+		"Fprint": fmt.Fprint,
+		"Fprintf": fmt.Fprintf,
+		"Fprintln": fmt.Fprintln,
+		"Sprint": fmt.Sprint,
+		"Sprintf": fmt.Sprintf,
+		"Sprintln":fmt.Sprintln,
+	},
 	"vmap":{
 		"NewMap":vmap.NewMap,
 	},
@@ -157,6 +169,7 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"UTC": time.UTC,
 		"FixedZone": time.FixedZone,
 		"LoadLocation": time.LoadLocation,
+		"LoadLocationFromTZData": time.LoadLocationFromTZData,
 		"Month": func(Month int) time.Month {return time.Month(Month)},
 		"Ticker": func() (time.Ticker, *time.Ticker) {r := time.Ticker{};return r, &r},
 		"NewTicker": time.NewTicker,
@@ -230,6 +243,7 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"Client": func() (http.Client, *http.Client) {r := http.Client{};return r, &r},
 		"ConnState": func(ConnState int) http.ConnState {return http.ConnState(ConnState)},
 		"Cookie": func() (http.Cookie, *http.Cookie) {r := http.Cookie{};return r, &r},
+		"SameSite": func(SameSite int) http.SameSite {return http.SameSite(SameSite)},
 		"Header": func() (http.Header, *http.Header) {r := http.Header{};return r, &r},
 		"PushOptions": func() (http.PushOptions, *http.PushOptions) {r := http.PushOptions{};return r, &r},
 		"Request": func() (http.Request, *http.Request) {r := http.Request{};return r, &r},
@@ -312,6 +326,7 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"Read": rand.Read,
 	},
 	"crypto/cipher":{
+		"NewGCMWithTagSize": cipher.NewGCMWithTagSize,
 		"NewGCM": cipher.NewGCM,
 		"NewGCMWithNonceSize": cipher.NewGCMWithNonceSize,
 		"NewCBCDecrypter": cipher.NewCBCDecrypter,
@@ -349,12 +364,15 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"EncryptPEMBlock": x509.EncryptPEMBlock,
 		"IsEncryptedPEMBlock": x509.IsEncryptedPEMBlock,
 		"MarshalECPrivateKey": x509.MarshalECPrivateKey,
+		"MarshalPKCS1PublicKey": x509.MarshalPKCS1PublicKey,
 		"MarshalPKCS1PrivateKey": x509.MarshalPKCS1PrivateKey,
 		"MarshalPKIXPublicKey": x509.MarshalPKIXPublicKey,
+		"MarshalPKCS8PrivateKey": x509.MarshalPKCS8PrivateKey,
 		"ParseCRL": x509.ParseCRL,
 		"ParseCertificates": x509.ParseCertificates,
 		"ParseDERCRL": x509.ParseDERCRL,
 		"ParseECPrivateKey": x509.ParseECPrivateKey,
+		"ParsePKCS1PublicKey": x509.ParsePKCS1PublicKey,
 		"ParsePKCS1PrivateKey": x509.ParsePKCS1PrivateKey,
 		"ParsePKCS8PrivateKey": x509.ParsePKCS8PrivateKey,
 		"ParsePKIXPublicKey": x509.ParsePKIXPublicKey,
@@ -384,6 +402,7 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"TBSCertificateList": func() (pkix.TBSCertificateList, *pkix.TBSCertificateList) {r := pkix.TBSCertificateList{};return r, &r},
 	},
 	"encoding/asn1":{
+		"MarshalWithParams": asn1.MarshalWithParams,
 		"Marshal": asn1.Marshal,
 		"Unmarshal": asn1.Unmarshal,
 		"UnmarshalWithParams": asn1.UnmarshalWithParams,
@@ -404,7 +423,7 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"Rat": func() (big.Rat, *big.Rat) {r := big.Rat{};return r, &r},
 		"NewRat": big.NewRat,
 		"RoundingMode": func(RoundingMode byte) big.RoundingMode {return big.RoundingMode(RoundingMode)},
-		"Word": func(Word uintptr) big.Word {return big.Word(Word)},
+		"Word": func(Word uint) big.Word {return big.Word(Word)},
 	},
 	"bufio":{
 		"ScanBytes": bufio.ScanBytes,
@@ -485,6 +504,7 @@ var dotFuncMap = map[string]map[string]interface{}{
         "NewReader": strings.NewReader,
 		"Replacer": func() (strings.Replacer, *strings.Replacer) {r := strings.Replacer{};return r, &r},
         "NewReplacer": strings.NewReplacer,
+        "Builder": func() (strings.Builder, *strings.Builder) {r := strings.Builder{};return r, &r},
     },
     "bytes": {
         "Compare": bytes.Compare,
@@ -571,7 +591,7 @@ var dotFuncMap = map[string]map[string]interface{}{
         "Unquote": strconv.Unquote,
         "UnquoteChar": strconv.UnquoteChar,
     },
-    "json": {
+    "encoding/json": {
 		"Compact": json.Compact,
 		"Indent": json.Indent,
 		"HTMLEscape": json.HTMLEscape,
@@ -580,6 +600,7 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"Unmarshal": json.Unmarshal,
 		"NewEncoder": json.NewEncoder,
 		"NewDecoder": json.NewDecoder,
+		"Valid": json.Valid,
 	},
     "regexp": {
         "Match": regexp.Match,
@@ -648,70 +669,61 @@ var dotFuncMap = map[string]map[string]interface{}{
     	"NopCloser": ioutil.NopCloser,
         "ReadAll": ioutil.ReadAll,
         "ReadFile":func(filename string) ([]byte, error){
-		 	cpath := filepath.Clean(filename)
-			if strings.Contains(cpath, ".."){
-				return nil, fmt.Errorf("ioutil.ReadFile: 路径（%s）中不得包含（..）字符！", cpath)
-			}else if filepath.IsAbs(cpath) {
-				return nil, fmt.Errorf("ioutil.ReadFile: 路径（%s）不支持绝对路径！", cpath)
-			}
-			return ioutil.ReadFile(cpath)
+    		filename = filepath.Join(*fRootPath, filepath.Clean(filename))
+			return ioutil.ReadFile(filename)
         },
         "WriteFile":func(filename string, data []byte, perm os.FileMode) error {
-		 	cpath := filepath.Clean(filename)
-			if strings.Contains(cpath, ".."){
-				return fmt.Errorf("ioutil.WriteFile: 路径（%s）中不得包含（..）字符！", cpath)
-			}else if filepath.IsAbs(cpath) {
-				return fmt.Errorf("ioutil.WriteFile: 路径（%s）不支持绝对路径！", cpath)
-			}
-			return ioutil.WriteFile(cpath, data, perm)
+    		filename = filepath.Join(*fRootPath, filepath.Clean(filename))
+			return ioutil.WriteFile(filename, data, perm)
         },
     },
     "os":{
+    	"IsTimeout": os.IsTimeout,
+    	"IsExist": os.IsExist,
+    	"IsNotExist": os.IsNotExist,
+    	"IsPermission": os.IsPermission,
+    	"Mkdir": func(name string, perm os.FileMode) error {
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
+			return os.Mkdir(name, perm)
+    	},
+    	"MkdirAll": func(name string, perm os.FileMode) error {
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
+			return os.MkdirAll(name, perm)
+    	},
+    	"Remove": func(name string) error{
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
+			return os.Remove(name)
+    	},
+    	"RemoveAll": func(name string) error {
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
+			return os.RemoveAll(name)
+    	},
+    	"Rename": func(oldname, newname string) error{
+    		oldname = filepath.Join(*fRootPath, filepath.Clean(oldname))
+    		newname = filepath.Join(*fRootPath, filepath.Clean(newname))
+			return os.Rename(oldname, newname)
+    	},
     	"Create": func(name string) (*os.File, error) {
-		 	cpath := filepath.Clean(name)
-			if strings.Contains(cpath, ".."){
-				return nil, fmt.Errorf("os.Create: 路径（%s）中不得包含（..）字符！", cpath)
-			}else if filepath.IsAbs(cpath) {
-				return nil, fmt.Errorf("os.Create: 路径（%s）不支持绝对路径！", cpath)
-			}
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
 			return os.Create(name)
     	},
     	"NewFile": os.NewFile,
     	"Open": func(name string) (*os.File, error) {
-		 	cpath := filepath.Clean(name)
-			if strings.Contains(cpath, ".."){
-				return nil, fmt.Errorf("os.Open: 路径（%s）中不得包含（..）字符！", cpath)
-			}else if filepath.IsAbs(cpath) {
-				return nil, fmt.Errorf("os.Open: 路径（%s）不支持绝对路径！", cpath)
-			}
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
 			return os.Open(name)
     	},
     	"OpenFile": func(name string, flag int, perm os.FileMode) (*os.File, error) {
-		 	cpath := filepath.Clean(name)
-			if strings.Contains(cpath, ".."){
-				return nil, fmt.Errorf("os.OpenFile: 路径（%s）中不得包含（..）字符！", cpath)
-			}else if filepath.IsAbs(cpath) {
-				return nil, fmt.Errorf("os.OpenFile: 路径（%s）不支持绝对路径！", cpath)
-			}
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
 			return os.OpenFile(name, flag, perm)
     	},
     	"Lstat": func(name string) (os.FileInfo, error) {
-		 	cpath := filepath.Clean(name)
-			if strings.Contains(cpath, ".."){
-				return nil, fmt.Errorf("os.Lstat: 路径（%s）中不得包含（..）字符！", cpath)
-			}else if filepath.IsAbs(cpath) {
-				return nil, fmt.Errorf("os.Lstat: 路径（%s）不支持绝对路径！", cpath)
-			}
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
 			return os.Lstat(name)
     	},
     	"Stat": func(name string) (os.FileInfo, error) {
-		 	cpath := filepath.Clean(name)
-			if strings.Contains(cpath, ".."){
-				return nil, fmt.Errorf("os.Stat: 路径（%s）中不得包含（..）字符！", cpath)
-			}else if filepath.IsAbs(cpath) {
-				return nil, fmt.Errorf("os.Stat: 路径（%s）不支持绝对路径！", cpath)
-			}
+    		name = filepath.Join(*fRootPath, filepath.Clean(name))
 			return os.Stat(name)
     	},
+    	"FileMode": func(FileMode uint32) os.FileMode {return os.FileMode(FileMode)},
     },
 }
