@@ -37,14 +37,14 @@ type Cookier interface {                                                        
     ReadAll() map[string]string                                                            // 增加
     RemoveAll()                                                                            // 删除
     Get(name string) string                                                                // 读取
-    Add(name, value, path, domain string, maxAge int, secure, only bool)                   // 读出所有
+    Add(name, value, path, domain string, maxAge int, secure, only bool, sameSite http.SameSite)                   // 读出所有
     Del(name string)                                                                       // 删除所有
 }
 type Cookie struct{                                                                 // Cookie
     R   *http.Request                                                                       //请求
     W   http.ResponseWriter                                                                 //响应
 }
-    func (c *Cookie) Add(name, value, path, domain string, maxAge int, secure, only bool)   // 增加
+    func (c *Cookie) Add(name, value, path, domain string, maxAge int, secure, only bool, sameSite http.SameSite)   // 增加
     func (c *Cookie) Del(name string)                                                       // 删除
     func (c *Cookie) Get(name string) string                                                // 读取
     func (c *Cookie) ReadAll() map[string]string                                            // 读出所有
