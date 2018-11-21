@@ -144,7 +144,7 @@ func Test_Server_HTTP_4(t *testing.T) {
 		rw.Write(sendTest)
 	})
     files := []ServerTLSFile{
-        {CertFile: "./test/cer/Cert-test.pem", KeyFile: "./test/cer/Cert-test.key"},
+        {CertFile: "test/Cer/Cert-test.pem", KeyFile: "test/Cer/Cert-test.key"},
     }
 	
 	conf :=&tls.Config{}
