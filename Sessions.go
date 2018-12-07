@@ -16,7 +16,7 @@ type manageSession struct{
 type Sessions struct{
     Expired         time.Duration                                       // 保存session时间长（默认：20分钟）
     Name            string                                              // 标识名称(默认:VID)
-    Size            int                                                 // 会话ID长度(默认长度40位)
+    Size            int                                                 // 会话ID长度(默认长度64位)
     Salt            string                                              // 加盐，由于计算机随机数是伪随机数。（可默认为空）
     ActivationID    bool                                                // 为true，保持会话ID
     sessions        *vmap.Map                                           // 集，map[id]*Session
@@ -26,7 +26,7 @@ func newSessions() *Sessions {
     T := &Sessions{
         Name:"VID",
         Expired: time.Minute * 20,
-        Size: 40,
+        Size: 64,
         sessions: vmap.NewMap(),
     }
     return T
@@ -93,14 +93,14 @@ func (T *Sessions) triggerDeadSession(ms *manageSession) (ok bool) {
     return
 }
 
-//SessionIdSalt 加盐
+//sessionIdSalt 加盐
 //	rnd []byte	标识字节串
 //	string  	标识符
-func (T *Sessions) SessionIdSalt(rnd []byte) string {
+func (T *Sessions) sessionIdSalt(rnd []byte) string {
     return AddSalt(rnd, T.Salt)
 }
 
-//GenerateSessionIdSalt 生成Session标识符,并加盐
+//generateSessionIdSalt 生成Session标识符,并加盐
 //	string  标识符
 func (T *Sessions) GenerateSessionIdSalt() string {
     var rnd = make([]byte, T.Size)
@@ -108,10 +108,10 @@ func (T *Sessions) GenerateSessionIdSalt() string {
     if err != nil {
     	panic(err)
     }
-    return T.SessionIdSalt(rnd)
+    return T.sessionIdSalt(rnd)
 }
 
-//GenerateSessionId 生成Session标识符
+//generateSessionId 生成Session标识符
 //	string  标识符
 func (T *Sessions) GenerateSessionId() string {
 	rnd := make([]byte, T.Size)
@@ -222,6 +222,16 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) *Session {
     return T.SetSession(id, NewSession())
 }
 
+func (T *Sessions) generateRandSessionId() string {
+	var id string
+    if T.Salt != "" {
+    	for id = T.GenerateSessionIdSalt(); T.Size >= 64 && T.sessions.Has(id); id=T.GenerateSessionIdSalt(){}
+   		return id
+    }
+	for id = T.GenerateSessionId(); T.Size >= 64 && T.sessions.Has(id); id=T.GenerateSessionId(){}
+	return id
+}
+
 //Session 会话
 //	rw http.ResponseWriter  响应
 //	req *http.Request       请求
@@ -233,11 +243,7 @@ func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner 
     	//客户是第一次请求，没有会话ID
     	//现在生成一个ID给客户端
 
-	    if T.Salt != "" {
-			id = T.GenerateSessionIdSalt()
-	    }else{
-			id = T.GenerateSessionId()
-	    }
+	    id = T.generateRandSessionId()
         return T.writeToClient(rw, id)
     }
 
@@ -250,11 +256,7 @@ func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner 
             return T.writeToClient(rw, id)
         }
  
-	    if T.Salt != "" {
-			id = T.GenerateSessionIdSalt()
-	    }else{
-			id = T.GenerateSessionId()
-	    }
+	    id = T.generateRandSessionId()
         return T.writeToClient(rw, id)
     }
     return s

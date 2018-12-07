@@ -61,7 +61,7 @@ func Test_Sessions_triggerDeadSession(t *testing.T){
 
 }
 
-func Test_Sessions_generateSessionIdSalt(t *testing.T){
+func Test_Sessions_GenerateSessionIdSalt(t *testing.T){
     nss := newSessions()
     nss.Size=64
     nss.Salt="1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM"
@@ -73,7 +73,7 @@ func Test_Sessions_generateSessionIdSalt(t *testing.T){
     }
 }
 
-func Test_Sessions_generateSessionIdNoSalt(t *testing.T){
+func Test_Sessions_GenerateSessionIdNoSalt(t *testing.T){
     nss := newSessions()
     nss.Size=64
     for i:=0;i<1000;i++ {
@@ -83,6 +83,20 @@ func Test_Sessions_generateSessionIdNoSalt(t *testing.T){
         }
     }
 }
+
+func Test_Session_generateRandSessionId(t *testing.T){
+	nss := newSessions()
+	nss.Size=64
+	nss.Salt=""
+	for i:=0;i<100;i++{
+		id := nss.generateRandSessionId()
+		nss.sessions.Set(id, id)
+	}
+	if nss.sessions.Len() != 100 {
+		t.Fatalf("错误长度不足")
+	}
+}
+
 
 func Test_Sessions_SessionID(t *testing.T){
     tests := []struct {
