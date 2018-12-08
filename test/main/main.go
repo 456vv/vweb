@@ -19,7 +19,6 @@ var (
 	_ = vbody.NewReader
 )
 
-var fRootPath			= flag.String("RootPath",os.TempDir(),"网站的根目录")
 var fConfigFile 		= flag.String("ConfigFile", "./config.json", "配置文件地址")
 var fLogFile 			= flag.String("LogFile", "./error.log", "日志文件地址")
 var fTickRefreshConfig	= flag.Int("TickRefreshConfig", 60, "定时刷新配置文件,(单位 秒)")

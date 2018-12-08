@@ -39,6 +39,7 @@ import(
     "math/big"
     "unsafe"
     "path/filepath"
+    "path"
 )
 
 var dotFuncMap = map[string]map[string]interface{}{
@@ -55,6 +56,37 @@ var dotFuncMap = map[string]map[string]interface{}{
 	},
 	"vmap":{
 		"NewMap":vmap.NewMap,
+	},
+	"path":{
+		"Base": path.Base,
+		"Clean": path.Clean,
+		"Dir": path.Dir,
+		"Ext": path.Ext,
+		"IsAbs": path.IsAbs,
+		"Join": path.Join,
+		"Split": path.Split,
+		"Match": path.Match,
+	},
+	"path/filepath":{
+		"Separator": filepath.Separator,
+		"ListSeparator": filepath.ListSeparator,
+		"Abs": filepath.Abs,
+		"Rel": filepath.Rel,
+		"Base": filepath.Base,
+		"Clean": filepath.Clean,
+		"Dir": filepath.Dir,
+		"EvalSymlinks": filepath.EvalSymlinks,
+		"Ext": filepath.Ext,
+		"FromSlash": filepath.FromSlash,
+		"ToSlash": filepath.ToSlash,
+		"Glob": filepath.Glob,
+		"HasPrefix": filepath.HasPrefix,
+		"IsAbs": filepath.IsAbs,
+		"Join": filepath.Join,
+		"Match": filepath.Match,
+		"Split": filepath.Split,
+		"SplitList": filepath.SplitList,
+		"VolumeName": filepath.VolumeName,
 	},
 	"fmt":{
 		"Errorf": fmt.Errorf,
@@ -679,62 +711,30 @@ var dotFuncMap = map[string]map[string]interface{}{
     	"Discard": ioutil.Discard,
     	"NopCloser": ioutil.NopCloser,
         "ReadAll": ioutil.ReadAll,
-        "ReadFile":func(filename string) ([]byte, error){
-    		filename = filepath.Join(*fRootPath, filepath.Clean(filename))
-			return ioutil.ReadFile(filename)
-        },
-        "WriteFile":func(filename string, data []byte, perm os.FileMode) error {
-    		filename = filepath.Join(*fRootPath, filepath.Clean(filename))
-			return ioutil.WriteFile(filename, data, perm)
-        },
+        "ReadFile":ioutil.ReadFile,
+        "WriteFile":ioutil.WriteFile,
     },
     "os":{
     	"IsTimeout": os.IsTimeout,
     	"IsExist": os.IsExist,
     	"IsNotExist": os.IsNotExist,
     	"IsPermission": os.IsPermission,
-    	"Mkdir": func(name string, perm os.FileMode) error {
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.Mkdir(name, perm)
-    	},
-    	"MkdirAll": func(name string, perm os.FileMode) error {
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.MkdirAll(name, perm)
-    	},
-    	"Remove": func(name string) error{
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.Remove(name)
-    	},
-    	"RemoveAll": func(name string) error {
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.RemoveAll(name)
-    	},
-    	"Rename": func(oldname, newname string) error{
-    		oldname = filepath.Join(*fRootPath, filepath.Clean(oldname))
-    		newname = filepath.Join(*fRootPath, filepath.Clean(newname))
-			return os.Rename(oldname, newname)
-    	},
-    	"Create": func(name string) (*os.File, error) {
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.Create(name)
-    	},
+    	"Link": os.Link,
+    	"Readlink": os.Readlink,
+    	"Symlink": os.Symlink,
+    	"Mkdir": os.Mkdir,
+    	"MkdirAll": os.MkdirAll,
+    	"TempDir": os.TempDir,
+    	"Remove": os.Remove,
+    	"RemoveAll": os.RemoveAll,
+    	"Rename": os.Rename,
+    	"Create": os.Create,
     	"NewFile": os.NewFile,
-    	"Open": func(name string) (*os.File, error) {
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.Open(name)
-    	},
-    	"OpenFile": func(name string, flag int, perm os.FileMode) (*os.File, error) {
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.OpenFile(name, flag, perm)
-    	},
-    	"Lstat": func(name string) (os.FileInfo, error) {
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.Lstat(name)
-    	},
-    	"Stat": func(name string) (os.FileInfo, error) {
-    		name = filepath.Join(*fRootPath, filepath.Clean(name))
-			return os.Stat(name)
-    	},
+    	"Open": os.Open,
+    	"OpenFile": os.OpenFile,
+    	"Lstat": os.Lstat,
+    	"Stat": os.Stat,
+    	"Pipe": os.Pipe,
     	"FileMode": func(FileMode uint32) os.FileMode {return os.FileMode(FileMode)},
     },
 }
