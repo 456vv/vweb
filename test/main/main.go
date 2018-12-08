@@ -9,6 +9,14 @@ import (
 
 	"github.com/456vv/vweb"
 	"github.com/fsnotify/fsnotify"
+    "github.com/456vv/vbody"
+    "github.com/456vv/vcipher"
+)
+
+var (
+	//版本管理不完整，有bug。需要这样解决。
+	_ = vcipher.AES
+	_ = vbody.NewReader
 )
 
 var fRootPath			= flag.String("RootPath",os.TempDir(),"网站的根目录")
