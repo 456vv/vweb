@@ -18,6 +18,7 @@ type TemplateDoter interface{
     Swap() Swaper                                                                           // 信息交换
     PluginRPC(name string) (PluginRPC, error)                                               // 插件RPC方法调用
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
+    Config() ConfigSite
 }
 
 
@@ -128,4 +129,10 @@ func (T *TemplateDot) PluginHTTP(name string) (PluginHTTP, error){
 //	Swaper  映射
 func (T *TemplateDot) Swap() Swaper {
     return T.Exchange
+}
+
+//Config 网站的配置信息
+//	ConfigSite	配置
+func (T *TemplateDot) Config() ConfigSite {
+	return *T.Site.Config
 }

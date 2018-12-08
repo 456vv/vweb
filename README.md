@@ -196,6 +196,7 @@ type TemplateDoter interface{                                                   
     Swap() Swaper                                                                           // 信息交换
     PluginRPC(name string) (PluginRPC, error)                                               // 插件RPC方法调用
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
+    Config() ConfigSite																		// 网站配置
 }
 type TemplateDot struct {                                                           // 模板点
     Writed              bool                                                                // 模板或动态？
@@ -217,6 +218,7 @@ type TemplateDot struct {                                                       
     func (T *TemplateDot) PluginRPC(name string) (PluginRPC, error)                         // 插件RPC方法调用
     func (T *TemplateDot) PluginHTTP(name string) (PluginHTTP, error)                       // 插件HTTP方法调用
     func (T *TemplateDot) Swap() Swaper                                                     // 信息交换
+    func (T *TemplateDot) Config() ConfigSite												// 网站的配置
 
 serverHandlerDynamic.go======================================================================================================================
 type ServerHandlerDynamic struct {                                                  // 处理动态页面文件
