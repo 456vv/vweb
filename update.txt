@@ -1,13 +1,12 @@
-﻿
-v2.4======================================================================================================
+﻿v1.0.2===================================================================
 20181208
     1，默认session的ID长度64位
+    2，分配session的ID延时
 20181117
     1，小微修改
 		TemplateFuncMap 优化，有些函数的参数有发生不兼容的变动
 		type ConfigSitePlugin struct MaxConnsPerHost int 增加一个最大连接的每个主机限制
 		type Cookier interface Add(name, value, path, domain string, maxAge int, secure, only bool, sameSite http.SameSite) 增加支持 sameSite 设置。
-v2.3======================================================================================================
 20180327
     1，新增函数
 		func GenerateRandom(length int) ([]byte, error)
@@ -24,7 +23,6 @@ v2.3============================================================================
    1，新增两个函数
     	func ConfigPluginHTTPClient(c *PluginHTTPClient, config ConfigSitePlugin) (*PluginHTTPClient, error)
     	func ConfigPluginRPCClient(c *PluginRPCClient, config ConfigSitePlugin) (*PluginRPCClient, error)
-v2.2======================================================================================================
 201701119
     小变更
 20170526

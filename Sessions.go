@@ -224,21 +224,32 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) *Session {
 
 func (T *Sessions) generateRandSessionId() string {
 	var (
-		id 		string
-		maxWait = time.Second
-		wait	time.Duration
+		id 			string
+		maxWait	 	= time.Second
+		wait		time.Duration
+		printErr	= "vweb.Sessions: 会话ID即将耗尽，请尽快加大调整ID长度。本次已为用户分配临时ID。"
 	)
 	
     if T.Salt != "" {
     	for id = T.GenerateSessionIdSalt(); T.sessions.Has(id);{
     		wait=delay(wait, maxWait)
     		id = T.GenerateSessionIdSalt()
+    		if wait >= maxWait {
+    			id+="-temp"
+    			//ID即将耗尽
+    			fmt.Println(printErr)
+    		}
     	}
    		return id
     }
 	for id = T.GenerateSessionId(); T.sessions.Has(id);{
 		wait=delay(wait, maxWait)
 		id = T.GenerateSessionId()
+		if wait >= maxWait {
+			id+="-temp"
+			//ID即将耗尽
+			fmt.Println(printErr)
+		}
 	}
 	return id
 }
