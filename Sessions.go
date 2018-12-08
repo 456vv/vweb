@@ -223,12 +223,23 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) *Session {
 }
 
 func (T *Sessions) generateRandSessionId() string {
-	var id string
+	var (
+		id 		string
+		maxWait = time.Second
+		wait	time.Duration
+	)
+	
     if T.Salt != "" {
-    	for id = T.GenerateSessionIdSalt(); T.Size >= 64 && T.sessions.Has(id); id=T.GenerateSessionIdSalt(){}
+    	for id = T.GenerateSessionIdSalt(); T.sessions.Has(id);{
+    		wait=delay(wait, maxWait)
+    		id = T.GenerateSessionIdSalt()
+    	}
    		return id
     }
-	for id = T.GenerateSessionId(); T.Size >= 64 && T.sessions.Has(id); id=T.GenerateSessionId(){}
+	for id = T.GenerateSessionId(); T.sessions.Has(id);{
+		wait=delay(wait, maxWait)
+		id = T.GenerateSessionId()
+	}
 	return id
 }
 

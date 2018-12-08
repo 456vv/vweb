@@ -21,6 +21,7 @@ func GenerateRandom(length int) ([]byte, error)												// 生成随机ID
 func GenerateRandomString(length int) (string, error)										// 生成随机ID
 func AddSalt(rnd []byte, salt string) string 												// 加盐
 func PagePath(root, p string, index []string) (os.FileInfo, string, error)   				// 页路径
+func delay(wait, maxDelay time.Duration) time.Duration 										// 延时
 TemplateFuncMap.go======================================================================================================================
 var TemplateFuncMap         = map[string]interface{...}                                     // 模板函数映射（默认）
 >func templateFuncMapError(v interface{}) error                                              // 判断模板中的错误类型

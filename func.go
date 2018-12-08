@@ -173,3 +173,15 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 	return nil, "", fmt.Errorf("Access (%s) page document does not exist!", p)
 }
 
+func delay(wait, maxDelay time.Duration) time.Duration {
+	if wait == 0 {
+		wait = (maxDelay/100)
+	}else{
+		wait *= 2
+	}
+	if wait >= maxDelay {
+	    wait = maxDelay
+	}
+	time.Sleep(wait)
+    return wait
+}
