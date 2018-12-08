@@ -83,8 +83,6 @@ type Sessions struct{                                                           
     ActivationID    bool                                                                    // 为true，保持会话ID
 }
     func (T *Sessions) GenerateSessionId() string                                           // 生成ID
-	func (T *Sessions) SessionIdSalt(rnd []byte) string									 // 加盐
-    func (T *Sessions) GenerateSessionIdSalt() string                                       // 生成ID(加盐)
     func (T *Sessions) SessionId(req *http.Request) (id string, err error)                  // 读取SessionID
 	func (T *Sessions) NewSession(id string) *Session                              		 // 读取Session，如果不存在则新建
     func (T *Sessions) GetSession(id string) (*Session, error)                              // 读取Session
