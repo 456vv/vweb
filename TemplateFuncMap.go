@@ -35,6 +35,27 @@ var TemplateFuncMap      = map[string]interface{}{
 	"ReflectMethod":func(inf interface{}, i int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).Method(i)},
 	"ReflectMethodByName":func(inf interface{}, name string) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).MethodByName(name)},
 	"ReflectIndex":func(inf interface{}, i int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).Index(i)},
+	"_reflectValue_":func(s []reflect.Value, v ...reflect.Value) []reflect.Value {return append(s, v...)},
+	"GoCall":func(call interface{}, args ...interface{}){
+		var (
+			callv 	= reflect.ValueOf(call)
+			inv 	[]reflect.Value
+		)
+		for arg := range args {
+			inv = append(inv, reflect.ValueOf(arg))
+		}
+		go callv.Call(inv)
+	},
+	"GoCallSlice":func(call interface{}, args ...interface{}) {
+		var (
+			callv 	= reflect.ValueOf(call)
+			inv 	[]reflect.Value
+		)
+		for arg := range args {
+			inv = append(inv, reflect.ValueOf(arg))
+		}
+		go callv.CallSlice(inv)
+	},
 	"Nil":func() interface{} {return nil},
     "StringToByte": func(s string) []byte {return []byte(s)},
     "StringToRune": func(s string) []rune {return []rune(s)},
