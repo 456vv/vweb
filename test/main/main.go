@@ -19,7 +19,7 @@ var fRecoverSession		= flag.Int("RecoverSession", 1200000, "定时刷新Session�
 
 //dotFuncMap.go Watch.go -ConfigFile config.json
 func main() {
-	log.Printf("程序版本：%s + %s\n", vweb.Version, "1.5")
+	log.Printf("程序版本：%s/%s\n", vweb.Version, "v1.5")
 
 	//os.Chdir("../")
 	//文件行参数

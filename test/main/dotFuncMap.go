@@ -12,6 +12,9 @@ import(
     "encoding/asn1"
     "encoding/json"
     "github.com/456vv/vmap/v2"
+    "github.com/456vv/vconnpool"
+    "github.com/456vv/vbody"
+    "github.com/456vv/vcipher"
     "regexp"
     "unicode"
     "unicode/utf8"
@@ -39,6 +42,20 @@ import(
 )
 
 var dotFuncMap = map[string]map[string]interface{}{
+	"vconnpool":{
+		"ConnPool": func() (vconnpool.ConnPool, *vconnpool.ConnPool) {r := vconnpool.ConnPool{};return r, &r},
+	},
+	"vbody":{
+		"NewReader": vbody.NewReader,
+		"NewWriter": vbody.NewWriter,
+	},
+	"vcipher":{
+		"AES": vcipher.AES,
+		"NewCipher": vcipher.NewCipher,
+	},
+	"vmap":{
+		"NewMap":vmap.NewMap,
+	},
 	"fmt":{
 		"Errorf": fmt.Errorf,
 		"Fprint": fmt.Fprint,
@@ -47,9 +64,6 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"Sprint": fmt.Sprint,
 		"Sprintf": fmt.Sprintf,
 		"Sprintln":fmt.Sprintln,
-	},
-	"vmap":{
-		"NewMap":vmap.NewMap,
 	},
     "reflect":{
         "Copy": reflect.Copy,
