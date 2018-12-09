@@ -1,1 +1,0 @@
-G:/go/src/text/template/template.go
