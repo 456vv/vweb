@@ -16,8 +16,11 @@ func templateFuncMapError(v interface{}) error {
         if l==0 {return nil}
         err := errs[l-1]
         if err.CanInterface() {
-            if e, ok := err.Interface().(error); ok {
+        	inf := err.Interface()
+            if e, ok := inf.(error); ok {
                 return e
+            }else if inf == nil {
+            	return nil
             }
         }
         return fmt.Errorf("Error: 判断最后一个参数不是错误类型。%s", err)
@@ -123,7 +126,7 @@ var TemplateFuncMap      = map[string]interface{}{
     "Complex128_": func(c *complex128) complex128 {return *c},
     "SetComplex128": func(c *complex128, v complex128) *complex128 {*c = v;return c},
     "Error": func(v interface{}) bool {
-       return templateFuncMapError(v) != nil
+		return templateFuncMapError(v) != nil
     },
     "NotError": func(v interface{}) bool {
        return templateFuncMapError(v) == nil

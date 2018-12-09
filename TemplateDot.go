@@ -18,7 +18,7 @@ type TemplateDoter interface{
     Swap() Swaper                                                                           // 信息交换
     PluginRPC(name string) (PluginRPC, error)                                               // 插件RPC方法调用
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
-    Config() ConfigSite
+    Config() ConfigSite																		// 网站配置
 }
 
 
