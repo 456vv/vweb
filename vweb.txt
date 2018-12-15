@@ -105,10 +105,10 @@ type Sessions struct{                                                           
 >	func (T *Sessions) sessionIdSalt(rnd []byte) string									 // 加盐
     func (T *Sessions) GenerateSessionIdSalt() string                                       // 生成ID(加盐)
     func (T *Sessions) SessionId(req *http.Request) (id string, err error)                  // 读取SessionID
-	func (T *Sessions) NewSession(id string) *Session                              		 // 读取Session，如果不存在则新建
+	func (T *Sessions) NewSession(id string) *Session                              		 	// 读取Session，如果不存在则新建
     func (T *Sessions) GetSession(id string) (*Session, error)                              // 读取Session
     func (T *Sessions) SetSession(id string, s *Session) *Session                           // 写入Session
-	func (T *Sessions) DelSession(id string)											 	 // 删除Session
+	func (T *Sessions) DelSession(id string)											 	// 删除Session
     func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner         // 读出Session
     func (T *Sessions) ProcessDeadAll() []interface{}                                       // 处理用户过期的会话
 >    func (T *Sessions) triggerDeadSession(ms *manageSession) (ok bool)                      // 由用户来触发处理Session
