@@ -104,6 +104,9 @@ func (T *TemplateDot) Cookie() Cookier {
 //	PluginRPC       插件
 //	error           错误
 func (T *TemplateDot) PluginRPC(name string) (PluginRPC, error){
+	if T.Site == nil || T.Site.Plugin == nil {
+		return nil, fmt.Errorf("vweb.TemplateDot.PluginHTTP: 需要设置 .Site 或 .Site.Plugin 字段。")
+	}
     inf, ok := T.Site.Plugin.IndexHas("RPC", name)
     if ok {
         p := inf.(*PluginRPCClient)
@@ -117,6 +120,9 @@ func (T *TemplateDot) PluginRPC(name string) (PluginRPC, error){
 //	PluginHTTP          插件
 //	error               错误
 func (T *TemplateDot) PluginHTTP(name string) (PluginHTTP, error){
+	if T.Site == nil || T.Site.Plugin == nil {
+		return nil, fmt.Errorf("vweb.TemplateDot.PluginHTTP: 需要设置 .Site 或 .Site.Plugin 字段。")
+	}
     inf, ok := T.Site.Plugin.IndexHas("HTTP", name)
     if ok {
         p := inf.(*PluginHTTPClient)

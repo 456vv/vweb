@@ -32,6 +32,11 @@ func templateFuncMapError(v interface{}) error {
 
 // 模板函数映射
 var TemplateFuncMap      = map[string]interface{}{
+    "ForMethod": ForMethod,
+    "ForType": ForType,
+    "TypeSelect": TypeSelect,
+    "InDirect": InDirect,
+    "DepthField": DepthField,
 	"ReflectField":func(inf interface{}, i int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).Field(i)},
 	"ReflectFieldByName":func(inf interface{}, name string) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).FieldByName(name)},
 	"ReflectFieldByIndex":func(inf interface{}, index []int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).FieldByIndex(index)},
@@ -59,6 +64,8 @@ var TemplateFuncMap      = map[string]interface{}{
 		}
 		go callv.CallSlice(inv)
 	},
+	"PtrTo":func(inf interface{}) interface{} {v := InDirect(reflect.ValueOf(inf));return TypeSelect(v)},
+    "ToPtr":func(inf interface{}) interface{} {return &inf},
 	"Nil":func() interface{} {return nil},
     "StringToByte": func(s string) []byte {return []byte(s)},
     "StringToRune": func(s string) []rune {return []rune(s)},
@@ -131,9 +138,6 @@ var TemplateFuncMap      = map[string]interface{}{
     "NotError": func(v interface{}) bool {
        return templateFuncMapError(v) == nil
     },
-    "ForMethod": ForMethod,
-    "ForType": ForType,
-    "DepthField": DepthField,
     "Compute": func(x interface{}, symbol string, y interface{}) (i interface{}, err error) {
         xx := reflect.ValueOf(x)
         yy := reflect.ValueOf(y)
