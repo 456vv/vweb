@@ -208,19 +208,7 @@ var TemplateFuncMap      = map[string]interface{}{
                     err = fmt.Errorf("Compute: 该类型不支持的算法(%s)？", symbol)
             }
             return XYF, err
-        case reflect.Uintptr:
-            XU := xx.UnsafeAddr()
-            YU := yy.UnsafeAddr()
             var XXU uintptr
-            switch symbol {
-                case "+":XXU = XU+YU
-                case "-":XXU = XU-YU
-                case "*":XXU = XU*YU
-                case "/":XXU = XU/YU
-                default:
-                    err = fmt.Errorf("Uintptr: 该类型不支持的算法(%s)？", symbol)
-            }
-            return XXU, err
         default:
             return nil, fmt.Errorf("Compute: 这是不符合计算的类型(%v)？", xx.Kind())
         }
