@@ -192,10 +192,10 @@ var dotFuncMap = map[string]map[string]interface{}{
         "Zero": reflect.Zero,
     },
     "unsafe":{
+    	"Uintptr": func(Pointer unsafe.Pointer) uintptr {return uintptr(Pointer)},
 		"Pointer": func(Pointer uintptr) unsafe.Pointer {return unsafe.Pointer(Pointer)},
-		"Alignof": unsafe.Alignof,
-		"Offsetof": unsafe.Offsetof,
-		"Sizeof":unsafe.Sizeof,
+		"Alignof": func(Pointer uintptr) uintptr {return unsafe.Alignof(Pointer)},
+		"Sizeof":func(Pointer uintptr) uintptr {return unsafe.Sizeof(Pointer)},
     },
     "context":{
 		"CancelFunc": func(CancelFunc func()) context.CancelFunc {return context.CancelFunc(CancelFunc)},
