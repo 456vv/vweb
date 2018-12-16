@@ -64,7 +64,7 @@ var TemplateFuncMap      = map[string]interface{}{
 		}
 		go callv.CallSlice(inv)
 	},
-	"PtrTo":func(inf interface{}) interface{} {v := reflect.Indirect(inf);return TypeSelect(v)},
+	"PtrTo":func(inf interface{}) interface{} {v := reflect.Indirect(reflect.ValueOf(inf));return TypeSelect(v)},
     "ToPtr":func(inf interface{}) interface{} {return &inf},
 	"Nil":func() interface{} {return nil},
     "StringToByte": func(s string) []byte {return []byte(s)},
