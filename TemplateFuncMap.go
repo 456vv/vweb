@@ -208,7 +208,6 @@ var TemplateFuncMap      = map[string]interface{}{
                     err = fmt.Errorf("Compute: 该类型不支持的算法(%s)？", symbol)
             }
             return XYF, err
-            var XXU uintptr
         default:
             return nil, fmt.Errorf("Compute: 这是不符合计算的类型(%v)？", xx.Kind())
         }
