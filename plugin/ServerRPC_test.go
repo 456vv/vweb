@@ -127,7 +127,7 @@ func Test_ServerRPC_4(t *testing.T){
 func TestServerRPC_Print(t *testing.T) {
     var p = &Plugin{
         Type: PluginTypeRPC,
-        Version: 1.0,
+        Version: "1.0",
         Name: "bw",
     }
     //服务器监听

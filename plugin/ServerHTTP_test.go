@@ -17,7 +17,7 @@ func ExamplePluginHTTP() {
     srpc.Addr="127.0.0.1:13968"
     var p = Plugin{
         Type: PluginTypeHTTP,
-        Version: 1.0,
+        Version: "1.0",
         Name: "名称ABC",
         Addr: srpc.Addr,
     }
@@ -186,7 +186,7 @@ func Test_Server_HTTP_4(t *testing.T) {
 func Test_ServerHTTP_Print(t *testing.T) {
     var p = &Plugin{
         Type: PluginTypeHTTP,
-        Version: 1.0,
+        Version: "1.0",
         Name: "www.birdswo.com",
     }
     //服务器监听
