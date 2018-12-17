@@ -18,7 +18,7 @@ type Plugin struct{
     Type        PluginType                                                  // 插件类型
     Version     string                                                      // 插件版本
     Name, Addr  string                                                      // 名称，IP地址
-    Error		error														// 发生错误的信息
+    Error		string														// 发生错误的信息
     Extra       PluginExtra                                                 // 额外信息
 }
 
