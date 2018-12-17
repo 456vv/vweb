@@ -146,7 +146,7 @@ func (T *TemplateDot) Swap() Swaper {
 //Config 网站的配置信息
 //	ConfigSite	配置
 func (T *TemplateDot) Config() ConfigSite {
-	if T.Site == nil {
+	if T.Site == nil || T.Site.Config == nil {
 		return ConfigSite{}
 	}
 	return *T.Site.Config
