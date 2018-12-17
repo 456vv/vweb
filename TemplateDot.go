@@ -80,13 +80,19 @@ func (T *TemplateDot) ResponseWriter() http.ResponseWriter {
 
 //Session 用户的会话缓存
 //	Sessioner  会话缓存
-func (T *TemplateDot) Session() Sessioner {
+func (T *TemplateDot) Session() Sessioner {	
+	if T.Site == nil || T.Site.Sessions == nil {
+		return nil
+	}
     return T.Site.Sessions.Session(T.W, T.R)
 }
 
 //Global 全站缓存
 //	Globaler	公共缓存
 func (T *TemplateDot) Global() Globaler {
+	if T.Site == nil || T.Site.Global == nil {
+		return nil
+	}
     return T.Site.Global
 }
 
