@@ -6,7 +6,7 @@ import(
 	"fmt"
     "crypto/rand"
     mathRand "math/rand"
-    "encoding/hex"
+    "encoding/base64"
 	"os"
 	"path"
 )
@@ -109,7 +109,9 @@ func GenerateRandomString(length int) (string, error){
 	if err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(b)[:length], err
+	base64Encoding := base64.NewEncoding(encodeStd).WithPadding(base64.StdPadding).Strict()
+	base64Encoding.EncodedLen(length)
+	return base64Encoding.EncodeToString(b)[:length], err
 }
 
 //AddSalt 加盐
@@ -118,11 +120,10 @@ func GenerateRandomString(length int) (string, error){
 //	string  	标识符
 func AddSalt(rnd []byte, salt string) string {
     var (
-    	id 		string
         start 	int
+	    length	= len(salt)
+	    l		= len(rnd)
     )
-    length	:= len(salt)
-    l		:= len(rnd)
     if length != 0 {
 	    for i:=0; i<l; i++ {
 	    	rnd[i] = rnd[i] ^ salt[start]
@@ -132,9 +133,10 @@ func AddSalt(rnd []byte, salt string) string {
 	        }
 	    }
     }
-    id = fmt.Sprintf("%x", rnd)
-    return id[:l]
-
+    
+	base64Encoding := base64.NewEncoding(encodeStd).WithPadding(base64.StdPadding).Strict()
+	base64Encoding.EncodedLen(length)
+	return base64Encoding.EncodeToString(rnd)[:l]
 }
 
 

@@ -7,7 +7,7 @@ import(
 
 //其它
 const (
-    Version                 string = "VWEB/v1.0.10"                     						// 版本号
+    Version                 string = "VWEB/v1.0.11"                     						// 版本号
     defaultDataBufioSize    int64 = 32*1024           										// 默认数据缓冲32MB
 )
 
@@ -20,3 +20,6 @@ func (T *atomicBool) isTrue() bool 	{ return atomic.LoadInt32((*int32)(T)) != 0 
 func (T *atomicBool) isFalse() bool	{ return atomic.LoadInt32((*int32)(T)) != 1 }
 func (T *atomicBool) setTrue() bool	{ return !atomic.CompareAndSwapInt32((*int32)(T), 0, 1)}
 func (T *atomicBool) setFalse() bool{ return !atomic.CompareAndSwapInt32((*int32)(T), 1, 0)}
+
+//随机数的可用字符
+const encodeStd = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@$"
