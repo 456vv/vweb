@@ -22,4 +22,4 @@ func (T *atomicBool) setTrue() bool	{ return !atomic.CompareAndSwapInt32((*int32
 func (T *atomicBool) setFalse() bool{ return !atomic.CompareAndSwapInt32((*int32)(T), 1, 0)}
 
 //随机数的可用字符
-const encodeStd = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@$"
+const encodeStd = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._"
