@@ -183,7 +183,7 @@ func (T *pluginHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     wh := w.Header()
 	for key, values := range rh {
 		for _, value := range values {
-			wh.Add(key, value)
+			wh.Set(key, value)
 		}
 	}
 
