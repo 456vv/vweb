@@ -366,9 +366,10 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
     )
 
     if contentType == "" {
+		contentType = "application/octet-stream"
     	//403 资源不可用。服务器解析客户的请求，但拒绝处理它。
-        httpError(rw, config.ErrorPage, "This file suffix type MIME system does not recognize!", http.StatusForbidden)
-        return
+        //httpError(rw, config.ErrorPage, "This file suffix type MIME system does not recognize!", http.StatusForbidden)
+        //return
     }
     
     //** 文件固定标头准备
