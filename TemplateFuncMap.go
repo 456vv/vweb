@@ -33,6 +33,7 @@ func templateFuncMapError(v interface{}) error {
 
 // 模板函数映射
 var TemplateFuncMap      = map[string]interface{}{
+	"Return":func(){},
     "ForMethod": ForMethod,
     "ForType": ForType,
     "TypeSelect": TypeSelect,
