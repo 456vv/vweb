@@ -17,7 +17,6 @@ type Responser interface{
     Flush()                                                                                     // 刷新缓冲
     Push(target string, opts *http.PushOptions) error											// HTTP/2推送
     Hijack() (net.Conn, *bufio.ReadWriter, error)												// 劫持，能双向互相发送信息
-    Defer(call interface{}, args ... interface{}) error											// 退回调用
 }
 
 //response 模本点的响应写入
@@ -135,15 +134,3 @@ func (T *response) Hijack() (net.Conn, *bufio.ReadWriter, error) {
     }
 	return nil, nil, fmt.Errorf("vweb: 不支持 http.Hijacker !")
 }
-
-// Defer 在用户会话时间过期后，将被调用。
-//	call interface{}            函数
-//	args ... interface{}        参数或更多个函数是函数的参数
-//	error                       错误
-//  例：
-//	.Defer(fmt.Println, "1", "2")
-//	.Defer(fmt.Printf, "%s", "汉字")
-func (T *response) Defer(call interface{}, args ... interface{}) error{
-    return T.td.ec.Defer(call, args...)
-}
-

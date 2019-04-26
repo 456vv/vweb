@@ -6,7 +6,7 @@ golang vweb, 简单的web服务器。
 ```go
 vweb.go======================================================================================================================
 const (
-    Version                 string = "VWEB/v1.1.0"                                          // 版本号
+    Version                 string = "VWEB/v1.0.13"                                          // 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
@@ -152,7 +152,6 @@ type Responser interface{                                                       
     Flush()                                                                                 // 刷新缓冲
     Push(target string, opts *http.PushOptions) error                                       // HTTP/2推送
     Hijack() (net.Conn, *bufio.ReadWriter, error)                                           // 劫持，能双向互相发送信息
-    Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
 }
 
 tcpKeepAliveListener.go======================================================================================================================

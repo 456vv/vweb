@@ -1,6 +1,6 @@
 ﻿vweb.go======================================================================================================================
 const (
-    Version                 string = "v1.1.0"                                    			// 版本号
+    Version                 string = "v1.0.13"                                    			// 版本号
 >    defaultDataBufioSize    int64 = 32*1024                                                 // 默认数据缓冲32MB
 )
 
@@ -71,10 +71,15 @@ type Sessioner interface {                                                      
     Defer(call interface{}, arg ...interface{}) error                                       // 过期调用函数
     Free()																					// 释放调用函数
 }
+>type deferFunc struct {                                                             // 过期函数
+>    fun         reflect.Value                                                               // 函数
+>    arg         []reflect.Value                                                             // 参数
+>    argVariadic bool                                                                        // 有可变参数
+>}
 type Session struct{                                                                // 会话用于用户保存数据
     *vmap.Map                                                                               // 数据，用户存储的数据
 >    id          string                                                                      // id，给Sessions使用的
->    exitCall	exitCall																	// 退回调用函数
+>    expCall     []*deferFunc                                                                // 记录每个用户的函数
 }
     func NewSession() *Session                                                              // 初始化
     func (s *Session) Defer(call interface{}, args ... interface{}) error                   // 会话过期后，调用函数
@@ -174,7 +179,6 @@ type Responser interface{                                                       
     Flush()                                                                                 // 刷新缓冲
     Push(target string, opts *http.PushOptions) error                                       // HTTP/2推送
     Hijack() (net.Conn, *bufio.ReadWriter, error)                                           // 劫持，能双向互相发送信息
-    Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
 }
 >type response struct {                                                              // 模本点的响应写入
 >    buffSize    int64                                                                       // 写入的缓冲大小
@@ -191,19 +195,6 @@ type Responser interface{                                                       
 >    func (T *response) Flush()                                                              // 刷新缓冲
 >    func (T *response) Push(target string, opts *http.PushOptions) error                    // HTTP/2推送
 >    func (T *response) Hijack() (net.Conn, *bufio.ReadWriter, error)                        // 劫持，能双向互相发送信息
->	 func (T *response) Defer(call interface{}, args ... interface{}) error					 // 退回调用函数
-
-defer.go======================================================================================================================
->type deferFunc struct {                                                             // 过期函数
->    fun         reflect.Value                                                               // 函数
->    arg         []reflect.Value                                                             // 参数
->    argVariadic bool                                                                        // 有可变参数
->}
->type exitCall struct {																// 退出调用
->    expCall     []*deferFunc                                                                // 记录每个用户的函数，会话超时后关闭打开的对象
->}
->    func (s *exitCall) Defer(call interface{}, args ... interface{}) error                   // 会话过期后，调用函数
->    func (s *exitCall) Free()                                                                // 执行结束Defer
 
 tcpKeepAliveListener.go======================================================================================================================
 >type tcpKeepAliveListener struct {                                                  // 连接设置
@@ -325,7 +316,7 @@ serverHandlerDynamicTemplate.go=================================================
 >    func (T *serverHandlerDynamicTemplate) parse() (shdtHeader, string, error)              // 解析模本
 >    func (T *serverHandlerDynamicTemplate) loadTmpl(delimLeft, delimRight string, t *template.Template, f map[string]string) (*template.Template, error) // 模本载入
 >    func (T *serverHandlerDynamicTemplate) format(delimLeft, delimRight, c string) string    // 语法整合
->
+>=
 PluginHTTP.go======================================================================================================================
 type PluginHTTP interface{                                                          // HTTP插件接口
     ServeHTTP(w http.ResponseWriter, r *http.Request)                                       // 服务HTTP

@@ -31,30 +31,8 @@ func templateFuncMapError(v interface{}) error {
     return nil
 }
 
-func goCall(f interface{}, name string, args ...interface{}){
-	var (
-		callv 	= reflect.ValueOf(f).MethodByName(name)
-		inv 	[]reflect.Value
-	)
-	for arg := range args {
-		inv = append(inv, reflect.ValueOf(arg))
-	}
-	callv.Call(inv)
-}
-func goCallSlice(f interface{}, name string, args ...interface{}) {
-	var (
-		callv 	= reflect.ValueOf(f).MethodByName(name)
-		inv 	[]reflect.Value
-	)
-	for arg := range args {
-		inv = append(inv, reflect.ValueOf(arg))
-	}
-	callv.CallSlice(inv)
-}
-
 // 模板函数映射
 var TemplateFuncMap      = map[string]interface{}{
-	"Return":func(){},
     "ForMethod": ForMethod,
     "ForType": ForType,
     "TypeSelect": TypeSelect,
@@ -63,21 +41,33 @@ var TemplateFuncMap      = map[string]interface{}{
 	"ReflectField":func(inf interface{}, i int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).Field(i)},
 	"ReflectFieldByName":func(inf interface{}, name string) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).FieldByName(name)},
 	"ReflectFieldByIndex":func(inf interface{}, index []int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).FieldByIndex(index)},
-	"ReflectMethod":func(inf interface{}, i int) reflect.Value {return reflect.ValueOf(inf).Method(i)},
-	"ReflectMethodByName":func(inf interface{}, name string) reflect.Value {return reflect.ValueOf(inf).MethodByName(name)},
-	"ReflectIndex":func(inf interface{}, i int) reflect.Value {return reflect.ValueOf(inf).Index(i)},
+	"ReflectMethod":func(inf interface{}, i int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).Method(i)},
+	"ReflectMethodByName":func(inf interface{}, name string) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).MethodByName(name)},
+	"ReflectIndex":func(inf interface{}, i int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).Index(i)},
 	"_reflectValue_":func(s []reflect.Value, v ...reflect.Value) []reflect.Value {return append(s, v...)},
-	"GoCall":func(f interface{}, name string, args ...interface{}){go goCall(f, name, args...)},
-	"GoCallSlice":func(f interface{}, name string, args ...interface{}) {go goCallSlice(f, name, args...)},
-	"Defer":func(f interface{}, name string, args ...interface{}) func() {return func(){goCall(f, name, args...)}},
-	"DeferSlice":func(f interface{}, name string, args ...interface{}) func() {return func(){goCallSlice(f, name, args...)}},
+	"GoCall":func(call interface{}, args ...interface{}){
+		var (
+			callv 	= reflect.ValueOf(call)
+			inv 	[]reflect.Value
+		)
+		for arg := range args {
+			inv = append(inv, reflect.ValueOf(arg))
+		}
+		go callv.Call(inv)
+	},
+	"GoCallSlice":func(call interface{}, args ...interface{}) {
+		var (
+			callv 	= reflect.ValueOf(call)
+			inv 	[]reflect.Value
+		)
+		for arg := range args {
+			inv = append(inv, reflect.ValueOf(arg))
+		}
+		go callv.CallSlice(inv)
+	},
 	"PtrTo":func(inf interface{}) interface{} {v := reflect.Indirect(reflect.ValueOf(inf));return TypeSelect(v)},
     "ToPtr":func(inf interface{}) interface{} {return &inf},
 	"Nil":func() interface{} {return nil},
-<<<<<<< HEAD
-=======
-	"NotNil":func(inf interface{}) bool {return inf != nil},
->>>>>>> v1
 	"IsNil":func(inf interface{}) bool {return inf == nil},
     "StringToByte": func(s string) []byte {return []byte(s)},
     "StringToRune": func(s string) []rune {return []rune(s)},
