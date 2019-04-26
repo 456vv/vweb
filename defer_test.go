@@ -6,7 +6,7 @@ import (
 
 
 
-func Test_session_Defer(t *testing.T){
+func Test_exitCall_Defer(t *testing.T){
 
     var test1 = func(a, b, c string) bool {return a == "1"}
     var test2 = func(a, b string, c ... string) bool {return a == "1"}
@@ -14,7 +14,7 @@ func Test_session_Defer(t *testing.T){
     var test3 = func(a, b string, c []string) bool {return a == "1"}
     var test4 = func() bool {return true}
 
-	ns := NewSession()
+	ns := exitCall{}
 	err := ns.Defer(test1, "1", "2", "3")
     if err != nil {t.Fatal(err) }
 
@@ -44,13 +44,13 @@ func Test_session_Defer(t *testing.T){
 
 }
 
-func Test_session_executeDefer(t *testing.T){
+func Test_exitCall_executeDefer(t *testing.T){
 	var ok bool
     var test1 = func(a, b, c string) bool {
     	ok =true
     	return a == "1"
     }
-	ns := NewSession()
+	ns := exitCall{}
 	err := ns.Defer(test1, "1", "2", "3")
     if err != nil {t.Fatal(err) }
 	ns.Free()

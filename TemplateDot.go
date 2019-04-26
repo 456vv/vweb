@@ -30,6 +30,7 @@ type TemplateDot struct {
     BuffSize			int64																		// 缓冲块大小
     Site       		 	*Site                                                                       // 网站配置
     Exchange       		*vmap.Map                                                                   // 缓存映射
+    ec					exitCall																	// 退回调用函数
 }
 
 //PKG 调用包函数，外部调用者自行增加的函数，可以使用ExtendDotFuncMap函数。
