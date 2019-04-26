@@ -118,14 +118,18 @@ func (T *serverHandlerDynamicTemplate) serveHTTP(rw http.ResponseWriter, req *ht
         BuffSize	: T.buffSize,
         Site        : T.site,
         Exchange    : vmap.NewMap(),
+        ec			: exitCall{},
     }
+    
+    //释放页面的函数
+    defer td.ec.Free()
 
     //执行模板
     err = t.ExecuteTemplate(body, fileName, (TemplateDoter)(td))
-    if err != nil && err.Error() != "Return" {
+   if err != nil && err.Error() != "Return" {
         goto Error
     }
-
+    
     if !td.Writed {
         body.WriteTo(rw)
     }

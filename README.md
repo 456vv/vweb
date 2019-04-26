@@ -152,6 +152,7 @@ type Responser interface{                                                       
     Flush()                                                                                 // 刷新缓冲
     Push(target string, opts *http.PushOptions) error                                       // HTTP/2推送
     Hijack() (net.Conn, *bufio.ReadWriter, error)                                           // 劫持，能双向互相发送信息
+    Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
 }
 
 tcpKeepAliveListener.go======================================================================================================================
