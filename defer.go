@@ -2,6 +2,8 @@ package vweb
 
 import(
     "reflect"
+    "fmt"
+)
 
 //deferFunc 过期函数
 type deferFunc struct {

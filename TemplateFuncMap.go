@@ -74,10 +74,7 @@ var TemplateFuncMap      = map[string]interface{}{
 	"PtrTo":func(inf interface{}) interface{} {v := reflect.Indirect(reflect.ValueOf(inf));return TypeSelect(v)},
     "ToPtr":func(inf interface{}) interface{} {return &inf},
 	"Nil":func() interface{} {return nil},
-<<<<<<< HEAD
-=======
 	"NotNil":func(inf interface{}) bool {return inf != nil},
->>>>>>> v1
 	"IsNil":func(inf interface{}) bool {return inf == nil},
     "StringToByte": func(s string) []byte {return []byte(s)},
     "StringToRune": func(s string) []rune {return []rune(s)},
