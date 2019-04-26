@@ -42,7 +42,7 @@ var builtins = FuncMap{
 	"printf":   fmt.Sprintf,
 	"println":  fmt.Sprintln,
 	"urlquery": URLQueryEscaper,
-
+		
 	// Comparisons
 	"eq": eq, // ==
 	"ge": ge, // >=
@@ -65,7 +65,7 @@ func createValueFuncs(funcMap FuncMap) map[string]reflect.Value {
 func addValueFuncs(out map[string]reflect.Value, in FuncMap) {
 	for name, fn := range in {
 		if !goodName(name) {
-			panic(fmt.Errorf("function name %s is not a valid identifier", name))
+			panic(fmt.Errorf("function name %q is not a valid identifier", name))
 		}
 		v := reflect.ValueOf(fn)
 		if v.Kind() != reflect.Func {
@@ -237,8 +237,12 @@ func length(item interface{}) (int, error) {
 // call returns the result of evaluating the first argument as a function.
 // The function must return 1 result, or 2 results, the second of which is an error.
 func call(fn reflect.Value, args ...reflect.Value) (reflect.Value, error) {
-	//fmt.Println("call1:", fn, args)
 	v := indirectInterface(fn)
+	//$osPipe := call $os.Pipe
+	//$reflectValue := call $reflect.ValueOf .Request
+	//fmt.Println("call-1", v.Type(), args)
+	//call-1 func() (*os.File, *os.File, error) []
+	//call-1 func(interface {}) reflect.Value [<*http.Request Value>]
 	if !v.IsValid() {
 		return reflect.Value{}, fmt.Errorf("call of nil")
 	}
@@ -277,25 +281,41 @@ func call(fn reflect.Value, args ...reflect.Value) (reflect.Value, error) {
 			return reflect.Value{}, fmt.Errorf("arg %d: %s", i, err)
 		}
 	}
-	//fmt.Println("call2:", argv)
-	//fmt.Println("call2:", fn.Kind(), fn.Type(), v.Kind(), v.Type())
-	result := v.Call(argv)
-	//fmt.Println("call3:", result)
-	//fmt.Println("call3:", result[0].Kind(), result[0].Type())
-	rlen	:= len(result)
+	return safeCall(v, argv)
+}
+
+// safeCall runs fun.Call(args), and returns the resulting value and error, if
+// any. If the call panics, the panic value is returned as an error.
+func safeCall(fun reflect.Value, args []reflect.Value) (val reflect.Value, err error) {
+//这里被注释，内部错误和函数返回错误不能混在一起，函数错误可能会打印到页面中去，内部错误不能打印出去。
+//内部错误只能在程序窗口中显示
+//	defer func() {
+//		if r := recover(); r != nil {
+//			if e, ok := r.(error); ok {
+//				err = e
+//			} else {
+//				err = fmt.Errorf("%v", r)
+//			}
+//		}
+//	}()
+	ret 	:= fun.Call(args)
+	rlen	:= len(ret)
 	if rlen == 0 {
+		//没有返回，空字符
     	return reflect.ValueOf(""), nil
 	}
-	val := result[0]
-    switch rlen{
+	val = ret[0]
+    switch rlen {
 	case 1:
+		//仅一个返回值
 		return val, nil
 	case 2:
-        if result[1].Kind() == reflect.Interface {
-            if !result[1].IsNil() {
+		//两个返回值
+        if ret[1].Kind() == reflect.Interface {
+            if !ret[1].IsNil() {
             	//a, err := 1, error
             	//a, ok := 1, bool
-                if e, ok := result[1].Interface().(error); ok {
+                if e, ok := ret[1].Interface().(error); ok {
             	    return val, e
                 }
             }else{
@@ -306,16 +326,15 @@ func call(fn reflect.Value, args ...reflect.Value) (reflect.Value, error) {
         //有两个参数，最后一个参数是非error类型，跳到下面。
         fallthrough
 	default:
-        var cv []interface{}
-       	var results = reflect.ValueOf(&cv).Elem()
-        return reflect.Append(results, result...), nil
-    }
-/*
-	if len(result) == 2 && !result[1].IsNil() {
-		return result[0], result[1].Interface().(error)
+		//多个返回值
+		var cv []interface{}
+		var results = reflect.ValueOf(&cv).Elem()
+		return reflect.Append(results, ret...), nil
 	}
-	return result[0], nil
-*/
+//	if len(ret) == 2 && !ret[1].IsNil() {
+//		return ret[0], ret[1].Interface().(error)
+//	}
+//	return ret[0], nil
 }
 
 // Boolean logic.

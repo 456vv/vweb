@@ -7,10 +7,10 @@ package template
 import (
 	"bytes"
 	"fmt"
+	"internal/fmtsort"
 	"io"
 	"reflect"
 	"runtime"
-	"sort"
 	"strings"
 	"text/template/parse"
 )
@@ -102,7 +102,7 @@ func (s *state) at(node parse.Node) {
 // doublePercent returns the string with %'s replaced by %%, if necessary,
 // so it can be used safely inside a Printf format string.
 func doublePercent(str string) string {
-	return strings.Replace(str, "%", "%%", -1)
+	return strings.ReplaceAll(str, "%", "%%")
 }
 
 // TODO: It would be nice if ExecError was more broken down, but
@@ -362,8 +362,9 @@ func (s *state) walkRange(dot reflect.Value, r *parse.RangeNode) {
 		if val.Len() == 0 {
 			break
 		}
-		for _, key := range sortKeys(val.MapKeys()) {
-			oneIteration(key, val.MapIndex(key))
+		om := fmtsort.Sort(val)
+		for i, key := range om.Key {
+			oneIteration(key, om.Value[i])
 		}
 		return
 	case reflect.Chan:
@@ -550,6 +551,7 @@ func (s *state) evalFieldChain(dot, receiver reflect.Value, node parse.Node, ide
 		receiver = s.evalField(dot, ident[i], node, nil, missingVal, receiver)
 	}
 	// Now if it's a method, it gets the arguments.
+	
 	return s.evalField(dot, ident[n-1], node, args, final, receiver)
 }
 
@@ -559,6 +561,10 @@ func (s *state) evalFunction(dot reflect.Value, node *parse.IdentifierNode, cmd 
 	function, ok := findFunction(name, s.tmpl)
 	if !ok {
 		s.errorf("%q is not a defined function", name)
+	}
+	//模板调用退出
+	if name == "Return" {
+		panic(ExecError{Err:fmt.Errorf(name)})
 	}
 	return s.evalCall(dot, function, cmd, name, args, final)
 }
@@ -575,6 +581,13 @@ func (s *state) evalField(dot reflect.Value, fieldName string, node parse.Node, 
 	}
 	typ := receiver.Type()
 	receiver, isNil := indirect(receiver)
+	if receiver.Kind() == reflect.Interface && isNil {
+		// Calling a method on a nil interface can't work. The
+		// MethodByName method call below would panic.
+		s.errorf("nil pointer evaluating %s.%s", typ, fieldName)
+		return zero
+	}
+
 	// Unless it's an interface, need to get to a value of type *T to guarantee
 	// we see all methods of T and *T.
 	ptr := receiver
@@ -641,9 +654,18 @@ var (
 // it looks just like a function call. The arg list, if non-nil, includes (in the manner of the shell), arg[0]
 // as the function itself.
 func (s *state) evalCall(dot, fun reflect.Value, node parse.Node, name string, args []parse.Node, final reflect.Value) reflect.Value {
-	//fmt.Println("evalCall", dot, fun, node, name, args, final)
+	//$os := .PKG "os"
+	//$osPipe := call $os.Pipe
+	//println $osPipe
+	//fmt.Println("evalCall-1", dot, fun, node, name, args, final)
+	//&{false 0x11a82000 0x11a9c000 33554432 0x11907de0 {}} 0x485690 .PKG PKG [.PKG "os"] {}
+	//&{false 0x11a82000 0x11a9c000 33554432 0x11907de0 {}} 0x6cd340 call $os.Pipe call [call $os.Pipe] {}
+	//&{false 0x11a82000 0x11a9c000 33554432 0x11907de0 {}} 0x4d0980 println $osPipe println [println $osPipe] {}
+	//fun其实是内置的call函数
+	//而这个evalCall是负责调用所有方法或函数
+	
 	if args != nil {
-		args = args[1:] // Zeroth arg是函数名/节点;没有传递给功能。
+		args = args[1:] //args是函数名/节点;没有传递给功能。
 	}
 	typ := fun.Type()
 	numIn := len(args)
@@ -693,72 +715,75 @@ func (s *state) evalCall(dot, fun reflect.Value, node parse.Node, name string, a
 		}
 		argv[i] = s.validateType(final, t)
 	}
-	//fmt.Println("evalCall2-1:", node, name, args, argv)
-	//fmt.Println("evalCall2-2:", fun, fun.IsValid(), fun.Kind(), fun.Type(), fun.Type().Name(), fun.Type().PkgPath())
-	result 	:= fun.Call(argv)
-	rlen	:= len(result)
-	//fmt.Println("evalCall2-3:", result, rlen)
+	v, err := safeEvalCall(fun, argv, name)
+	if err != nil {
+		s.at(node)
+		s.errorf("error calling %s: %v", name, err)
+	}
+	//if v.Type() == reflectValueType {
+	//	v = v.Interface().(reflect.Value)
+	//}
+	return v
+}
+func safeEvalCall(fun reflect.Value, args []reflect.Value, name string) (val reflect.Value, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = e
+			} else {
+				err = fmt.Errorf("%v", r)
+			}
+		}
+	}()
+	
+	ret := fun.Call(args)
+	rlen	:= len(ret)
 	if rlen == 0 {
-		//空字符
-    	return reflect.ValueOf("")
+		//没有返回，空字符
+    	return reflect.ValueOf(""), nil
 	}
-	val := result[0]
-	//fmt.Println("evalCall4:", val, val.IsValid(), val.Kind(), val.Type(), val.Type().Name(), val.Type().PkgPath())
 	_,isBuiltin := builtins[name]
-	if isBuiltin && val.Type() == reflectValueType{
-		val = val.Interface().(reflect.Value)
-		//fmt.Println("evalCall5:", val, val.IsValid(), val.Kind(), val.Type(), val.Type().Name(), val.Type().PkgPath())
+	if isBuiltin {
+		for i:=0;i<rlen;i++{
+			if ret[i].Type() == reflectValueType {
+				ret[i] = ret[i].Interface().(reflect.Value)
+			}
+		}
 	}
-    switch rlen{
+	val = ret[0]
+    switch rlen {
 	case 1:
-		//一个返回值
-		return val
+		//仅一个返回值
+		return val, nil
 	case 2:
 		//两个返回值
-        if result[1].Kind() == reflect.Interface {
-            if result[1].IsNil() {
+        if ret[1].Kind() == reflect.Interface {
+            if ret[1].IsNil() {
             	//空表示没有错误
-                return val
-            }else if _, ok := result[1].Interface().(error); ok {
+                return val, nil
+            }else if _, ok := ret[1].Interface().(error); ok {
             	//返回错误
-        	    return result[1]
+        	    return ret[1], nil
             }
         }
+        //有两个参数，最后一个参数是非error类型，跳到下面。
         fallthrough
 	default:
-		//两个或更多返回值
-        var cv []interface{}
-       	var results = reflect.ValueOf(&cv).Elem()
-       	//if isBuiltin {
-	    //	for i, v := range result {
-		//		if v.Type() == reflectValueType {
-		//			fi := v.Interface().(reflect.Value)
-		//			if fi.Type() == reflectValueType && result[i].CanInterface() {
-		//				results = reflect.Append(results, result[i].Interface())
-		//				continue
-		//			}
-		//		}
-		//		results = reflect.Append(results, v)
-	    //	}
-	    //	return results
-       	//}
-        return reflect.Append(results, result...)
-    }
-/*
-	// If we have an error that is not nil, stop execution and return that error to the caller.
-	if len(result) == 2 && !result[1].IsNil() {
-		s.at(node)
-		s.errorf("error calling %s: %s", name, result[1].Interface().(error))
+		//多个返回值
+		var cv []interface{}
+		var results = reflect.ValueOf(&cv).Elem()
+		return reflect.Append(results, ret...), nil
 	}
-	v := result[0]
-	fmt.Println("evalCall4:", v, v.IsValid(), v.Kind(), v.Type(), v.Type().Name(), v.Type().PkgPath())
-	if v.Type() == reflectValueType {
-		v = v.Interface().(reflect.Value)
-	}
-	fmt.Println("evalCall5:", v, v.IsValid(), v.Kind(), v.Type(), v.Type().Name(), v.Type().PkgPath())
-	return v
-*/
+
+	
+//	if len(ret) == 2 && !ret[1].IsNil() {
+//		return ret[0], ret[1].Interface().(error)
+//	}
+//	return ret[0], nil
+	
 }
+
+
 
 // canBeNil reports whether an untyped nil can be assigned to the type. See reflect.Zero.
 func canBeNil(typ reflect.Type) bool {
@@ -1012,30 +1037,4 @@ func printableValue(v reflect.Value) (interface{}, bool) {
 		}
 	}
 	return v.Interface(), true
-}
-
-// sortKeys sorts (if it can) the slice of reflect.Values, which is a slice of map keys.
-func sortKeys(v []reflect.Value) []reflect.Value {
-	if len(v) <= 1 {
-		return v
-	}
-	switch v[0].Kind() {
-	case reflect.Float32, reflect.Float64:
-		sort.Slice(v, func(i, j int) bool {
-			return v[i].Float() < v[j].Float()
-		})
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		sort.Slice(v, func(i, j int) bool {
-			return v[i].Int() < v[j].Int()
-		})
-	case reflect.String:
-		sort.Slice(v, func(i, j int) bool {
-			return v[i].String() < v[j].String()
-		})
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		sort.Slice(v, func(i, j int) bool {
-			return v[i].Uint() < v[j].Uint()
-		})
-	}
-	return v
 }
