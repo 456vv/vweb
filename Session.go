@@ -79,5 +79,14 @@ func (s *Session) Defer(call interface{}, args ... interface{}) error {
 
 //Free 执行结束Defer
 func (s *Session) Free() {
+	s.m.Lock()
+	defer s.m.Unlock()
+	
+	//结束定时
+	for _, timer := range s.expired {
+		timer.Stop()
+	}
+	
+	//执行退出函数
 	s.exitCall.Free()
 }
