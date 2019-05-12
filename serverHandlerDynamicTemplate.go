@@ -126,7 +126,7 @@ func (T *serverHandlerDynamicTemplate) serveHTTP(rw http.ResponseWriter, req *ht
 
     //执行模板
     err = t.ExecuteTemplate(body, fileName, (TemplateDoter)(td))
-   if err != nil && err.Error() != "Return" {
+   if err != nil {
         goto Error
     }
     

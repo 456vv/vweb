@@ -150,6 +150,11 @@ func (s *state) writeError(err error) {
 	})
 }
 
+//退回函数
+type returnError struct{}
+func (e *returnError) Error() string {
+	return ""
+}
 // errRecover is the handler that turns panics into returns from the top
 // level of Parse.
 func errRecover(errp *error) {
@@ -162,6 +167,9 @@ func errRecover(errp *error) {
 			*errp = err.Err // Strip the wrapper.
 		case ExecError:
 			*errp = err // Keep the wrapper.
+		case returnError:
+			//退回函数
+			*errp = nil;
 		default:
 			panic(e)
 		}
@@ -562,9 +570,8 @@ func (s *state) evalFunction(dot reflect.Value, node *parse.IdentifierNode, cmd 
 	if !ok {
 		s.errorf("%q is not a defined function", name)
 	}
-	//模板调用退出
 	if name == "Return" {
-		panic(ExecError{Err:fmt.Errorf(name)})
+		panic(returnError{})
 	}
 	return s.evalCall(dot, function, cmd, name, args, final)
 }
@@ -725,17 +732,19 @@ func (s *state) evalCall(dot, fun reflect.Value, node parse.Node, name string, a
 	//}
 	return v
 }
+
 func safeEvalCall(fun reflect.Value, args []reflect.Value, name string) (val reflect.Value, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(error); ok {
+				//panic(错误类型)
 				err = e
-			} else {
+			}else{
+				//panic(非错误类型)
 				err = fmt.Errorf("%v", r)
 			}
 		}
 	}()
-	
 	ret := fun.Call(args)
 	rlen	:= len(ret)
 	if rlen == 0 {
@@ -774,7 +783,6 @@ func safeEvalCall(fun reflect.Value, args []reflect.Value, name string) (val ref
 		var results = reflect.ValueOf(&cv).Elem()
 		return reflect.Append(results, ret...), nil
 	}
-
 	
 //	if len(ret) == 2 && !ret[1].IsNil() {
 //		return ret[0], ret[1].Interface().(error)
