@@ -6,7 +6,7 @@ golang vweb, 简单的web服务器。
 ```go
 vweb.go======================================================================================================================
 const (
-    Version                 string = "VWEB/v1.1.0"                                          // 版本号
+    Version                 string = "VWEB/v1.2.0"                                          // 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
@@ -63,14 +63,16 @@ type Sessioner interface {                                                      
     Get(key interface{}) interface{}                                                        // 读取
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取
     Del(key interface{})                                                                    // 删除
+    SetExpired(key interface{}, d time.Duration)											// 设置有效期
     Reset()                                                                                 // 重置
-    Defer(call interface{}, arg ...interface{}) error                                       // 过期调用函数
-    Free()																					// 释放调用函数
+    Defer(call interface{}, arg ...interface{}) error                                       // 会话过期调用函数
+    Free()																					// 会话释放调用函数
 }
 type Session struct{                                                                // 会话用于用户保存数据
     *vmap.Map                                                                               // 数据，用户存储的数据
 }
     func NewSession() *Session                                                              // 初始化
+    func (s *Session) SetExpired(key interface{}, d time.Duration)							// 单个键值的有效期
     func (s *Session) Defer(call interface{}, args ... interface{}) error                   // 会话过期后，调用函数
     func (s *Session) Free()                                                                // 执行结束Defer
 

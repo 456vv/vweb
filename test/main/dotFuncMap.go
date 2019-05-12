@@ -37,6 +37,9 @@ import(
     "crypto/tls"
     "crypto/x509"
     "crypto/x509/pkix"
+    "crypto/sha1"
+    "crypto/sha256"
+    "crypto/sha512"
     "math/big"
     "unsafe"
     "path/filepath"
@@ -508,6 +511,26 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"RelativeDistinguishedNameSET": func(RelativeDistinguishedNameSET []pkix.AttributeTypeAndValue) pkix.RelativeDistinguishedNameSET {return RelativeDistinguishedNameSET},
 		"RevokedCertificate": func() *pkix.RevokedCertificate {return &pkix.RevokedCertificate{}},
 		"TBSCertificateList": func() *pkix.TBSCertificateList {return &pkix.TBSCertificateList{}},
+	},
+	"crypto/sha1":{
+		"New":sha1.New,
+		"Sum":sha1.Sum,
+	},
+	"crypto/sha256":{
+		"New":sha256.New,
+		"New224":sha256.New224,
+		"Sum224":sha256.Sum224,
+		"Sum256":sha256.Sum256,
+	},
+	"crypto/sha512":{
+		"New":sha512.New,
+		"New384":sha512.New384,
+		"New512_224":sha512.New512_224,
+		"New512_256":sha512.New512_256,
+		"Sum384":sha512.Sum384,
+		"Sum512":sha512.Sum512,
+		"Sum512_224":sha512.Sum512_224,
+		"Sum512_256":sha512.Sum512_256,
 	},
 	"encoding/asn1":{
 		"MarshalWithParams": asn1.MarshalWithParams,

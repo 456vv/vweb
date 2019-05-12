@@ -1,6 +1,6 @@
 ﻿vweb.go======================================================================================================================
 const (
-    Version                 string = "v1.1.0"                                    			// 版本号
+    Version                 string = "v1.2.0"                                    			// 版本号
 >    defaultDataBufioSize    int64 = 32*1024                                                 // 默认数据缓冲32MB
 )
 
@@ -67,16 +67,21 @@ type Sessioner interface {                                                      
     Get(key interface{}) interface{}                                                        // 读取
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取
     Del(key interface{})                                                                    // 删除
+    SetExpired(key interface{}, d time.Duration)											// 设置有效期
     Reset()                                                                                 // 重置
-    Defer(call interface{}, arg ...interface{}) error                                       // 过期调用函数
-    Free()																					// 释放调用函数
+    Defer(call interface{}, arg ...interface{}) error                                       // 会话过期调用函数
+    Free()																					// 会话释放调用函数
 }
 type Session struct{                                                                // 会话用于用户保存数据
     *vmap.Map                                                                               // 数据，用户存储的数据
->    id          string                                                                      // id，给Sessions使用的
+>    id          string                                                                     // id，给Sessions使用的
 >    exitCall	exitCall																	// 退回调用函数
+>    expired	map[interface{}]*time.Timer													// 有效期
+>    m			sync.Mutex																	// 锁
+
 }
     func NewSession() *Session                                                              // 初始化
+    func (s *Session) SetExpired(key interface{}, d time.Duration)							// 单个键值的有效期
     func (s *Session) Defer(call interface{}, args ... interface{}) error                   // 会话过期后，调用函数
     func (s *Session) Free()                                                                // 执行结束Defer
 
