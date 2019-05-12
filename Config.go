@@ -56,8 +56,8 @@ type ConfigSitePlugin struct {
     DisableCompression      bool                                                            // 禁止压缩
 	MaxIdleConnsPerHost		int																// 最大空闲连接每个主机
     MaxConnsPerHost int																		// 最大连接的每个主机
-    IdleConnTimeout 		int64                                                           // 设置空闲连接超时
-    ResponseHeaderTimeout   int64                                                           // 请求Header超时
+    IdleConnTimeout 		int64                                                           // 设置空闲连接超时（毫秒单位）
+    ResponseHeaderTimeout   int64                                                           // 请求Header超时（毫秒单位）
     ExpectContinueTimeout   int64                                                           // 发送Expect: 100-continue标头的PUT请求超时
     ProxyConnectHeader		http.Header 													// CONNECT代理请求中 增加标头 map[string][]string
     MaxResponseHeaderBytes	int64															// 最大的响应标头限制（字节）

@@ -36,12 +36,6 @@ func (srpc *ServerRPC) RegisterName(name string, rcvr interface{}) error {
     return srpc.Server.RegisterName(name, rcvr)
 }
 
-//AutoFill 自动补充监听的IP地址。你也可以不使用它，直接使用 srpc.L.Addr().String() 读出IP地址。
-//  参：
-//      p *Plugin      插件
-func (srpc *ServerRPC) AutoFill(p *Plugin) {
-    p.Addr      = srpc.Addr
-}
 
 //HandleHTTP 设置 RPC地址 和 调试地址
 //  参：
@@ -50,7 +44,6 @@ func (srpc *ServerRPC) HandleHTTP(rpcPath, debugPath string) {
     srpc.Server.HandleHTTP(rpcPath, debugPath)
     srpc.handled = true
 }
-
 
 //ListenAndServe 监听并启动
 //  返：

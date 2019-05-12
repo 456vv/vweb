@@ -46,11 +46,6 @@ func (shttp *ServerHTTP) LoadTLS(config *tls.Config, files []ServerTLSFile) erro
     return nil
 }
 
-//AutoFill 自动补充插件的信息。
-//	p *Plugin      插件
-func (shttp *ServerHTTP) AutoFill(p *Plugin) {
-    p.Addr      = shttp.Server.Addr
-}
 
 //ListenAndServe 监听并启动
 //	error 错误

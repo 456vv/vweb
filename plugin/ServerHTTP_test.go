@@ -9,21 +9,7 @@ import(
     "bytes"
     "net/url"
     "crypto/tls"
-    "os"
 )
-
-func ExamplePluginHTTP() {
-    var srpc = NewServerHTTP()
-    srpc.Addr="127.0.0.1:13968"
-    var p = Plugin{
-        Type: PluginTypeHTTP,
-        Version: "1.0",
-        Name: "名称ABC",
-        Addr: srpc.Addr,
-    }
-    os.Stdout.WriteString(p.String())
-    //{"Type":0,"Version":1,"Name":"名称ABC","Addr":"127.0.0.1:13968","Extra":{}}
-}
 
 
 func Test_Server_HTTP_1(t *testing.T) {
@@ -182,22 +168,3 @@ func Test_Server_HTTP_4(t *testing.T) {
    }
 }
 
-
-func Test_ServerHTTP_Print(t *testing.T) {
-    var p = &Plugin{
-        Type: PluginTypeHTTP,
-        Version: "1.0",
-        Name: "www.birdswo.com",
-    }
-    //服务器监听
-    var shttp = NewServerHTTP()
-    shttp.Addr = "127.0.0.1:80"
-
-    var addr = p.Addr
-
-    shttp.AutoFill(p)
-
-    if addr == p.Addr {
-        t.Fatalf("\r\n前Addr：%v\r\n后Addr：%v", addr, p.Addr)
-    }
-}

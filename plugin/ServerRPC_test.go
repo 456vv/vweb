@@ -124,26 +124,6 @@ func Test_ServerRPC_4(t *testing.T){
     }
 }
 
-func TestServerRPC_Print(t *testing.T) {
-    var p = &Plugin{
-        Type: PluginTypeRPC,
-        Version: "1.0",
-        Name: "bw",
-    }
-    //服务器监听
-    var srpc = NewServerRPC()
-    srpc.Addr = "127.0.0.1:0"
-    defer srpc.Close()
-    srpc.RegisterName("Test", new(Test))
-    var addr = p.Addr
-    srpc.AutoFill(p)
-
-    if addr == p.Addr {
-        t.Fatalf("\r\n前：%v\r\n后：%v", addr, p.Addr)
-    }
-}
-
-
 
 
 
