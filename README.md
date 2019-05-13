@@ -72,7 +72,6 @@ type Session struct{                                                            
     *vmap.Map                                                                               // 数据，用户存储的数据
 }
     func NewSession() *Session                                                              // 初始化
-    func (s *Session) SetExpired(key interface{}, d time.Duration)							// 单个键值的有效期
     func (s *Session) Defer(call interface{}, args ... interface{}) error                   // 会话过期后，调用函数
     func (s *Session) Free()                                                                // 执行结束Defer
 
