@@ -6,7 +6,7 @@ golang vweb, 简单的web服务器。
 ```go
 vweb.go======================================================================================================================
 const (
-    Version                 string = "VWEB/v1.2.0"                                          // 版本号
+    Version                 string = "VWEB/v1.2.1"                                          // 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
@@ -85,10 +85,10 @@ type Sessions struct{                                                           
 }
     func (T *Sessions) GenerateSessionId() string                                           // 生成ID
     func (T *Sessions) SessionId(req *http.Request) (id string, err error)                  // 读取SessionID
-	func (T *Sessions) NewSession(id string) *Session                              		 // 读取Session，如果不存在则新建
+	func (T *Sessions) NewSession(id string) *Session                              		    // 读取Session，如果不存在则新建
     func (T *Sessions) GetSession(id string) (*Session, error)                              // 读取Session
     func (T *Sessions) SetSession(id string, s *Session) *Session                           // 写入Session
-	func (T *Sessions) DelSession(id string)											 	 // 删除Session
+	func (T *Sessions) DelSession(id string)											 	// 删除Session
     func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner         // 读出Session
     func (T *Sessions) ProcessDeadAll() []interface{}                                       // 处理用户过期的会话
 
@@ -99,6 +99,7 @@ type Swaper interface {
     GetNewMaps(key ...interface{}) *vmap.Map                                                // 子子Map，如果存在，则读取
     Len() int                                                                               // 长度
     Set(key, val interface{})                                                               // 设置
+    SetExpired(key interface{}, d time.Duration)                                            // 设置有效期
     Has(key interface{}) bool                                                               // 检查
     Get(key interface{}) interface{}                                                        // 读取
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取

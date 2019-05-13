@@ -1,6 +1,6 @@
 ﻿vweb.go======================================================================================================================
 const (
-    Version                 string = "v1.2.0"                                    			// 版本号
+    Version                 string = "v1.2.1"                                    			// 版本号
 >    defaultDataBufioSize    int64 = 32*1024                                                 // 默认数据缓冲32MB
 )
 
@@ -118,6 +118,7 @@ type Swaper interface {
     GetNewMaps(key ...interface{}) *vmap.Map                                                // 子子Map，如果存在，则读取
     Len() int                                                                               // 长度
     Set(key, val interface{})                                                               // 设置
+    SetExpired(key interface{}, d time.Duration)                                            // 设置有效期
     Has(key interface{}) bool                                                               // 检查
     Get(key interface{}) interface{}                                                        // 读取
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取

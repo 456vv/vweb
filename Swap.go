@@ -10,6 +10,7 @@ type Swaper interface {
 	GetNewMaps(key ...interface{}) *vmap.Map
 	Len() int
 	Set(key, val interface{})
+    SetExpired(key interface{}, d time.Duration)
     Has(key interface{}) bool
     Get(key interface{}) interface{}
     GetHas(key interface{}) (val interface{}, ok bool)
