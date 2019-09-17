@@ -6,37 +6,143 @@ import (
     "bytes"
     "fmt"
     "bufio"
+    "github.com/456vv/vmap/v2"
+    "time"
+    "os"
+    "errors"
+    //"github.com/qiniu/qlang"
+	//_ "github.com/qiniu/qlang/lib/builtin" // 导入 builtin 包
 )
+
+
+type executer interface{
+	execute(out *bytes.Buffer, in interface{}) error
+}
+
+//web错误调用
+func webError(rw http.ResponseWriter, v ...interface{}) {
+   	//500 服务器遇到了意料不到的情况，不能完成客户的请求。
+    http.Error(rw, fmt.Sprint(v...), http.StatusInternalServerError)
+}
+
 
 
 //ServerHandlerDynamic 处理动态页面文件
 type ServerHandlerDynamic struct {
-    RootPath, PagePath  string                                                              // 根目录, 页路径
+	RootPath			string																// 根目录
+    PagePath  			string																// 主模板文件路径
     BuffSize			int64																// 缓冲块大小
     Site        		*Site																// 网站配置
+	LibReadFunc			func(tmplName, libname string) ([]byte, error)						// 读取库
+   	exec				executer
+   	modeTime			time.Time
 }
 
 //ServeHTTP 服务HTTP
 //	rw http.ResponseWriter    响应
 //	req *http.Request         请求
 func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request){
-    var(
-        filePath    = filepath.Join(T.RootPath, T.PagePath)
-    )
-    content, err := ioutil.ReadFile(filePath)
+	if T.PagePath == "" {
+		T.PagePath = req.URL.Path
+	}
+	var filePath = filepath.Join(T.RootPath, T.PagePath)
+	
+	osFile, err := os.Open(filePath)
+	if err != nil {
+	    webError(rw, fmt.Sprintf("Failed to read the file! Error: %s", err.Error()))
+	    return
+	}
+	defer osFile.Close()
+	
+	//记录文件修改时间，用于缓存文件
+	osFileInfo, err := osFile.Stat()
+	if err != nil {
+		T.exec = nil
+	}else{
+		modeTime := osFileInfo.ModTime()
+		if !modeTime.Equal(T.modeTime) {
+			T.exec = nil
+		}
+		T.modeTime = modeTime
+	}
+	
+	if T.exec == nil {
+	    var content, err = ioutil.ReadAll(osFile)
+	    if err != nil {
+	    	webError(rw, fmt.Sprintf("Failed to read the file! Error: %s", err.Error()))
+	        return
+	    }
+	    
+	    //解析模板内容
+		err = T.Parse(bytes.NewBuffer(content))
+	    if err != nil {
+	    	webError(rw, err.Error())
+	        return
+	    }
+	}
+	
+    //模板点
+    var dock = &TemplateDot{
+        R    	 	: req,
+        W    		: rw,
+        BuffSize	: T.BuffSize,
+        Site        : T.Site,
+        Exchange    : vmap.NewMap(),
+    }
+	var body = new(bytes.Buffer)
+	defer func(){
+		dock.Free()
+        if !dock.Writed {
+	        body.WriteTo(rw)
+	    }
+	}()
+	
+	//执行模板内容
+	err = T.Execute(body, (TemplateDoter)(dock))
     if err != nil {
-    	//500 服务器遇到了意料不到的情况，不能完成客户的请求。
-    	http.Error(rw, fmt.Sprintf("Failed to read the file! Error: %s", err.Error()), http.StatusInternalServerError)
+    	webError(rw, err.Error())
         return
     }
+}
 
-    bytesBuffer := bytes.NewBuffer(content)
+//ParseText 解析模板
+//	bufr *bytes.Reader	模板内容
+//	error				错误
+func (T *ServerHandlerDynamic) ParseText(content, name string) error {
+	r := bytes.NewBufferString(content)
+	return T.Parse(r)
+}
+
+//ParseFile 解析模板
+//	bufr *bytes.Reader	模板内容
+//	error				错误
+func (T *ServerHandlerDynamic) ParseFile(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	
+	defer file.Close()
+	b, err := ioutil.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	r := bytes.NewBuffer(b)
+	return T.Parse(r)
+}
+
+//Parse 解析模板
+//	bufr *bytes.Reader	模板内容
+//	error				错误
+func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error {
+	if T.PagePath == "" {
+    	return errors.New("vweb: ServerHandlerDynamic.PagePath is not a valid path")
+	}
+	
     //文件首行
-    firstLine, err := bytesBuffer.ReadBytes('\n')
+    firstLine, err := bufr.ReadBytes('\n')
     if err != nil || len(firstLine) == 0 {
-    	//500 服务器遇到了意料不到的情况，不能完成客户的请求。
-        http.Error(rw, fmt.Sprintf("Dynamic content is empty! Error: %s", err.Error()), http.StatusInternalServerError)
-        return
+    	return fmt.Errorf("vweb: Dynamic content is empty! Error: %s", err.Error())
     }
     drop := 0
 	if firstLine[len(firstLine)-1] == '\n' {
@@ -46,19 +152,44 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		}
 		firstLine = firstLine[:len(firstLine)-drop]
 	}
-
     switch string(firstLine) {
         case "//template":
-            shdt := &serverHandlerDynamicTemplate{
-                rootPath    : T.RootPath,
-                pagePath    : T.PagePath,
-                buffSize	: T.BuffSize,
-                site        : T.Site,
-                buf         : bufio.NewReader(bytesBuffer),
+            var shdt = &serverHandlerDynamicTemplate{
+            	rootPath	: T.RootPath,
+               	pagePath	: T.PagePath,
             }
-            shdt.serveHTTP(rw, req)
+            shdt.libReadFunc = T.LibReadFunc
+            err := shdt.parse(bufio.NewReader(bufr))
+            if err != nil {
+            	return err
+            }
+            T.exec = shdt
+        case "//qlang":
+        	shdq := &serverHandlerDynamicQlang{
+            	rootPath	: T.RootPath,
+               	pagePath	: T.PagePath,
+        	}
+            shdq.libReadFunc = T.LibReadFunc
+            err := shdq.parse(bufio.NewReader(bufr))
+            if err != nil {
+            	return err
+            }
+            T.exec = shdq
         default:
-    	    //500 服务器遇到了意料不到的情况，不能完成客户的请求。
-            http.Error(rw, "The first line of the file is not added to the file type is set to //template", http.StatusInternalServerError)
+    		return errors.New("vweb: TThe file type of the first line of the file is not recognized")
     }
+    return nil
 }
+
+//Execute 执行模板
+//	bufw *bytes.Buffer	模板返回数据
+//	dock interface{}	与模板对接接口
+//	error				错误
+func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) error {
+	if T.exec == nil {
+		return errors.New("vweb: Parse the template content first and then call the Execute")
+	}
+	return T.exec.execute(bufw, dock)
+}
+
+

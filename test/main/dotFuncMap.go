@@ -46,6 +46,7 @@ import(
     "path"
    	"sync"
    	"sync/atomic"
+   	"errors"
 )
 
 var dotFuncMap = map[string]map[string]interface{}{
@@ -86,6 +87,12 @@ var dotFuncMap = map[string]map[string]interface{}{
 	},
 	"vmap":{
 		"NewMap":vmap.NewMap,
+	},
+	"errors":{
+		"As": errors.As,
+		"Is": errors.Is,
+		"New": errors.New,
+		"Unwrap": errors.Unwrap,
 	},
 	"sync":{
 		"Map":func() *sync.Map {return &sync.Map{}},
@@ -588,6 +595,7 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"ParseQuery": url.ParseQuery,
 	},
     "strings": {
+    	"ReplaceAll": strings.ReplaceAll,
     	"Compare": strings.Compare,
         "Contains": strings.Contains,
         "ContainsAny": strings.ContainsAny,
@@ -622,6 +630,7 @@ var dotFuncMap = map[string]map[string]interface{}{
         "ToTitleSpecial": strings.ToTitleSpecial,
         "ToUpper": strings.ToUpper,
         "ToUpperSpecial": strings.ToUpperSpecial,
+        "ToValidUTF8":strings.ToValidUTF8,
         "Trim": strings.Trim,
         "TrimFunc": strings.TrimFunc,
         "TrimLeft": strings.TrimLeft,
@@ -638,6 +647,7 @@ var dotFuncMap = map[string]map[string]interface{}{
         "Builder": func() *strings.Builder {return &strings.Builder{}},
     },
     "bytes": {
+    	"ReplaceAll": bytes.ReplaceAll,
         "Compare": bytes.Compare,
         "Contains": bytes.Contains,
         "ContainsAny": bytes.ContainsAny,
@@ -674,6 +684,7 @@ var dotFuncMap = map[string]map[string]interface{}{
         "ToTitleSpecial": bytes.ToTitleSpecial,
         "ToUpper": bytes.ToUpper,
         "ToUpperSpecial": bytes.ToUpperSpecial,
+        "ToValidUTF8": bytes.ToValidUTF8,
         "Trim": bytes.Trim,
         "TrimFunc": bytes.TrimFunc,
         "TrimPrefix": bytes.TrimPrefix,

@@ -6,11 +6,10 @@ golang vweb, 简单的web服务器。
 ```go
 vweb.go======================================================================================================================
 const (
-    Version                 string = "VWEB/v1.2.1"                                          // 版本号
+    Version                 string = "v1.3.0"                                    			// 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
-
 
 func.go======================================================================================================================
 func ExtendDotFuncMap(deputy map[string]map[string]interface{})                             // 扩展点函数映射，在模板上的点（.）可以调用
@@ -64,6 +63,7 @@ type Sessioner interface {                                                      
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取
     Del(key interface{})                                                                    // 删除
     SetExpired(key interface{}, d time.Duration)											// 设置有效期
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))					// 设置有效期，过期调用函数
     Reset()                                                                                 // 重置
     Defer(call interface{}, arg ...interface{}) error                                       // 会话过期调用函数
     Free()																					// 会话释放调用函数
@@ -79,13 +79,14 @@ sessions.go=====================================================================
 type Sessions struct{                                                               // Sessions集
     Expired         time.Duration                                                           // 保存Session时间长（默认：20分钟）
     Name            string                                                                  // 标识名称(默认:BWID)
-    Size            int                                                                     // 会话ID长度(默认长度40位)
+    Size            int                                                                     // 会话ID长度(默认长度64位)
     Salt            string                                                                  // 加盐，由于计算机随机数是伪随机数。（可默认为空）
     ActivationID    bool                                                                    // 为true，保持会话ID
 }
     func (T *Sessions) GenerateSessionId() string                                           // 生成ID
+    func (T *Sessions) GenerateSessionIdSalt() string                                       // 生成ID(加盐)
     func (T *Sessions) SessionId(req *http.Request) (id string, err error)                  // 读取SessionID
-	func (T *Sessions) NewSession(id string) *Session                              		    // 读取Session，如果不存在则新建
+	func (T *Sessions) NewSession(id string) *Session                              		 	// 读取Session，如果不存在则新建
     func (T *Sessions) GetSession(id string) (*Session, error)                              // 读取Session
     func (T *Sessions) SetSession(id string, s *Session) *Session                           // 写入Session
 	func (T *Sessions) DelSession(id string)											 	// 删除Session
@@ -100,6 +101,7 @@ type Swaper interface {
     Len() int                                                                               // 长度
     Set(key, val interface{})                                                               // 设置
     SetExpired(key interface{}, d time.Duration)                                            // 设置有效期
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))					// 设置有效期，过期调用函数
     Has(key interface{}) bool                                                               // 检查
     Get(key interface{}) interface{}                                                        // 读取
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取
@@ -130,7 +132,7 @@ type SitePool struct {                                                          
 type Site struct {                                                                  // 站点
     Sessions            *Sessions                                                           // 会话集
     Global              Globaler                                                            // Global
-    Config              *ConfigSite                                                         // Config
+    Config              interface{}                                                         // Config
     Plugin              *vmap.Map                                                           // 插件map[type]map[name]interface{}
 }
     func NewSite() *Site                                                                    // 站点对象
@@ -154,10 +156,7 @@ type Responser interface{                                                       
     Flush()                                                                                 // 刷新缓冲
     Push(target string, opts *http.PushOptions) error                                       // HTTP/2推送
     Hijack() (net.Conn, *bufio.ReadWriter, error)                                           // 劫持，能双向互相发送信息
-    Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
 }
-
-tcpKeepAliveListener.go======================================================================================================================
 
 server.go======================================================================================================================
 
@@ -172,7 +171,6 @@ type ServerGroup struct {                                                       
     SrvMan              *Map                                                                // map[ip:port]*Server
     SitePool            *SitePool                                                           // 站点的池
     Sites               *Sites                                                              // 站点集
-
 }
     func NewServerGroup() *ServerGroup                                                      // 服务器集群对象
     func (T *ServerGroup) SetServer(laddr string, srv *Server) error                        // 增加一个服务器
@@ -183,7 +181,6 @@ type ServerGroup struct {                                                       
     func (T *ServerGroup) UpdateConfig(conf *Config) error                                  // 更新配置并把配置分配到各个地方
     func (T *ServerGroup) Start() error                                                     // 启动服务集群
     func (T *ServerGroup) Close() error                                                     // 关闭服务集群
-
 
 TemplateDot.go======================================================================================================================
 type TemplateDoter interface{                                                       // 可以在模本中使用的方法
@@ -199,7 +196,8 @@ type TemplateDoter interface{                                                   
     Swap() Swaper                                                                           // 信息交换
     PluginRPC(name string) (PluginRPC, error)                                               // 插件RPC方法调用
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
-    Config() ConfigSite																		// 网站配置
+    Config() interface{}																	// 网站配置
+    Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
 }
 type TemplateDot struct {                                                           // 模板点
     Writed              bool                                                                // 模板或动态？
@@ -222,16 +220,18 @@ type TemplateDot struct {                                                       
     func (T *TemplateDot) PluginHTTP(name string) (PluginHTTP, error)                       // 插件HTTP方法调用
     func (T *TemplateDot) Swap() Swaper                                                     // 信息交换
     func (T *TemplateDot) Config() ConfigSite												// 网站的配置
-
+	func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error				// 退回调用
+	func (T *TemplateDot) Free()															// 释放调用
+	
 serverHandlerDynamic.go======================================================================================================================
 type ServerHandlerDynamic struct {                                                  // 处理动态页面文件
     RootPath, PagePath  string                                                              // 根目录, 页路径
     BuffSize            int64                                                               // 缓冲块大小
     Site                *Site                                                               // 网站配置
+   	LibReadFunc			func(tmplName, libname string) ([]byte, error)						// 读取库
 }
     func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request)     // 服务HTTP
 
-serverHandlerDynamicTemplate.go======================================================================================================================
 PluginHTTP.go======================================================================================================================
 type PluginHTTP interface{                                                          // HTTP插件接口
     ServeHTTP(w http.ResponseWriter, r *http.Request)                                       // 服务HTTP
@@ -310,6 +310,7 @@ type ConfigSitePlugin struct {                                      // 插件
     MaxConn                 int                                             // 最大连接数
 
     //HTTP
+	ProxyURL				string											// 验证用户密码或是否使用socks5
     Host                    string                                          // Host
     Scheme                  string                                          // 协议
     TLS                     ConfigSitePluginTLS                             // TLS
@@ -318,8 +319,8 @@ type ConfigSitePlugin struct {                                      // 插件
     DisableCompression      bool                                            // 禁止压缩
     MaxIdleConnsPerHost     int                                             // 最大空闲连接每个主机
 	MaxConnsPerHost			int												// 最大连接的每个主机
-    IdleConnTimeout         int64                                           // 设置空闲连接超时
-    ResponseHeaderTimeout   int64                                           // 请求Header超时
+    IdleConnTimeout         int64                                           // 设置空闲连接超时（毫秒单位）
+    ResponseHeaderTimeout   int64                                           // 请求Header超时（毫秒单位）
     ExpectContinueTimeout   int64                                           // 发送Expect: 100-continue标头的PUT请求超时
     ProxyConnectHeader      http.Header                                     // CONNECT代理请求中 增加标头 map[string][]string
     MaxResponseHeaderBytes  int64                                           // 最大的响应标头限制（字节）

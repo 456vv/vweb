@@ -1,8 +1,6 @@
 package vweb
 import(
     "bufio"
-    //"net"
-    "net/http"
     "text/template"
     "path/filepath"
     "fmt"
@@ -10,9 +8,7 @@ import(
     "io/ioutil"
     "strings"
     "errors"
-    //"time"
-  //  "context"
-    "github.com/456vv/vmap/v2"
+    "os"
 )
 
 
@@ -21,34 +17,37 @@ import(
 type shdtHeader struct{
     filePath        		[]string                              			                // 文件路径, map[文件名或别名]文件路径
     delimLeft,delimRight    string                                                          // 语法识别符
+    rFile					func(file string) ([]byte, error)								// 打开文件
 }
 
 //openFile 打开文件内容
-//  参：
-//      rootPath  string    根目录
-//      pagePath  string    文件路径
-//  返：
-//      map[string]string   内容，map[文件名]文件内容
-//      error               错误，如果文件不能打开读取
-func (h *shdtHeader) openFile(rootPath, pagePath  string) (map[string]string, error){
+//	dirPath  string    	目录
+//	map[string]string   内容，map[文件名]文件内容
+//	error               错误，如果文件不能打开读取
+func (h *shdtHeader) openIncludeFile(rootPath, pagePath string) (map[string]string, error){
 	var(
 		dirPath		= filepath.Dir(pagePath)
 		filePath	string
 		fileBase	string
-		pathFull	string
 		fileContent = make(map[string]string)
+		c			[]byte
+		err 		error
 	)
 	for _, v := range h.filePath {
-		if v[0] == '/' || v[0] == '\\' {
-            filePath = filepath.Clean(v)
+		if h.rFile != nil {
+			c, err = h.rFile(v)
 		}else{
-			filePath = filepath.Join(dirPath, v)
-			filePath = filepath.Clean(filePath)
-        }
-		pathFull = filepath.Join(rootPath, filePath)
-		c, err := ioutil.ReadFile(pathFull)
+			if v[0] == '/' || v[0] == '\\' {
+	            filePath = filepath.Clean(v)
+			}else{
+				filePath = filepath.Join(dirPath, v)
+				filePath = filepath.Clean(filePath)
+	        }
+	       	filePath = filepath.Join(rootPath, filePath)
+			c, err = ioutil.ReadFile(filePath)
+		}
 		if err != nil {
-			return nil, fmt.Errorf("vweb.shdtHeader.openFile: 动态嵌入模本文件读取失败(%s)", err.Error())
+			return nil, fmt.Errorf("vweb: Dynamically embedded template file read failed(%s)", err.Error())
 		}
 		fileBase = filepath.Base(filePath)
 		fileContent[fileBase] = string(c)
@@ -56,44 +55,64 @@ func (h *shdtHeader) openFile(rootPath, pagePath  string) (map[string]string, er
 	return fileContent, nil
 }
 
+
 //serverHandlerDynamicTemplate 模本-处理动态页面文件
 type serverHandlerDynamicTemplate struct {
-    rootPath, pagePath  string                                                              // 根目录, 页路径
-    buffSize			int64																// 缓冲块大小
-    site        		*Site																// 网站配置
-    buf                 *bufio.Reader                                                       // 数据
+	rootPath			string																// 文件目录
+	pagePath			string																// 文件名称
+	libReadFunc			func(tmplName, libName string) ([]byte, error)
+ 	
+ 	fileName			string
+	t 					*template.Template
 }
-
-//serveHTTP 服务HTTP
-//	rw http.ResponseWriter    响应
-//	req *http.Request         请求
-func (T *serverHandlerDynamicTemplate) serveHTTP(rw http.ResponseWriter, req *http.Request){
+func (T *serverHandlerDynamicTemplate) parseText(content, name string) error {
+	T.fileName = name
+	r := bufio.NewReader(strings.NewReader(content))
+	return T.parse(r)
+}
+func (T *serverHandlerDynamicTemplate) parseFile(path string) error {
+	//文件名
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	
+	defer file.Close()
+	b, err := ioutil.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	r := bufio.NewReader(bytes.NewBuffer(b))
+	T.fileName = filepath.Base(path)
+	return T.parse(r)
+}
+func (T *serverHandlerDynamicTemplate) parse(r *bufio.Reader) (err error) {
 	var(
-		err			error                               //错误
 		h			shdtHeader                          //文件头
 		c			string                              //内容
 		
-		contents	map[string]string                   //文件头嵌入的内容
-        fileName    = filepath.Base(T.pagePath)      	//文件名
-        t           *template.Template                  //模板
-        td          *TemplateDot                        //模板点
-        body        = new(bytes.Buffer)                 //缓冲区
+		libs		map[string]string                   //文件头嵌入的内容
 	)
-
+	
 	//解析文件头和主体数据
-    h, c, err = T.parse()
+    h, c, err = T.separation(r)
     if err != nil {
-        goto Error
+        return
     }
-
+    
     //打开文件头嵌入模板文件内容集
-    contents, err = h.openFile(T.rootPath, T.pagePath)
+    if T.libReadFunc != nil {
+	    h.rFile=func(libName string)([]byte, error){
+	    	return T.libReadFunc(T.fileName, libName)
+	    }
+    }
+    libs, err = h.openIncludeFile(T.rootPath, T.pagePath)
     if err != nil {
-    	goto Error
+        return
     }
 
     //模板文件内容载入Tmplate
-    t = template.New(fileName)
+    t := template.New(T.fileName)
     t.Delims(h.delimLeft, h.delimRight)
     t.Funcs(TemplateFuncMap)
 
@@ -101,51 +120,31 @@ func (T *serverHandlerDynamicTemplate) serveHTTP(rw http.ResponseWriter, req *ht
     c = T.format(h.delimLeft, h.delimRight, c)
     _, err = t.Parse(c)
     if err != nil {
-    	goto Error
+        return
     }
-
+    
     //解析子内容
-    t, err = T.loadTmpl(h.delimLeft, h.delimRight, t, contents)
-    if err != nil {
-    	goto Error
-    }
-
-
-    //模板点
-    td = &TemplateDot{
-        R    	 	: req,
-        W    		: rw,
-        BuffSize	: T.buffSize,
-        Site        : T.site,
-        Exchange    : vmap.NewMap(),
-        ec			: exitCall{},
-    }
-    
-    //释放页面的函数
-    defer td.ec.Free()
-
-    //执行模板
-    err = t.ExecuteTemplate(body, fileName, (TemplateDoter)(td))
-   if err != nil {
-        goto Error
-    }
-    
-    if !td.Writed {
-        body.WriteTo(rw)
-    }
+    T.t, err = T.loadTmpl(h.delimLeft, h.delimRight, t, libs)
     return
-
-Error:
-	//500 服务器遇到了意料不到的情况，不能完成客户的请求。
-    http.Error(rw, fmt.Sprintf("Dynamic syntax is not supported! Error: %s", err.Error()), http.StatusInternalServerError)
 }
 
+//Execute 执行模板
+//	out *bytes.Buffer	模板中返回的内容
+//	in interface{}		模板中调用的接口
+//	error				执行失败
+func (T *serverHandlerDynamicTemplate) execute(out *bytes.Buffer, in interface{}) error {
+	if T.t == nil {
+		return errors.New("vweb: The template has not been parsed yet!")
+	}
+    //执行模板
+	return T.t.ExecuteTemplate(out, T.fileName, in)
+}
 
-//parse 解析模本
+//separation 解析模本,头，内容
 //	shdtHeader      模本标头
 //	string          内容，动态语法
 //	error           错误，如果语法无法解析
-func (T *serverHandlerDynamicTemplate) parse() (shdtHeader, string, error) {
+func (T *serverHandlerDynamicTemplate) separation(buf *bufio.Reader) (shdtHeader, string, error) {
     var (
         line	[]byte
 		h		= shdtHeader{
@@ -154,7 +153,7 @@ func (T *serverHandlerDynamicTemplate) parse() (shdtHeader, string, error) {
         }
     )
     for {
-        l, isPrefix, err :=  T.buf.ReadLine()
+        l, isPrefix, err :=  buf.ReadLine()
         if err != nil {
             return shdtHeader{}, "", err
         }
@@ -169,13 +168,13 @@ func (T *serverHandlerDynamicTemplate) parse() (shdtHeader, string, error) {
         //清除字符前面 //
         i := bytes.IndexByte(line, '=')
         if i < 0 {
-        	return shdtHeader{}, "", fmt.Errorf("vweb.serverHandlerDynamicTemplate.parse: 解析文件标头出错(%s)", string(line))
+        	return shdtHeader{}, "", fmt.Errorf("vweb: Error parsing file header(%s)", string(line))
     	}
         key := string(bytes.Trim(line[:i], "\t "))
         i++ // skip colon
     	value := string(bytes.Trim(line[i:], "\t "))
     	if value == "" || value == "/" || value == "\\" {
-            return shdtHeader{}, "", fmt.Errorf("vweb.serverHandlerDynamicTemplate.parse: 解析文件标头出错(%s)", string(line))
+            return shdtHeader{}, "", fmt.Errorf("vweb: Error parsing file header(%s)", string(line))
     	}
     	switch key {
 		case "//file":
@@ -185,11 +184,11 @@ func (T *serverHandlerDynamicTemplate) parse() (shdtHeader, string, error) {
 		case "//delimRight":
 			h.delimRight = value
     	}
-        line = []byte{}
+        line = line[:0]
     }
-    b, err := ioutil.ReadAll(T.buf)
+    b, err := ioutil.ReadAll(buf)
     if err != nil {
-    	return shdtHeader{}, "", fmt.Errorf("vweb.serverHandlerDynamicTemplate.parse: 读取文件主体数据出错(%s)", err.Error())
+    	return shdtHeader{}, "", fmt.Errorf("vweb: Error reading file body data(%s)", err.Error())
     }
     return h, string(b), nil
 }
@@ -203,7 +202,7 @@ func (T *serverHandlerDynamicTemplate) parse() (shdtHeader, string, error) {
 func (T *serverHandlerDynamicTemplate) loadTmpl(delimLeft, delimRight string, t *template.Template, f map[string]string) (*template.Template, error) {
     var tmpl *template.Template
     if t == nil {
-        return t, errors.New("vweb.serverHandlerDynamicTemplate.loadTmpl: 父模板是 nil")
+        return t, errors.New("vweb: The parent template is nil")
     }
     for k, v := range f {
         tmpl = t.New(k)
@@ -223,7 +222,7 @@ func (T *serverHandlerDynamicTemplate) loadTmpl(delimLeft, delimRight string, t 
 //	c string            语法内容
 //	string              整理后的语法
 func (T *serverHandlerDynamicTemplate) format(delimLeft, delimRight, c string) string {
-    var bytesBuffer = new(bytes.Buffer)
+    var bytesBuffer strings.Builder
     for _, line := range []string{"\r\n", "\n", "\r"} {
         if strings.Contains(c, line) {
             var syntax bool

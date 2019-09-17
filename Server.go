@@ -227,10 +227,12 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 		defer conn.Close()
         return
     }
-
+    
+    
 
     //** 转发URL
-    forward := site.Config.Forward
+    config	:= site.Config.(*ConfigSite)
+    forward := config.Forward
     urlPath	:= r.URL.Path
     if forward != nil {
         var forwardC []ConfigSiteForward
@@ -341,7 +343,6 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 
     //** 文件存在
     var(
-        config      = site.Config
         rootPath    = T.httpRootPath(&config.Directory, r)
         pagePath    string
     )
@@ -751,6 +752,11 @@ func (T *ServerGroup) LoadConfigFile(p string)  (conf *Config, ok bool, err erro
 //	conf *Config        配置
 //	error               错误
 func (T *ServerGroup) UpdateConfig(conf *Config) error {
+	
+	if conf == nil {
+    	return fmt.Errorf("vweb.ServerGroup.UpdateConfig: 配置为nil，无法更新。")
+	}
+	
 	T.config = conf
 	if T.run.isTrue() {
 		//更新网站配置

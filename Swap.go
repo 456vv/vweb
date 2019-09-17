@@ -12,6 +12,7 @@ type Swaper interface {
 	Len() int
 	Set(key, val interface{})
     SetExpired(key interface{}, d time.Duration)
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))
     Has(key interface{}) bool
     Get(key interface{}) interface{}
     GetHas(key interface{}) (val interface{}, ok bool)

@@ -1,30 +1,19 @@
 ﻿vweb.go======================================================================================================================
 const (
-    Version                 string = "v1.2.1"                                    			// 版本号
->    defaultDataBufioSize    int64 = 32*1024                                                 // 默认数据缓冲32MB
+    Version                 string = "v1.3.0"                                    			// 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
 
->type atomicBool int32
->func (T *atomicBool) isTrue() bool 	{ return atomic.LoadInt32((*int32)(T)) != 0 }
->func (T *atomicBool) isFalse() bool	{ return atomic.LoadInt32((*int32)(T)) != 1 }
->func (T *atomicBool) setTrue() bool	{ return !atomic.CompareAndSwapInt32((*int32)(T), 0, 1)}
->func (T *atomicBool) setFalse() bool{ return !atomic.CompareAndSwapInt32((*int32)(T), 1, 0)}
-
 func.go======================================================================================================================
 func ExtendDotFuncMap(deputy map[string]map[string]interface{})                             // 扩展点函数映射，在模板上的点（.）可以调用
->func derogatoryDomain(host string, f func(string) bool)                                     // 贬域名
->func equalDomain(host, domain string) (ok bool)                                             // 贬域名比较
 func GenerateRandomId(rnd []byte) error                                                     // 生成随机ID
 func GenerateRandom(length int) ([]byte, error)												// 生成随机ID
 func GenerateRandomString(length int) (string, error)										// 生成随机ID
 func AddSalt(rnd []byte, salt string) string 												// 加盐
 func PagePath(root, p string, index []string) (os.FileInfo, string, error)   				// 页路径
-func delay(wait, maxDelay time.Duration) time.Duration 										// 延时
 TemplateFuncMap.go======================================================================================================================
 var TemplateFuncMap         = map[string]interface{...}                                     // 模板函数映射（默认）
->func templateFuncMapError(v interface{}) error                                              // 判断模板中的错误类型
 
 reflect.go======================================================================================================================
 func ForMethod(x interface{}) string                                                        // 遍历方法
@@ -68,38 +57,27 @@ type Sessioner interface {                                                      
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取
     Del(key interface{})                                                                    // 删除
     SetExpired(key interface{}, d time.Duration)											// 设置有效期
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))					// 设置有效期，过期调用函数
     Reset()                                                                                 // 重置
     Defer(call interface{}, arg ...interface{}) error                                       // 会话过期调用函数
     Free()																					// 会话释放调用函数
 }
 type Session struct{                                                                // 会话用于用户保存数据
     *vmap.Map                                                                               // 数据，用户存储的数据
->    id          string                                                                     // id，给Sessions使用的
->    exitCall	exitCall																	// 退回调用函数
-
 }
     func NewSession() *Session                                                              // 初始化
     func (s *Session) Defer(call interface{}, args ... interface{}) error                   // 会话过期后，调用函数
     func (s *Session) Free()                                                                // 执行结束Defer
 
 sessions.go======================================================================================================================
->type manageSession struct{                                                          // 管制会话有效期
->    s       *Session                                                                        // 会话
->    recent  time.Time                                                                       // 最近访问时间
->}
 type Sessions struct{                                                               // Sessions集
     Expired         time.Duration                                                           // 保存Session时间长（默认：20分钟）
     Name            string                                                                  // 标识名称(默认:BWID)
     Size            int                                                                     // 会话ID长度(默认长度64位)
     Salt            string                                                                  // 加盐，由于计算机随机数是伪随机数。（可默认为空）
     ActivationID    bool                                                                    // 为true，保持会话ID
->    sessions        *vmap.Map                                                               // 集，map[id]*Session
 }
->    func newSessions() *Sessions                                                            // 初始化
->    func (T *Sessions) init()                                                               // 初始化
->    func (T *Sessions) update(confSession ConfigSitePropertySession)                        // 配置
     func (T *Sessions) GenerateSessionId() string                                           // 生成ID
->	func (T *Sessions) sessionIdSalt(rnd []byte) string									 // 加盐
     func (T *Sessions) GenerateSessionIdSalt() string                                       // 生成ID(加盐)
     func (T *Sessions) SessionId(req *http.Request) (id string, err error)                  // 读取SessionID
 	func (T *Sessions) NewSession(id string) *Session                              		 	// 读取Session，如果不存在则新建
@@ -108,8 +86,6 @@ type Sessions struct{                                                           
 	func (T *Sessions) DelSession(id string)											 	// 删除Session
     func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner         // 读出Session
     func (T *Sessions) ProcessDeadAll() []interface{}                                       // 处理用户过期的会话
->    func (T *Sessions) triggerDeadSession(ms *manageSession) (ok bool)                      // 由用户来触发处理Session
->    func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) *Session            // 写入客户端
 
 swap.go======================================================================================================================
 type Swaper interface {
@@ -119,6 +95,7 @@ type Swaper interface {
     Len() int                                                                               // 长度
     Set(key, val interface{})                                                               // 设置
     SetExpired(key interface{}, d time.Duration)                                            // 设置有效期
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))					// 设置有效期，过期调用函数
     Has(key interface{}) bool                                                               // 检查
     Get(key interface{}) interface{}                                                        // 读取
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取
@@ -141,10 +118,6 @@ site.go=========================================================================
 var DefaultSitePool    = NewSitePool()                                                      // 网站池（默认）
 type SitePool struct {                                                              // 网站池
 	Pool					*vmap.Map                                                       // map[池名]*Site
->    recoverSessionTick      time.Duration                                             	 	// 回收无效会话(默认20会分钟回收一次)
->    setTick					chan bool													// 触发更新回收时间
->    exit                    chan bool                                                      // 退出
->    run						atomicBool													// 已经启动
 }
     func NewSitePool() *SitePool                                                            // 池对象
     func (sp *SitePool) SetRecoverSession(d time.Duration)                                  // 设置回收无效的会话
@@ -153,7 +126,7 @@ type SitePool struct {                                                          
 type Site struct {                                                                  // 站点
     Sessions            *Sessions                                                           // 会话集
     Global              Globaler                                                            // Global
-    Config              *ConfigSite                                                         // Config
+    Config              interface{}                                                         // Config
     Plugin              *vmap.Map                                                           // 插件map[type]map[name]interface{}
 }
     func NewSite() *Site                                                                    // 站点对象
@@ -177,93 +150,31 @@ type Responser interface{                                                       
     Flush()                                                                                 // 刷新缓冲
     Push(target string, opts *http.PushOptions) error                                       // HTTP/2推送
     Hijack() (net.Conn, *bufio.ReadWriter, error)                                           // 劫持，能双向互相发送信息
-    Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
 }
->type response struct {                                                              // 模本点的响应写入
->    buffSize    int64                                                                       // 写入的缓冲大小
->    r           *http.Request                                                               // 请求
->    w           http.ResponseWriter                                                         // 响应
->    td          *TemplateDot                                                                // 模板点
->}
->    func (T *response) Write(p []byte) (int, error)                                         // 写入正文字节
->    func (T *response) WriteString(s string) (int, error)                                   // 写入正文字符串
->    func (T *response) ReadFrom(src io.Reader) (n int64, err error)                         // 读取写入正文
->    func (T *response) Redirect(urlStr string, code int)                                    // 重定向
->    func (T *response) WriteHeader(code int)                                                // 状态码
->    func (T *response) Error(err string, code int)                                          // 错误
->    func (T *response) Flush()                                                              // 刷新缓冲
->    func (T *response) Push(target string, opts *http.PushOptions) error                    // HTTP/2推送
->    func (T *response) Hijack() (net.Conn, *bufio.ReadWriter, error)                        // 劫持，能双向互相发送信息
->	 func (T *response) Defer(call interface{}, args ... interface{}) error					 // 退回调用函数
-
-defer.go======================================================================================================================
->type deferFunc struct {                                                             // 过期函数
->    fun         reflect.Value                                                               // 函数
->    arg         []reflect.Value                                                             // 参数
->    argVariadic bool                                                                        // 有可变参数
->}
->type exitCall struct {																// 退出调用
->    expCall     []*deferFunc                                                                // 记录每个用户的函数，会话超时后关闭打开的对象
->}
->    func (s *exitCall) Defer(call interface{}, args ... interface{}) error                   // 会话过期后，调用函数
->    func (s *exitCall) Free()                                                                // 执行结束Defer
-
-tcpKeepAliveListener.go======================================================================================================================
->type tcpKeepAliveListener struct {                                                  // 连接设置
->    *net.TCPListener                                                                        // TCP监听
->    cc          *ConfigConn                                                                 // 配置连接
->}
->    func (ln tcpKeepAliveListener) Accept() (c net.Conn, err error)                         // 新建连接
->    func (ln tcpKeepAliveListener) Close() error                                            // 关闭监听
 
 server.go======================================================================================================================
 
 type Server struct {                                                                // 服务器
     *http.Server                                                                            // http服务器
     Listener            net.Listener                                                        // 监听
->	status				atomicBool															// 已经监听
->    cc                  *ConfigConn                                                         // 连接配置
->    cs                  *ConfigServer                                                       // 服务器配置
 }
     func (T *Server) ConfigListener(laddr string, CC *ConfigConn) error                     // 配置连接
     func (T *Server) ConfigServer(CS *ConfigServer) error                                   // 配置服务器
->    func configTLSFile(c *tls.Config, conf *ConfigServerTLS) error                          // 配置TLS
 type ServerGroup struct {                                                           // 服务器集群
     ErrorLog            *log.Logger                                                         // 错误日志文件
     SrvMan              *Map                                                                // map[ip:port]*Server
     SitePool            *SitePool                                                           // 站点的池
     Sites               *Sites                                                              // 站点集
-
->    exit                chan bool															// 退出
->	run					atomicBool															// 服务器启动了
->    backConfigDate      []byte                                                              // 备份配置数据。如果是相同数据，则不更新
->    config              *Config                                                             // 配置
 }
     func NewServerGroup() *ServerGroup                                                      // 服务器集群对象
     func (T *ServerGroup) SetServer(laddr string, srv *Server) error                        // 增加一个服务器
     func (T *ServerGroup) GetServer(laddr string) (*Server, bool)                           // 读取一个服务器
     func (T *ServerGroup) SetSitePool(pool *SitePool) error                                 // 设置站点池
     func (T *ServerGroup) SetSites(sites *Sites) error                                      // 设置站点集
->    func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request)                // 处理HTTP
->    func (T *ServerGroup) httpTypeByExtension(ext string, me map[string]string) string      // 文件类型扩展
->    func (T *ServerGroup) httpRootPath(dir *ConfigSiteDirectory, r *http.Request) string    // 根目录
->    func (T *ServerGroup) updatePluginConn(cSite *ConfigSite, site *Site)                   // 更新插件连接池
->    func (T *ServerGroup) updateSiteConfig(hosts *vmap.Map)                                 // 更新站点配置
->    func (T *ServerGroup) updateSitePoolAdd(cSite *ConfigSite)                              // 更新站点池增加
->    func (T *ServerGroup) updateSitePoolDel(names []string)                                 // 更新站点池删除
->    func (T *ServerGroup) getServer(laddr string) *Server                                   // 读取或增加HTTP服务器
->    func (T *ServerGroup) listenStart(laddr string, conf ConfigServers) error               // 启动监听端口
->    func (T *ServerGroup) listenStop(laddr string) (err error)                              // 关闭监听端口
->    func (T *ServerGroup) updateConfigServers(conf map[string]ConfigServers)                // 更新服务器
     func (T *ServerGroup) LoadConfigFile(p string) (conf *Config, ok bool, err error)       // 挂载本地配置文件
     func (T *ServerGroup) UpdateConfig(conf *Config) error                                  // 更新配置并把配置分配到各个地方
->    func (T *ServerGroup) updateConfigSites(conf *ConfigSites) error                        // 更新站点
->    func (T *ServerGroup) serve(laddr string, srv *Server) error                            // 服务器监听
     func (T *ServerGroup) Start() error                                                     // 启动服务集群
     func (T *ServerGroup) Close() error                                                     // 关闭服务集群
-
->    func strSliceContains(ss []string, s string) bool                                       // 判断切片中是否存在相同（字符串）
->    func httpError(w http.ResponseWriter, errorPage map[string]string, e string, code int)  // http错误
 
 TemplateDot.go======================================================================================================================
 type TemplateDoter interface{                                                       // 可以在模本中使用的方法
@@ -279,7 +190,8 @@ type TemplateDoter interface{                                                   
     Swap() Swaper                                                                           // 信息交换
     PluginRPC(name string) (PluginRPC, error)                                               // 插件RPC方法调用
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
-    Config() ConfigSite																		// 网站配置
+    Config() interface{}																	// 网站配置
+    Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
 }
 type TemplateDot struct {                                                           // 模板点
     Writed              bool                                                                // 模板或动态？
@@ -302,33 +214,18 @@ type TemplateDot struct {                                                       
     func (T *TemplateDot) PluginHTTP(name string) (PluginHTTP, error)                       // 插件HTTP方法调用
     func (T *TemplateDot) Swap() Swaper                                                     // 信息交换
     func (T *TemplateDot) Config() ConfigSite												// 网站的配置
-
+	func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error				// 退回调用
+	func (T *TemplateDot) Free()															// 释放调用
+	
 serverHandlerDynamic.go======================================================================================================================
 type ServerHandlerDynamic struct {                                                  // 处理动态页面文件
     RootPath, PagePath  string                                                              // 根目录, 页路径
     BuffSize            int64                                                               // 缓冲块大小
     Site                *Site                                                               // 网站配置
+   	LibReadFunc			func(tmplName, libname string) ([]byte, error)						// 读取库
 }
     func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request)     // 服务HTTP
 
-serverHandlerDynamicTemplate.go======================================================================================================================
->type shdtHeader struct{                                                             // 标头-模本-处理动态页面文件
->    filePath                []string                                                        // 文件路径, map[文件名或别名]文件路径
->    delimLeft,delimRight    string                                                          // 语法识别符
->}
->    func (h *shdtHeader) openFile(rootPath, pagePath  string) (map[string]string, error)    // 打开文件内容
->
->type serverHandlerDynamicTemplate struct {                                          // 模本-处理动态页面文件
->    rootPath, pagePath  string                                                              // 根目录, 页路径
->    buffSize            int64                                                               // 缓冲块大小
->    site                *Site                                                               // 网站配置
->    buf                 *bufio.Reader                                                       // 数据
->}
->    func (T *serverHandlerDynamicTemplate) serveHTTP(rw http.ResponseWriter, req *http.Request)  // 服务HTTP
->    func (T *serverHandlerDynamicTemplate) parse() (shdtHeader, string, error)              // 解析模本
->    func (T *serverHandlerDynamicTemplate) loadTmpl(delimLeft, delimRight string, t *template.Template, f map[string]string) (*template.Template, error) // 模本载入
->    func (T *serverHandlerDynamicTemplate) format(delimLeft, delimRight, c string) string    // 语法整合
->
 PluginHTTP.go======================================================================================================================
 type PluginHTTP interface{                                                          // HTTP插件接口
     ServeHTTP(w http.ResponseWriter, r *http.Request)                                       // 服务HTTP
@@ -338,7 +235,6 @@ type PluginHTTP interface{                                                      
     RegisterProtocol(scheme string, rt http.RoundTripper)                                   // 注册新协议
 }
 func ConfigPluginHTTPClient(c *PluginHTTPClient, config ConfigSitePlugin) (*PluginHTTPClient, error)    // 配置
->func configHTTPClient(c *PluginHTTPClient, config ConfigSitePlugin) (*PluginHTTPClient, error)          // 配置
 type PluginHTTPClient struct{                                                       // 插件HTTP客户端
     Tr          *http.Transport                                                             // 传输
     Scheme      string                                                                      // 协议（默认）
@@ -346,15 +242,6 @@ type PluginHTTPClient struct{                                                   
     Addr        string                                                                      // 地址（默认）
 }
     func (T *PluginHTTPClient) Connection() (PluginHTTP, error)                             // 连接
->type pluginHTTP struct{                                                             // 插件HTTP
->    client  *PluginHTTPClient                                                               // 客户端
->}
->    func (T *pluginHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request)                  // 服务器处理
->    func (T *pluginHTTP) RoundTrip(r *http.Request) (resp *http.Response, err error)        // 单一的HTTP请求
->    func (T *pluginHTTP) fillCompleteURL(r *http.Request)                                   // 补充完整URL
->    func (T *pluginHTTP) CancelRequest(r *http.Request)                                     // 取消HTTP请求
->    func (T *pluginHTTP) CloseIdleConnections(t)                                            // 关闭空闲连接
->    func (T *pluginHTTP) RegisterProtocol(scheme string, rt http.RoundTripper)              // 注册新协议
 
 PluginRPC.go======================================================================================================================
 type PluginRPC interface{                                                           // RPC插件接口
@@ -364,56 +251,24 @@ type PluginRPC interface{                                                       
     Close() error                                                                           // 关闭连接
 }
 func ConfigPluginRPCClient(c *PluginRPCClient, config ConfigSitePlugin) (*PluginRPCClient, error)       // 配置
->func configRPCClient(c *PluginRPCClient, config ConfigSitePlugin) (*PluginRPCClient, error)             // 配置
 type PluginRPCClient struct {                                                       // 插件RPC客户端
     ConnPool            *vconnpool.ConnPool                                                 // 连接池
     Path                string                                                              // 路径
     Addr                string                                                              // 地址
 }
     func(T *PluginRPCClient) Connection() (PluginRPC, error)                                // 连接
->    func connentRPCClient(conn net.Conn, p string) (*rpc.Client, error)                     // 连接
->type pluginRPC struct{                                                              // 插件RPC
->    *rpc.Client                                                                             // 配置端
->    conn    net.Conn                                                                        // 连接
->}
->    func (T *pluginRPC) Register(value interface{})                                         // RPC注册类型，仅用于RPC客户端。默认gob编码
->    func (T *pluginRPC) Call(name string, arg interface{}) (interface{}, error)             // 调用RPC，连接TCP，等待远程返回数据。
->    func (T *pluginRPC) Close() error                                                       // 关闭RPC连接
->    func (T *pluginRPC) Discard() error                                                     // 废弃, RPC这条连接不再回收
 
 serverHandlerStatic.go======================================================================================================================
->type shshRange struct{                                                              // Range-标头-处理静态页面文件
->    seek, length    int64                                                                   // 偏移，长度
->}
->type serverHandlerStaticHeader struct{                                              // 标头-处理静态页面文件
->    fileInfo    os.FileInfo                                                                 // 文件信息
->    wh          http.Header                                                                 // 响应HTTP头
->}
->    func (T *serverHandlerStaticHeader) setETag()                                           // 设置内容不变标识
->    func (T *serverHandlerStaticHeader) etag() string                                       // 内容不变标识
->    func (T *serverHandlerStaticHeader) ranges(ranges string) (r []shshRange, n int64, err error)   // 格式化Range，并过滤无效的
->    func (T *serverHandlerStaticHeader) setLastModified()                                   // 设置文件最后修改时间
->    func (T *serverHandlerStaticHeader) lastModified() string                               // 文件最后修改时间
->    func (T *serverHandlerStaticHeader) setDate()                                           // 设置日期时间
->    func (T *serverHandlerStaticHeader) setContentLength()                                  // 设置文件大小字节
->    func (T *serverHandlerStaticHeader) contentLength() string                              // 文件大小字节
->    func (T *serverHandlerStaticHeader) setAcceptRanges()                                   // 设置Range支持的类型
->    func (T *serverHandlerStaticHeader) setPageExpired(pageExpired int64)                   // 设置页面固定过期时间
->    func (T *serverHandlerStaticHeader) addFixedHeader(h http.Header)                       // 设置配置中的固定Header
 type ServerHandlerStatic struct{													// 静态页
     RootPath, PagePath  string          													// 根目录, 页路径
 	PageExpired			int64																// 页面过期时间（秒为单位）
 	BuffSize			int64																// 缓冲块大小
->    fileInfo        	os.FileInfo         												// 文件基本信息
 }
     func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Request)      // 服务HTTP
->    func (T *ServerHandlerStatic) header(rw http.ResponseWriter, req *http.Request) ([]shshRange, error)  // 处理静态文件的Header 报头
->    func (T *ServerHandlerStatic) body(rw http.ResponseWriter, rangeBlock []shshRange)      // 处理静态文件的 body 数据
 
 route.go======================================================================================================================
 type Route struct{																	// 路由器
 	HandlerError	func(w http.ResponseWriter, r *http.Request)							// 错误网址访问处理
->	rt       		sync.Map																// 路由表 map[string]
 }
 	func (T *Route) HandleFunc(url string,  handler func(w http.ResponseWriter, r *http.Request)	// 绑定处理函数
 	func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request)								// 服务HTTP

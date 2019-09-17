@@ -4,6 +4,7 @@ import(
 	"net/http"
     "github.com/456vv/vmap/v2"
 )
+
 // TemplateDoter 可以在模本中使用的方法
 type TemplateDoter interface{
     PKG(pkg string) map[string]interface{}                                                  // 调用包函数
@@ -14,13 +15,13 @@ type TemplateDoter interface{
     ResponseWriter() http.ResponseWriter                                                    // 数据写入响应
     Session() Sessioner                                                                     // 用户的会话缓存
     Global() Globaler                                                                       // 全站缓存
-    Cookie() Cookier                                                                         // 用户的Cookie
+    Cookie() Cookier                                                                        // 用户的Cookie
     Swap() Swaper                                                                           // 信息交换
     PluginRPC(name string) (PluginRPC, error)                                               // 插件RPC方法调用
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
-    Config() ConfigSite																		// 网站配置
+    Config() interface{}																	// 网站配置
+    Defer(call interface{}, args ... interface{}) error										// 退回调用
 }
-
 
 //模板点
 type TemplateDot struct {
@@ -112,14 +113,14 @@ func (T *TemplateDot) Cookie() Cookier {
 //	error           错误
 func (T *TemplateDot) PluginRPC(name string) (PluginRPC, error){
 	if T.Site == nil || T.Site.Plugin == nil {
-		return nil, fmt.Errorf("vweb.TemplateDot.PluginHTTP: 需要设置 .Site 或 .Site.Plugin 字段。")
+		return nil, fmt.Errorf("vweb: 需要设置 .Site 或 .Site.Plugin 字段。")
 	}
     inf, ok := T.Site.Plugin.IndexHas("RPC", name)
     if ok {
         p := inf.(*PluginRPCClient)
 		return p.Connection()
     }
-   	return nil, fmt.Errorf("vweb.TemplateDot.PluginRPC: 插件 %s 没有开启支持 RPC 功能", name)
+   	return nil, fmt.Errorf("vweb: 插件 %s 没有开启支持 RPC 功能", name)
 }
 
 //PluginHTTP 插件HTTP方法调用
@@ -128,14 +129,14 @@ func (T *TemplateDot) PluginRPC(name string) (PluginRPC, error){
 //	error               错误
 func (T *TemplateDot) PluginHTTP(name string) (PluginHTTP, error){
 	if T.Site == nil || T.Site.Plugin == nil {
-		return nil, fmt.Errorf("vweb.TemplateDot.PluginHTTP: 需要设置 .Site 或 .Site.Plugin 字段。")
+		return nil, fmt.Errorf("vweb: 需要设置 .Site 或 .Site.Plugin 字段。")
 	}
     inf, ok := T.Site.Plugin.IndexHas("HTTP", name)
     if ok {
         p := inf.(*PluginHTTPClient)
 		return p.Connection()
     }
-   	return nil, fmt.Errorf("vweb.TemplateDot.PluginHTTP: 插件 %s 没有开启支持 HTTP 功能", name)
+   	return nil, fmt.Errorf("vweb: 插件 %s 没有开启支持 HTTP 功能", name)
 }
 
 //Swap 信息交换
@@ -146,9 +147,28 @@ func (T *TemplateDot) Swap() Swaper {
 
 //Config 网站的配置信息
 //	ConfigSite	配置
-func (T *TemplateDot) Config() ConfigSite {
+func (T *TemplateDot) Config() interface{} {
 	if T.Site == nil || T.Site.Config == nil {
-		return ConfigSite{}
+		return nil
 	}
-	return *T.Site.Config
+	if conf, ok := T.Site.Config.(*ConfigSite); ok {
+		return *conf
+	}
+	return T.Site.Config
+}
+
+//Defer 在用户会话时间过期后，将被调用。
+//	call interface{}            函数
+//	args ... interface{}        参数或更多个函数是函数的参数
+//	error                       错误
+//  例：
+//	.Defer(fmt.Println, "1", "2")
+//	.Defer(fmt.Printf, "%s", "汉字")
+func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error {
+    return T.ec.Defer(call, args...)
+}
+
+//Free 释放Defer
+func (T *TemplateDot) Free() {
+    T.ec.Free()
 }

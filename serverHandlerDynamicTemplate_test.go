@@ -2,12 +2,11 @@ package vweb
 import(
     "testing"
     "bufio"
-    "log"
     "bytes"
     "text/template"
 )
 
-func Test_serverHandlerDynamicTemplate_parse(t *testing.T) {
+func Test_serverHandlerDynamicTemplate_separation(t *testing.T) {
 	var tests = []struct{
 		content 	[]byte
         err         bool
@@ -64,9 +63,7 @@ func Test_serverHandlerDynamicTemplate_parse(t *testing.T) {
 		}
 		bytesBuffer := bytes.NewBuffer(v.content)
 		bufioReader := bufio.NewReader(bytesBuffer)
-
-		shdt.buf = bufioReader
-		_, _, err := shdt.parse()
+		_, _, err := shdt.separation(bufioReader)
         if err != nil && !v.err {
         	t.Fatal(err)
         }
@@ -74,12 +71,13 @@ func Test_serverHandlerDynamicTemplate_parse(t *testing.T) {
 }
 
 
-func Test_shdtHeader_openFile(t *testing.T) {
+func Test_shdtHeader_openIncludeFile(t *testing.T) {
     var(
         rootPath = "./test/wwwroot"
-        pagePath = "/template/t.bw"
+        pagePath = "/template/1.tmpl"
     )
     var tests = []struct{
+    	
         shdth   shdtHeader
         length  int
     }{
@@ -92,10 +90,10 @@ func Test_shdtHeader_openFile(t *testing.T) {
         {shdth:shdtHeader{filePath: []string{"./2.tmpl", "../5.tmpl", "../../"},},length: 0},// "../../" 表示是根目录 "./test/wwwroot"，因为不能跨越根目录。同时也不是一个有效的文件。
         {shdth:shdtHeader{filePath: []string{"./2.tmpl", "3.tmpl", "t.bw"},},length: 3},
     }
-    for _, v := range tests {
-        m, err :=v.shdth.openFile(rootPath, pagePath)
+    for index, v := range tests {
+        m, err :=v.shdth.openIncludeFile(rootPath, pagePath)
         if len(m) != v.length{
-            log.Println(m, err)
+        	t.Fatalf("%d %v",index, err)
         }
     }
 
@@ -131,10 +129,10 @@ func Test_serverHandlerDynamicTemplate_format(t *testing.T) {
 
     }
     shdt := &serverHandlerDynamicTemplate{}
-    for _, v := range tests {
+    for index, v := range tests {
         content := shdt.format(v.shdth.delimLeft, v.shdth.delimRight, v.content)
         if content != v.result {
-            log.Println(content)
+           t.Fatalf("%d %v", index, content)
         }
     }
 }
@@ -160,19 +158,18 @@ func Test_serverHandlerDynamicTemplate_loadTmpl(t *testing.T) {
         },
     }
     shdt := serverHandlerDynamicTemplate{}
-    for _, v := range tests {
-        t := template.New("test")
-        t.Delims(v.shdth.delimLeft, v.shdth.delimRight)
-        t, err := shdt.loadTmpl(v.shdth.delimLeft, v.shdth.delimRight, t, v.content)
+    for index, v := range tests {
+        t1 := template.New("test")
+        t1.Delims(v.shdth.delimLeft, v.shdth.delimRight)
+        t1, err := shdt.loadTmpl(v.shdth.delimLeft, v.shdth.delimRight, t1, v.content)
 
         if err != nil && !v.err {
-            log.Printf("加载模板(%s)", v.content)
-            log.Printf("加载模板失败，错误：%v\r\n", err)
+            t.Fatalf("%d 加载模板(%s)，错误：%v", index, v.content, err)
         }
         if err != nil {continue}
-        ts := t.Templates()
+        ts := t1.Templates()
         if len(ts) != len(v.content) {
-            log.Println(t)
+            t.Fatalf("%d %v", index, ts)
         }
     }
 }

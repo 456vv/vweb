@@ -89,7 +89,7 @@ func (T *SitePool) Close() error {
 type Site struct {
     Sessions            *Sessions                                                           // 会话集
     Global              Globaler                                                            // Global
-    Config              *ConfigSite                                                         // Config
+    Config              interface{}                                                         // Config
     Plugin				*vmap.Map															// 插件map[type]map[name]interface{}
 }
 

@@ -13,6 +13,7 @@ type Sessioner interface {
     GetHas(key interface{}) (val interface{}, ok bool)
     Del(key interface{})
     SetExpired(key interface{}, d time.Duration)
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))
     Reset()
     Defer(call interface{}, args ... interface{}) error
     Free()

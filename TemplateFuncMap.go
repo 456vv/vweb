@@ -3,7 +3,7 @@ import(
     //"strings"
     "reflect"
     "fmt"
-    "unsafe"
+   "github.com/456vv/vweb/dynamic/builtin"
 )
 
 /*
@@ -54,7 +54,6 @@ func goCallSlice(f interface{}, name string, args ...interface{}) {
 
 // 模板函数映射
 var TemplateFuncMap      = map[string]interface{}{
-	"Return":func(){},
     "ForMethod": ForMethod,
     "ForType": ForType,
     "TypeSelect": TypeSelect,
@@ -80,178 +79,144 @@ var TemplateFuncMap      = map[string]interface{}{
     "StringToRune": func(s string) []rune {return []rune(s)},
     "RuneToString": func(r []rune) string {return string(r)},
     "ByteToString": func(b []byte) string {return string(b)},
-    "_Append_": func(s []interface{}, v ...interface{}) interface{} {return append(s, v...)},
-    "Pointer":func(inf interface{}) unsafe.Pointer {return unsafe.Pointer(reflect.ValueOf(inf).Pointer())},
-    "Uintptr":func(pointer unsafe.Pointer) uintptr {return uintptr(pointer)},
+    "Append": builtin.Append,			//Append([]T, value...)
+    "Pointer":builtin.Pointer,
+    "Uintptr":builtin.Uintptr,
     "_Uintptr_": func(s []uintptr, v ...uintptr) []uintptr {return append(s, v...)},
     "_Uintptr": func(s uintptr) *uintptr {return &s},
     "Uintptr_": func(s *uintptr) uintptr {return *s},
     "SetUintptr": func(s *uintptr, v uintptr) *uintptr {*s = v;return s},
-    "Byte":func(pointer unsafe.Pointer) *byte {return (*byte)(unsafe.Pointer(pointer))},
+    "Byte":builtin.Byte,
     "_Byte_": func(s []byte, v ...byte) []byte {return append(s, v...)},
     "_Byte": func(s byte) *byte {return &s},
     "Byte_": func(s *byte) byte {return *s},
     "SetByte": func(s *byte, v byte) *byte {*s = v;return s},
-    "Rune":func(pointer unsafe.Pointer) *rune {return (*rune)(unsafe.Pointer(pointer))},
+    "Rune":builtin.Rune,
     "_Rune_": func(s []rune, v ...rune) []rune {return append(s, v...)},
     "_Rune": func(s rune) *rune {return &s},
     "Rune_": func(s *rune) rune {return *s},
     "SetRune": func(s *rune, v rune) *rune {*s = v;return s},
-    "String":func(pointer unsafe.Pointer) *string {return (*string)(unsafe.Pointer(pointer))},
+    "String":builtin.String,
     "_String_": func(s []string, v ...string) []string {return append(s, v...)},
     "_String": func(s string) *string {return &s},
     "String_": func(s *string) string {return *s},
     "SetString": func(s *string, v string) *string {*s = v;return s},
-    "Int":func(pointer unsafe.Pointer) *int {return (*int)(unsafe.Pointer(pointer))},
+    "Bool":builtin.Bool,
+    "Int":builtin.Int,
     "_Int_": func(s []int, i ...int) []int {return append(s, i...)},
     "_Int": func(i int) *int {return &i},
     "Int_": func(i *int) int {return *i},
     "SetInt": func(i *int, v int) *int {*i = v;return i},
-    "Int8":func(pointer unsafe.Pointer) *int8 {return (*int8)(unsafe.Pointer(pointer))},
+    "Int8":builtin.Int8,
     "_Int8_": func(s []int8, i ...int8) []int8 {return append(s, i...)},
-    "Int16":func(pointer unsafe.Pointer) *int16 {return (*int16)(unsafe.Pointer(pointer))},
+    "Int16":builtin.Int16,
     "_Int16_": func(s []int16, i ...int16) []int16 {return append(s, i...)},
-    "Int32":func(pointer unsafe.Pointer) *int32 {return (*int32)(unsafe.Pointer(pointer))},
+    "Int32":builtin.Int32,
     "_Int32_": func(s []int32, i ...int32) []int32 {return append(s, i...)},
     "_Int32": func(i int32) *int32 {return &i},
     "Int32_": func(i *int32) int32 {return *i},
     "SetInt32": func(i *int32, v int32) *int32 {*i = v;return i},
-    "Int64":func(pointer unsafe.Pointer) *int64 {return (*int64)(unsafe.Pointer(pointer))},
+    "Int64":builtin.Int64,
     "_Int64_": func(s []int64, i ...int64) []int64 {return append(s, i...)},
     "_Int64": func(i int64) *int64 {return &i},
     "Int64_": func(i *int64) int64 {return *i},
     "SetInt64": func(i *int64, v int64) *int64 {*i = v;return i},
-    "Uint":func(pointer unsafe.Pointer) *uint {return (*uint)(unsafe.Pointer(pointer))},
+    "Uint":builtin.Uint,
     "_Uint_": func(s []uint, i ...uint) []uint {return append(s, i...)},
     "_Uint": func(i uint) *uint {return &i},
     "Uint_": func(i *uint) uint {return *i},
     "SetUint": func(i *uint, v uint) *uint {*i = v;return i},
-    "Uint8":func(pointer unsafe.Pointer) *uint8 {return (*uint8)(unsafe.Pointer(pointer))},
+    "Uint8":builtin.Uint8,
     "_Uint8_": func(s []uint8, i ...uint8) []uint8 {return append(s, i...)},
-    "Uint16":func(pointer unsafe.Pointer) *uint16 {return (*uint16)(unsafe.Pointer(pointer))},
+    "Uint16":builtin.Uint16,
     "_Uint16_": func(s []uint16, i ...uint16) []uint16 {return append(s, i...)},
-    "Uint32":func(pointer unsafe.Pointer) *uint32 {return (*uint32)(unsafe.Pointer(pointer))},
+    "Uint32":builtin.Uint32,
     "_Uint32_": func(s []uint32, i ...uint32) []uint32 {return append(s, i...)},
     "_Uint32": func(i uint32) *uint32 {return &i},
     "Uint32_": func(i *uint32) uint32 {return *i},
     "SetUint32": func(i *uint32, v uint32) *uint32 {*i = v;return i},
-    "Uint64":func(pointer unsafe.Pointer) *uint64 {return (*uint64)(unsafe.Pointer(pointer))},
+    "Uint64":builtin.Uint64,
     "_Uint64_": func(s []uint64, i ...uint64) []uint64 {return append(s, i...)},
     "_Uint64": func(i uint64) *uint64 {return &i},
     "Uint64_": func(i *uint64) uint64 {return *i},
     "SetUint64": func(i *uint64, v uint64) *uint64 {*i = v;return i},
-    "Float32":func(pointer unsafe.Pointer) *float32 {return (*float32)(unsafe.Pointer(pointer))},
+    "Float32":builtin.Float32,
     "_Float32_": func(s []float32, f ...float32) []float32 {return append(s, f...)},
     "_Float32": func(f float32) *float32 {return &f},
     "Float32_": func(f *float32) float32 {return *f},
     "SetFloat32": func(f *float32, v float32) *float32 {*f = v;return f},
-    "Float64":func(pointer unsafe.Pointer) *float64 {return (*float64)(unsafe.Pointer(pointer))},
+    "Float64":builtin.Float64,
     "_Float64_": func(s []float64, f ...float64) []float64 {return append(s, f...)},
     "_Float64": func(f float64) *float64 {return &f},
     "Float64_": func(f *float64) float64 {return *f},
     "SetFloat64": func(f *float64, v float64) *float64 {*f = v;return f},
-    "Complex64":func(pointer unsafe.Pointer) *complex64 {return (*complex64)(unsafe.Pointer(pointer))},
+    "Complex64":builtin.Complex64,
     "_Complex64_": func(s []complex64, c ...complex64) []complex64 {return append(s, c...)},
     "_Complex64": func(c complex64) *complex64 {return &c},
     "Complex64_": func(c *complex64) complex64 {return *c},
     "SetComplex64": func(c *complex64, v complex64) *complex64 {*c = v;return c},
-    "Complex128":func(pointer unsafe.Pointer) *complex128 {return (*complex128)(unsafe.Pointer(pointer))},
+    "Complex128":builtin.Complex128,
     "_Complex128_": func(s []complex128, c ...complex128) []complex128 {return append(s, c...)},
     "_Complex128": func(c complex128) *complex128 {return &c},
     "Complex128_": func(c *complex128) complex128 {return *c},
     "SetComplex128": func(c *complex128, v complex128) *complex128 {*c = v;return c},
+    "Value":builtin.Value,						//Value(v)
+    "Type":builtin.Type,						//Type(v)
+    "Panic":builtin.Panic,						//Panic(v)
+    "Make":builtin.Make,						//Make([]T, length, cap)|Make([T]T, length)|Make(Chan, length)
+    "MakeMap":builtin.MakeMap,					//MakeMap(T)
+    "MapOf":builtin.MapOf,						//MapOf(T,T)
+    "MapFrom":builtin.MapFrom,					//MapFrom(T1,V1, T2,V2, ...)
+    "Delete":builtin.Delete,					//Delete(map[T]T, "key")
+    "Set":builtin.Set,							//Set([]T, 位置0,值1, 位置1,值2, 位置2,值3)|Set(map[T]T, 键名0,值1, 键名1,值2, 键名2,值3)|Set(struct{}, 名称0,值1, 名称1,值2, 名称2,值3)
+    "SetIndex":builtin.SetIndex,				//SetIndex(map[T]T/[]T/struct{}, key, val)
+    "Get":builtin.Get,							//Get(map[T]T/[]T/struct{}/string/number, key)
+    "Len":builtin.Len,							//Len([]T/string/map[T]T)
+    "Cap":builtin.Cap,							//Cap([]T)
+    "GetSlice":builtin.GetSlice,				//GetSlice([]T, 1, 5)
+    "Copy":builtin.Copy,						//Copy([]T, []T)
+    "SliceOf":builtin.SliceOf,					//SliceOf(T)
+    "MakeSlice":builtin.MakeSlice,				//MakeSlice(T, len, cap)
+    "SliceFrom":builtin.SliceFrom,				//SliceFrom(值0, 值1,...)
+    "StructInit":builtin.StructInit,			//StructInit(struct{}, key1, val1, ...)
+    "MapInit":builtin.MapInit,					//MapInit(map[T]T, key1, val0, ...)
+    "Compute": builtin.Compute,					//Compute(1, "+", 2)
+    "Inc":builtin.Inc,							//Inc returns a+1
+    "Dec":builtin.Dec,							//Dec returns a-1
+    "Neg":builtin.Neg,							//Neg returns -a
+    "Mul":builtin.Mul,							//Mul returns a*b
+    "Quo":builtin.Quo,							//Quo returns a/b
+    "Mod":builtin.Mod,							//Mod returns a%b
+    "Add":builtin.Add,							//Add returns a+b
+    "Sub":builtin.Sub,							//Sub returns a-b
+    "BitLshr":builtin.BitLshr,					//BitLshr returns a << b
+    "BitRshr":builtin.BitRshr,					//BitRshr returns a >> b
+    "BitXor":builtin.BitXor,					//BitXor returns a ^ b
+    "BitAnd":builtin.BitAnd,					//BitAnd returns a & b
+    "BitOr":builtin.BitOr,						//BitOr returns a | b
+    "BitNot":builtin.BitNot,					//BitNot returns ^a
+    "BitAndNot":builtin.BitAndNot,				//BitAndNot returns a &^ b
+    "Not":builtin.Not,							//Not returns !a
+    "LT":builtin.LT,							//LT returns a < b
+    "GT":builtin.GT,							//GT returns a > b
+    "LE":builtin.LE,							//LE returns a <= b
+    "GE":builtin.GE,							//GE returns a >= b
+    "EQ":builtin.EQ,							//EQ returns a == b
+    "NE":builtin.NE,							//NE returns a != b
+    "TrySend":builtin.TrySend,					//TrySend(*reflect.Value, value)	不阻塞
+    "TryRecv":builtin.TryRecv,					//TryRecv(*reflect.Value)			不阻塞
+    "Send":builtin.Send,						//Send(*reflect.Value, value)
+    "Recv":builtin.Recv,						//Recv(*Chan)
+    "Close":builtin.Close,						//Close(*Chan)
+    "ChanOf":builtin.ChanOf,					//ChanOf(T)
+    "MakeChan":builtin.MakeChan,				//MakeChan(T, size)
+    "Max":builtin.Max,							//Max(a1, a2, ...)
+    "Min":builtin.Min,							//Min(a1, a2, ...)
     "Error": func(v interface{}) bool {
 		return templateFuncMapError(v) != nil
     },
     "NotError": func(v interface{}) bool {
        return templateFuncMapError(v) == nil
-    },
-    "Compute": func(x interface{}, symbol string, y interface{}) (i interface{}, err error) {
-        xx := reflect.ValueOf(x)
-        yy := reflect.ValueOf(y)
-        xx = InDirect(xx)
-        yy = InDirect(yy)
-        if xx.Kind() != yy.Kind() {
-            return 0, fmt.Errorf("Compute: 两个类型不相等？%v != %v", xx.Kind(), yy.Kind())
-        }
-        switch xx.Kind() {
-        case reflect.String:
-        	XS := xx.String()
-            YS := yy.String()
-            var XYS string
-            switch symbol {
-                case "+":XYS = XS+YS
-                default:
-                    err = fmt.Errorf("Compute: 该类型不支持的算法(%s)？", symbol)
-            }
-            return XYS, err
-        case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-            XI := xx.Int()
-            YI := yy.Int()
-            var XYI int64
-            switch symbol {
-                case "+":XYI = XI+YI
-                case "-":XYI = XI-YI
-                case "*":XYI = XI*YI
-                case "/":XYI = XI/YI
-                case "%":XYI = XI%YI
-                case "&":XYI = XI&YI
-                case "|":XYI = XI|YI
-                case "^":XYI = XI^YI
-                case "&^":XYI = XI&^YI
-                default:
-                    err = fmt.Errorf("Compute: 该类型不支持的算法(%s)？", symbol)
-            }
-            return XYI, err
-        case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-            XU := xx.Uint()
-            YU := yy.Uint()
-            var XYU uint64
-            switch symbol {
-                case "+":XYU = XU+YU
-                case "-":XYU = XU-YU
-                case "*":XYU = XU*YU
-                case "/":XYU = XU/YU
-                case "%":XYU = XU%YU
-                case "&":XYU = XU&YU
-                case "|":XYU = XU|YU
-                case "^":XYU = XU^YU
-                case "&^":XYU = XU&^YU
-                case "<<":XYU = XU<<YU
-                case ">>":XYU = XU>>YU
-                default:
-                    err = fmt.Errorf("Compute: 该类型不支持的算法(%s)？", symbol)
-            }
-            return XYU, err
-        case reflect.Float32, reflect.Float64:
-            XF := xx.Float()
-            YF := yy.Float()
-            var XYF float64
-            switch symbol {
-                case "+":XYF = XF+YF
-                case "-":XYF = XF-YF
-                case "*":XYF = XF*YF
-                case "/":XYF = XF/YF
-                default:
-                    err = fmt.Errorf("Compute: 该类型不支持的算法(%s)？", symbol)
-            }
-            return XYF, err
-        case reflect.Uintptr:
-            XP := xx.UnsafeAddr()
-            YP := yy.UnsafeAddr()
-            var XYP uintptr
-            switch symbol {
-                case "+":XYP = XP+YP
-                case "-":XYP = XP-YP
-                case "*":XYP = XP*YP
-                case "/":XYP = XP/YP
-                default:
-                    err = fmt.Errorf("Compute: 该类型不支持的算法(%s)？", symbol)
-            }
-            return XYP, err
-       	default:
-       		 return nil, fmt.Errorf("Compute: 这是不符合计算的类型(%v)？", xx.Kind())
-        }
     },
 }
 

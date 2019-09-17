@@ -23,9 +23,9 @@ func ForMethod(x interface{}) string {
 //	x interface{}     类型
 //	string            字符串
 func ForType(x interface{}) string {
-    return forType(x, "")
+    return forType(x, "", "", 0)
 }
-func forType(x interface{}, str string) string {
+func forType(x interface{}, str string, flx string, floor int) string {
     var (
         v, z reflect.Value
         f reflect.StructField
@@ -36,7 +36,7 @@ func forType(x interface{}, str string) string {
 
     v = reflect.ValueOf(x)
     v = inDirect(v)
-    if v.Kind() == reflect.Invalid || v.Kind() != reflect.Struct {
+    if v.Kind() != reflect.Struct {
         s += fmt.Sprintf("无法解析(%s): %#v\r\n", v.Kind(), x)
         return s
     }
@@ -45,15 +45,14 @@ func forType(x interface{}, str string) string {
         f = t.Field(i)
         z = inDirect(v.Field(i))
         k = typeSelect(z)
-        s += fmt.Sprintf("%s %v %v %v\t%v `%v` = %v\r\n", str, f.Index, f.PkgPath, f.Name, f.Type, f.Tag, k)
+        s += fmt.Sprintf("%s %v %v %v\t%v `%v` = %v\r\n", flx+str, f.Index, f.PkgPath, f.Name, f.Type, f.Tag, k)
         if z.Kind() == reflect.Struct && z.CanInterface() {
-            s += forType(z.Interface(), "    "+str)
+        	floor++
+            s += forType(z.Interface(), str, flx+"  ", floor)
         }
     }
     return s
 }
-
-
 
 //TypeSelect 类型选择
 //	v reflect.Value        映射一种未知类型的变量
