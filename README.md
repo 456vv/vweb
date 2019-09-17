@@ -231,7 +231,10 @@ type ServerHandlerDynamic struct {                                              
    	LibReadFunc			func(tmplName, libname string) ([]byte, error)						// 读取库
 }
     func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request)     // 服务HTTP
-
+	func (T *ServerHandlerDynamic) ParseText(content, name string) error					// 解析文本
+	func (T *ServerHandlerDynamic) ParseFile(path string) error								// 解析文件
+	func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error							// 解析
+	func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) error		// 执行模板
 PluginHTTP.go======================================================================================================================
 type PluginHTTP interface{                                                          // HTTP插件接口
     ServeHTTP(w http.ResponseWriter, r *http.Request)                                       // 服务HTTP
