@@ -61,6 +61,9 @@ type ConfigSitePlugin struct {
     ExpectContinueTimeout   int64                                                           // 发送Expect: 100-continue标头的PUT请求超时
     ProxyConnectHeader		http.Header 													// CONNECT代理请求中 增加标头 map[string][]string
     MaxResponseHeaderBytes	int64															// 最大的响应标头限制（字节）
+    WriteBufferSize			int																// 写缓冲大小
+    ReadBufferSize			int																// 读缓冲大小
+    ForceAttemptHTTP2		bool															// 是否支持http2
 }
 
 //ConfigSitePlugins 配置-插件

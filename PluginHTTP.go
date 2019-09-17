@@ -62,6 +62,9 @@ func configHTTPClient(c *PluginHTTPClient, config ConfigSitePlugin) (*PluginHTTP
 	c.Tr.MaxIdleConnsPerHost	= config.MaxIdleConnsPerHost
 	c.Tr.MaxConnsPerHost		= config.MaxConnsPerHost
 	c.Tr.MaxResponseHeaderBytes = config.MaxResponseHeaderBytes
+	c.Tr.ReadBufferSize			= config.ReadBufferSize
+	c.Tr.ForceAttemptHTTP2		= config.ForceAttemptHTTP2
+	c.Tr.WriteBufferSize		= config.WriteBufferSize
 		
 	if config.ProxyURL != "" {
 		c.Tr.Proxy = func(r *http.Request) (*url.URL, error){
