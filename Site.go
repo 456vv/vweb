@@ -54,6 +54,7 @@ func (T *SitePool) Start() error {
     		case <-T.setTick:
 		        //判断过期时间是否有变动
 		        if T.recoverSessionTick != rst {
+    				tick.Stop()
 		        	rst 	= T.recoverSessionTick
 		        	tick 	= time.NewTicker(rst)
 		        }

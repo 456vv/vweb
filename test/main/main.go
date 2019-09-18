@@ -79,6 +79,7 @@ func main() {
 	sg.ErrorLog.SetOutput(logFile)
 	sg.LoadConfigFile(*fConfigFile)
 	timeTicker := time.NewTicker(time.Duration(*fTickRefreshConfig)*time.Second)
+	defer timeTicker.Stop()
 	go func(){
 		for _ = range timeTicker.C {
 			_,ok, err := sg.LoadConfigFile(*fConfigFile)
