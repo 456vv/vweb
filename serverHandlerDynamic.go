@@ -10,8 +10,6 @@ import (
     "time"
     "os"
     "errors"
-    //"github.com/qiniu/qlang"
-	//_ "github.com/qiniu/qlang/lib/builtin" // 导入 builtin 包
 )
 
 
