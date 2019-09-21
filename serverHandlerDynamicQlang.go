@@ -86,22 +86,42 @@ func (T *serverHandlerDynamicQlang) parse(r *bufio.Reader) (err error){
 	cl.SetLibs(filepath.Dir(filePath)+"|"+T.rootPath)
 	
 	//库加载函数
-	if T.libReadFunc != nil {
-		qcl.ReadFile = func(file string) ([]byte, error){
-			//include
+	qcl.ReadFile = func(file string) ([]byte, error){
+		//include
+		if T.libReadFunc != nil {
 			return T.libReadFunc(T.fileName, file)
 		}
-		qcl.FindEntry = func(file string, libs []string) (string, error){
-			//import
-			b, err := T.libReadFunc(T.fileName, file)
-			return string(b), err
-		}
+		
+		return ioutil.ReadFile(T.defaultLibPath(file))
+	}
+	qcl.FindEntry = func(file string, libs []string) (string, error){
+		//import
+		return T.defaultLibPath(file), nil
 	}
 	T.start = ctx.Code.Len()
-	T.end = cl.Cl(cotnext, filePath)
+	T.end = cl.Cl(cotnext, T.pagePath)
 	T.pctx = ctx
 	cl.Done()
 	return nil
+}
+func (T *serverHandlerDynamicQlang) defaultLibPath(libName string) string {
+	
+	//是绝对路径
+	if filepath.IsAbs(libName) {
+		return libName
+	}
+	
+	var (
+		dirPath		= filepath.Dir(T.pagePath)
+		filePath	string
+	 ) 
+	if libName[0] == '/' || libName[0] == '\\' {
+		filePath = filepath.Clean(libName)
+	}else{
+		filePath = filepath.Join(dirPath, libName)
+		filePath = filepath.Clean(filePath)
+    }
+    return filepath.Join(T.rootPath, filePath)
 }
 
 //执行

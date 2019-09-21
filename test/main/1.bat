@@ -1,5 +1,6 @@
 set GO111MODULE=on
-
+set GOPROXY=https://mirrors.aliyun.com/goproxy/,https://goproxy.cn,https://gocenter.io,https://proxy.golang.org,https://goproxy.io,https://athens.azurefd.net,direct
+set GOSUMDB=off
 
 set GOOS=windows
 set GOARCH=amd64

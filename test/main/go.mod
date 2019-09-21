@@ -5,7 +5,6 @@ require (
 	github.com/456vv/vcipher v1.0.0
 	github.com/456vv/vweb v1.3.4
 	github.com/fsnotify/fsnotify v1.4.7
-	github.com/qiniu/qlang v0.0.0
 	golang.org/x/sys v0.0.0-00010101000000-000000000000 // indirect
 )
 

@@ -20,13 +20,13 @@ func Test_serverHandlerDynamicQlang_parseText(t *testing.T) {
 		{context:`a=R.A;W.WriteString(a)`, name:"./test/qlang/main.ql", result:"a", dot:&struct{A string}{A:"a"}},
 		{context:`import "bar";W.WriteString(bar.bb)`, name:"./test/wwwroot/qlang/main.ql", result:"1", dot:""},
 		{context:`include "bar/main.ql";W.WriteString(bb);`, name:"/test/wwwroot/qlang/main.ql", result:"1", dot:""},
+		{context:`include "/test/wwwroot/qlang/bar/main.ql";W.WriteString(bb);`, name:"/test/wwwroot/qlang/main.ql", result:"1", dot:""},
 	}
 	body := bytes.NewBuffer(nil)
 	rootPath, err := filepath.Abs("./")
 	if err != nil {
 		t.Fatal(err)
 	}
-	
 	for index, test := range tests{
 		shdq := serverHandlerDynamicQlang{
 			rootPath: rootPath,

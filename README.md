@@ -6,7 +6,7 @@ golang vweb, 简单的web服务器。
 ```go
 vweb.go======================================================================================================================
 const (
-    Version                 string = "v1.3.4"                                    			// 版本号
+    Version                 string = "v1.3.5"                                    			// 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
