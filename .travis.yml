@@ -2,4 +2,4 @@ language: go
 
 go: 1.13
 
-script:go test -test.v -test.run="Test_serverHandlerDynamicQlang_parseText" -test.bench="Test_serverHandlerDynamicQlang_parseText" -test.short=true -test.benchtime=3s  -test.benchmem=true
+script: go test -test.v -test.run="Test_serverHandlerDynamicQlang_parseText" -test.bench="Test_serverHandlerDynamicQlang_parseText" -test.short=true -test.benchtime=3s  -test.benchmem=true
