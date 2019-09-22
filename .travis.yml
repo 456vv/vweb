@@ -2,4 +2,3 @@ language: go
 
 go: 1.13
 
-script: go test -test.v -test.run="Test_PagePath" -test.bench="Test_PagePath" -test.short=true -test.benchtime=3s  -test.benchmem=true

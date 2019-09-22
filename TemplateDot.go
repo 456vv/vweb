@@ -3,8 +3,8 @@ import(
 	"fmt"
 	"net/http"
     "github.com/456vv/vmap/v2"
+    "context"
 )
-
 // TemplateDoter 可以在模本中使用的方法
 type TemplateDoter interface{
     PKG(pkg string) map[string]interface{}                                                  // 调用包函数
@@ -21,8 +21,9 @@ type TemplateDoter interface{
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
     Config() interface{}																	// 网站配置
     Defer(call interface{}, args ... interface{}) error										// 退回调用
+    Context() context.Context                                             					// 上下文
+    WithContext(ctx context.Context) *TemplateDot											// 替换上下文
 }
-
 //模板点
 type TemplateDot struct {
     Writed      		bool                                                                        // 模板或动态？
@@ -32,22 +33,19 @@ type TemplateDot struct {
     Site       		 	*Site                                                                       // 网站配置
     Exchange       		*vmap.Map                                                                   // 缓存映射
     ec					exitCall																	// 退回调用函数
+    ctx					context.Context																// 上下文
 }
-
 //PKG 调用包函数，外部调用者自行增加的函数，可以使用ExtendDotFuncMap函数。
 //	pkg string                包名
 //	map[string]interface{}    包函数集
 func (T *TemplateDot) PKG(pkg string) map[string]interface{} {
 	return DotFuncMap[pkg]
 }
-
-
 //Request 用户的请求信息
 //	*http.Request 请求
 func (T *TemplateDot) Request() *http.Request {
     return T.R
 }
-
 //RequestLimitSize 请求限制大小
 //	l int64         复制body大小
 //	*http.Request   请求
@@ -55,13 +53,11 @@ func (T *TemplateDot) RequestLimitSize(l int64) *http.Request {
 	T.R.Body = http.MaxBytesReader(T.W, T.R.Body, l)
 	return T.R
 }
-
 //Header 标头
 //	http.Header   响应标头
 func (T *TemplateDot) Header() http.Header {
     return T.W.Header()
 }
-
 //Response 数据写入响应
 //	Responser     响应
 func (T *TemplateDot) Response() Responser {
@@ -72,14 +68,12 @@ func (T *TemplateDot) Response() Responser {
         td		: T,
     }
 }
-
 //ResponseWriter 数据写入响应，http 的响应接口，调用这个接口后，模板中的内容就不会显示页客户端去
 //	http.ResponseWriter      响应
 func (T *TemplateDot) ResponseWriter() http.ResponseWriter {
     T.Writed = true
     return T.W
 }
-
 //Session 用户的会话缓存
 //	Sessioner  会话缓存
 func (T *TemplateDot) Session() Sessioner {	
@@ -88,7 +82,6 @@ func (T *TemplateDot) Session() Sessioner {
 	}
     return T.Site.Sessions.Session(T.W, T.R)
 }
-
 //Global 全站缓存
 //	Globaler	公共缓存
 func (T *TemplateDot) Global() Globaler {
@@ -97,7 +90,6 @@ func (T *TemplateDot) Global() Globaler {
 	}
     return T.Site.Global
 }
-
 //Cookie 用户的Cookie
 //	Cookier	接口
 func (T *TemplateDot) Cookie() Cookier {
@@ -106,7 +98,6 @@ func (T *TemplateDot) Cookie() Cookier {
         R:T.R,
     }
 }
-
 //PluginRPC 插件RPC方法调用
 //	name string     动态标识
 //	PluginRPC       插件
@@ -122,7 +113,6 @@ func (T *TemplateDot) PluginRPC(name string) (PluginRPC, error){
     }
    	return nil, fmt.Errorf("vweb: 插件 %s 没有开启支持 RPC 功能", name)
 }
-
 //PluginHTTP 插件HTTP方法调用
 //	name string         动态标识
 //	PluginHTTP          插件
@@ -138,13 +128,11 @@ func (T *TemplateDot) PluginHTTP(name string) (PluginHTTP, error){
     }
    	return nil, fmt.Errorf("vweb: 插件 %s 没有开启支持 HTTP 功能", name)
 }
-
 //Swap 信息交换
 //	Swaper  映射
 func (T *TemplateDot) Swap() Swaper {
     return T.Exchange
 }
-
 //Config 网站的配置信息
 //	ConfigSite	配置
 func (T *TemplateDot) Config() interface{} {
@@ -156,7 +144,6 @@ func (T *TemplateDot) Config() interface{} {
 	}
 	return T.Site.Config
 }
-
 //Defer 在用户会话时间过期后，将被调用。
 //	call interface{}            函数
 //	args ... interface{}        参数或更多个函数是函数的参数
@@ -167,8 +154,27 @@ func (T *TemplateDot) Config() interface{} {
 func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error {
     return T.ec.Defer(call, args...)
 }
-
 //Free 释放Defer
 func (T *TemplateDot) Free() {
     T.ec.Free()
+}
+//Context 上下文
+//	context.Context 上下文
+func (T *TemplateDot) Context() context.Context {
+	if T.ctx != nil {
+		return T.ctx
+	}
+	return context.Background()
+}
+//WithContext 替换上下文
+//	ctx context.Context 上下文
+//	 *TemplateDot		模板点
+func (T *TemplateDot) WithContext(ctx context.Context) *TemplateDot {
+	if ctx == nil {
+		panic("nil context")
+	}
+	t2 := new(TemplateDot)
+	*t2 = *T
+	t2.ctx = ctx
+	return t2
 }

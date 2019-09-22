@@ -10,6 +10,7 @@ import (
     "time"
     "os"
     "errors"
+    "context"
 )
 
 
@@ -87,6 +88,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
         Site        : T.Site,
         Exchange    : vmap.NewMap(),
     }
+    dock = dock.WithContext(context.WithValue(dock.Context(), "Dynamic", T))
 	var body = new(bytes.Buffer)
 	defer func(){
 		dock.Free()

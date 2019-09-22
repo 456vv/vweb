@@ -1,6 +1,6 @@
 ﻿vweb.go======================================================================================================================
 const (
-    Version                 string = "v1.3.5"                                    			// 版本号
+    Version                 string = "v1.3.6"                                    			// 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
@@ -192,6 +192,8 @@ type TemplateDoter interface{                                                   
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
     Config() interface{}																	// 网站配置
     Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
+    Context() context.Context                                             					// 上下文
+    WithContext(ctx context.Context) *TemplateDot											// 替换上下文
 }
 type TemplateDot struct {                                                           // 模板点
     Writed              bool                                                                // 模板或动态？
@@ -216,7 +218,9 @@ type TemplateDot struct {                                                       
     func (T *TemplateDot) Config() ConfigSite												// 网站的配置
 	func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error				// 退回调用
 	func (T *TemplateDot) Free()															// 释放调用
-	
+    func (T *TemplateDot) Context() context.Context                                         // 上下文
+    func (T *TemplateDot) WithContext(ctx context.Context) *TemplateDot						// 替换上下文
+
 serverHandlerDynamic.go======================================================================================================================
 type ServerHandlerDynamic struct {                                                  // 处理动态页面文件
     RootPath, PagePath  string                                                              // 根目录, 页路径
