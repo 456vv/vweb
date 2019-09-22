@@ -75,7 +75,7 @@ func (T *serverHandlerDynamicQlang) parse(r *bufio.Reader) (err error){
 		return fmt.Errorf("vweb: Parsing dynamic file failed! %s", err.Error())
 	}
 	
-	filePath := filepath.Join(T.rootPath, T.pagePath)
+	//filePath := filepath.Join(T.rootPath, T.pagePath)
 	
 	cl := qcl.New()
 	ctx := exec.NewContextEx(cl.GlobalSymbols())
@@ -83,7 +83,7 @@ func (T *serverHandlerDynamicQlang) parse(r *bufio.Reader) (err error){
 	ctx.Code = cl.Code()
 	
 	//库默认路径
-	cl.SetLibs(filepath.Dir(filePath)+"|"+T.rootPath)
+	//cl.SetLibs(filepath.Dir(filePath)+"|"+T.rootPath)
 	
 	//库加载函数
 	qcl.ReadFile = func(file string) ([]byte, error){
@@ -96,7 +96,9 @@ func (T *serverHandlerDynamicQlang) parse(r *bufio.Reader) (err error){
 	}
 	qcl.FindEntry = func(file string, libs []string) (string, error){
 		//import
-		return T.defaultLibPath(file), nil
+		//这个方法要保留，因为这样才不会调用内置的findEntry函数
+		//调用了这个方法，会调用上面.ReadFile打开文件
+		return file, nil
 	}
 	T.start = ctx.Code.Len()
 	T.end = cl.Cl(cotnext, T.pagePath)
@@ -105,11 +107,6 @@ func (T *serverHandlerDynamicQlang) parse(r *bufio.Reader) (err error){
 	return nil
 }
 func (T *serverHandlerDynamicQlang) defaultLibPath(libName string) string {
-	
-	//是绝对路径
-	if filepath.IsAbs(libName) {
-		return libName
-	}
 	
 	var (
 		dirPath		= filepath.Dir(T.pagePath)
