@@ -1,6 +1,6 @@
 ﻿vweb.go======================================================================================================================
 const (
-    Version                 string = "v1.3.6"                                    			// 版本号
+    Version                 string = "v1.3.7"                                    			// 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射

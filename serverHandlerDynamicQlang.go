@@ -10,10 +10,10 @@ import (
 	"bytes"
 	"errors"
 	"strings"
-	_ "github.com/qiniu/qlang/lib/builtin" // 导入 builtin 包
-	qcl "github.com/qiniu/qlang/cl"
-	"github.com/qiniu/qlang/exec"
-	"github.com/qiniu/qlang/spec"
+	_ "github.com/456vv/qlang/lib/builtin" // 导入 builtin 包
+	qcl "github.com/456vv/qlang/cl"
+	"github.com/456vv/qlang/exec"
+	"github.com/456vv/qlang/spec"
 )
 
 
