@@ -28,8 +28,11 @@ func webError(rw http.ResponseWriter, v ...interface{}) {
 
 //ServerHandlerDynamic 处理动态页面文件
 type ServerHandlerDynamic struct {
+	//必须的
 	RootPath			string																// 根目录
     PagePath  			string																// 主模板文件路径
+    
+    //可选的
     BuffSize			int64																// 缓冲块大小
     Site        		*Site																// 网站配置
 	LibReadFunc			func(tmplName, libname string) ([]byte, error)						// 读取库
@@ -41,6 +44,13 @@ type ServerHandlerDynamic struct {
 //	rw http.ResponseWriter    响应
 //	req *http.Request         请求
 func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request){
+	T.ServeHTTPCtx(context.Background(), rw, req)
+}
+//ServeHTTPCtx 服务HTTP
+//	ctx context.Context		  上下文
+//	rw http.ResponseWriter    响应
+//	req *http.Request         请求
+func (T *ServerHandlerDynamic) ServeHTTPCtx(ctx context.Context, rw http.ResponseWriter, req *http.Request){
 	if T.PagePath == "" {
 		T.PagePath = req.URL.Path
 	}
@@ -88,7 +98,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
         Site        : T.Site,
         Exchange    : vmap.NewMap(),
     }
-    dock = dock.WithContext(context.WithValue(dock.Context(), "Dynamic", T))
+    dock = dock.WithContext(context.WithValue(ctx, "Dynamic", T))
 	var body = new(bytes.Buffer)
 	defer func(){
 		dock.Free()
@@ -106,17 +116,24 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 }
 
 //ParseText 解析模板
-//	bufr *bytes.Reader	模板内容
-//	error				错误
+//	content, name string	模板内容，模板名称
+//	error					错误
 func (T *ServerHandlerDynamic) ParseText(content, name string) error {
+	T.PagePath = name
 	r := bytes.NewBufferString(content)
 	return T.Parse(r)
 }
 
 //ParseFile 解析模板
-//	bufr *bytes.Reader	模板内容
+//	path string			模板文件路径，如果为空，默认使用RootPath,PagePath字段
 //	error				错误
 func (T *ServerHandlerDynamic) ParseFile(path string) error {
+	
+	if path == "" {
+		path = filepath.Join(T.RootPath, T.PagePath)
+	}else if !filepath.IsAbs(path) {
+		T.PagePath = path
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return err

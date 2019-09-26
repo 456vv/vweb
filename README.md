@@ -235,6 +235,7 @@ type ServerHandlerDynamic struct {                                              
    	LibReadFunc			func(tmplName, libname string) ([]byte, error)						// 读取库
 }
     func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request)     // 服务HTTP
+    func (T *ServerHandlerDynamic) ServeHTTPCtx(ctx context.Context, rw http.ResponseWriter, req *http.Request)	// 服务HTTP（上下文）
 	func (T *ServerHandlerDynamic) ParseText(content, name string) error					// 解析文本
 	func (T *ServerHandlerDynamic) ParseFile(path string) error								// 解析文件
 	func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error							// 解析
