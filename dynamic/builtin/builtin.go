@@ -275,6 +275,11 @@ func Append(a interface{}, vals ...interface{}) interface{} {
 	}
 	return appendInterface(a, vals ...)
 }
+
+//SliceOf(T)
+func SliceOf(typ interface{}) interface{} {
+	return reflect.SliceOf(builtinType(typ))
+}
 //MakeSlice(T, len, cap)
 func MakeSlice(typ interface{}, args ...interface{}) interface{} {
 	l, c := 0, 0
@@ -319,10 +324,7 @@ func SliceFrom(args ...interface{}) interface{} {
 		return append(make([]interface{}, 0, n), args...)
 	}
 }
-//SliceOf(T)
-func SliceOf(typ interface{}) interface{} {
-	return reflect.SliceOf(builtinType(typ))
-}
+
 //StructInit(struct{}, key1, val1, ...)
 func StructInit(args ...interface{}) interface{} {
 	if (len(args) & 1) != 1 {
