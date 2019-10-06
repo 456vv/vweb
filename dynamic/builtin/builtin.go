@@ -358,10 +358,16 @@ func Float64(a interface{}) float64 {
 	switch a1 := a.(type) {
 	case int:
 		return float64(a1)
+	case int64:
+		return float64(a1)
+	case float32:
+		return float64(a1)
 	case float64:
 		return a1
 	case unsafe.Pointer:
 		return *(*float64)(unsafe.Pointer(a1))
+	default:
+		return autoConvert(reflect.TypeOf(float64(0)), a).Float()
 	}
 	panicUnsupportedFn("float", a)
 	return 0
@@ -370,6 +376,8 @@ func Float64(a interface{}) float64 {
 func Float32(a interface{}) float32 {
 	switch a1 := a.(type) {
 	case int:
+		return float32(a1)
+	case int64:
 		return float32(a1)
 	case float64:
 		return float32(a1)
@@ -386,6 +394,12 @@ func Int(a interface{}) int {
 	switch a1 := a.(type) {
 	case float64:
 		return int(a1)
+	case int64:
+		return int(a1)
+	case uint:
+		return int(a1)
+	case uint64:
+		return int(a1)
 	case int:
 		return a1
 	case unsafe.Pointer:
@@ -400,6 +414,8 @@ func Int8(a interface{}) int8 {
 	case float64:
 		return int8(a1)
 	case int:
+		return int8(a1)
+	case int64:
 		return int8(a1)
 	case int8:
 		return a1
@@ -416,6 +432,8 @@ func Int16(a interface{}) int16 {
 		return int16(a1)
 	case int:
 		return int16(a1)
+	case int64:
+		return int16(a1)
 	case int16:
 		return a1
 	case unsafe.Pointer:
@@ -431,6 +449,8 @@ func Int32(a interface{}) int32 {
 		return int32(a1)
 	case int:
 		return int32(a1)
+	case int64:
+		return int32(a1)
 	case int32:
 		return a1
 	case unsafe.Pointer:
@@ -445,6 +465,8 @@ func Rune(a interface{}) rune {
 	case float64:
 		return rune(a1)
 	case int:
+		return rune(a1)
+	case int64:
 		return rune(a1)
 	case rune:
 		return a1
@@ -476,6 +498,10 @@ func Uint(a interface{}) uint {
 		return uint(a1)
 	case int:
 		return uint(a1)
+	case int64:
+		return uint(a1)
+	case uint64:
+		return uint(a1)
 	case uint:
 		return a1
 	case unsafe.Pointer:
@@ -487,9 +513,13 @@ func Uint(a interface{}) uint {
 // Uint8 returns uint8(a)
 func Uint8(a interface{}) uint8 {
 	switch a1 := a.(type) {
+	case float64:
+		return uint8(a1)
 	case int:
 		return uint8(a1)
-	case float64:
+	case int64:
+		return uint8(a1)
+	case uint64:
 		return uint8(a1)
 	case uint8:
 		return a1
@@ -502,9 +532,13 @@ func Uint8(a interface{}) uint8 {
 // Byte returns byte(a)
 func Byte(a interface{}) byte {
 	switch a1 := a.(type) {
+	case float64:
+		return byte(a1)
 	case int:
 		return byte(a1)
-	case float64:
+	case int64:
+		return byte(a1)
+	case uint64:
 		return byte(a1)
 	case byte:
 		return a1
@@ -521,6 +555,12 @@ func Uint16(a interface{}) uint16 {
 		return uint16(a1)
 	case int:
 		return uint16(a1)
+	case int64:
+		return uint16(a1)
+	case uint:
+		return uint16(a1)
+	case uint64:
+		return uint16(a1)
 	case uint16:
 		return a1
 	case unsafe.Pointer:
@@ -536,6 +576,12 @@ func Uint32(a interface{}) uint32 {
 		return uint32(a1)
 	case int:
 		return uint32(a1)
+	case int64:
+		return uint32(a1)
+	case uint:
+		return uint32(a1)
+	case uint64:
+		return uint32(a1)
 	case uint32:
 		return a1
 	case unsafe.Pointer:
@@ -550,6 +596,10 @@ func Uint64(a interface{}) uint64 {
 	case float64:
 		return uint64(a1)
 	case int:
+		return uint64(a1)
+	case int64:
+		return uint64(a1)
+	case uint:
 		return uint64(a1)
 	case uint64:
 		return a1
@@ -608,8 +658,10 @@ func String(a interface{}) string {
 	switch a1 := a.(type) {
 	case []byte:
 		return string(a1)
-	case int:
+	case []rune:
 		return string(a1)
+	case int:
+		return strconv.Itoa(a1)
 	case string:
 		return a1
 	case unsafe.Pointer:

@@ -7,7 +7,7 @@ type Chan struct{
 	Data reflect.Value
 }
 //不阻塞
-//TrySend(*reflect.Value, value)
+//TrySend(*Chan, value)
 func TrySend(a interface{}, v interface{}) bool {
 	if v == nil {
 		panic("can't nil value to a channel")
@@ -20,7 +20,7 @@ func TrySend(a interface{}, v interface{}) bool {
 	return false
 }
 //不阻塞
-//TryRecv(*reflect.Value)
+//TryRecv(*Chan)
 func TryRecv(a interface{}) interface{} {
 	var v reflect.Value
 	if p, ok := a.(*Chan); ok {
@@ -36,7 +36,7 @@ func TryRecv(a interface{}) interface{} {
 	}
 	return nil
 }
-//Send(*reflect.Value, value)
+//Send(*Chan, value)
 func Send(a interface{}, v interface{}) {
 	if v == nil {
 		panic("can't nil value to a channel")
