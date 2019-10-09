@@ -1,6 +1,31 @@
 package builtin
 	
-	
+func And(arg0 interface{}, args ...interface{}) interface{} {
+	ok := Bool(arg0)
+	if !ok {
+		return ok
+	}
+	for i := range args {
+		ok = Bool(args[i])
+		if !ok {
+			break
+		}
+	}
+	return ok
+}
+func Or(arg0 interface{}, args ...interface{}) interface{} {
+	ok := Bool(arg0)
+	if ok {
+		return ok
+	}
+	for i := range args {
+		ok = Bool(args[i])
+		if ok {
+			break
+		}
+	}
+	return ok
+}
 //Not returns !a
 func Not(a interface{}) interface{} {
 	switch  a1 := a.(type) {

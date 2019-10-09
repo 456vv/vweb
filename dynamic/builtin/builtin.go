@@ -230,14 +230,33 @@ func Len(a interface{}) int {
 	if a == nil {
 		return 0
 	}
-	return reflect.ValueOf(a).Len()
+	
+	v := inDirect(reflect.ValueOf(a))
+	if !v.IsValid() {
+		return 0
+	}
+	
+	switch v.Kind() {
+	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice, reflect.String:
+		return v.Len()
+	}
+	return 0
 }
 //Cap([]T)
 func Cap(a interface{}) int {
 	if a == nil {
 		return 0
 	}
-	return reflect.ValueOf(a).Cap()
+	v := inDirect(reflect.ValueOf(a))
+	if !v.IsValid() {
+		return 0
+	}
+	
+	switch v.Kind() {
+	case reflect.Array, reflect.Slice:
+		return v.Cap()
+	}
+	return 0
 }
 //GetSlice([]T, 1, 5)
 func GetSlice(a, i, j interface{}) interface{} {
@@ -369,8 +388,8 @@ func Float64(a interface{}) float64 {
 	default:
 		return autoConvert(reflect.TypeOf(float64(0)), a).Float()
 	}
-	panicUnsupportedFn("float", a)
-	return 0
+	//panicUnsupportedFn("float", a)
+	//return 0
 }
 // Float32 returns float32(a)
 func Float32(a interface{}) float32 {
@@ -639,8 +658,8 @@ func Uintptr(a interface{}) uintptr {
 	default:
 		return reflect.ValueOf(a).Pointer()
 	}
-	panicUnsupportedFn("uintptr", a)
-	return 0
+	//panicUnsupportedFn("uintptr", a)
+	//return 0
 }
 // Uintptr returns uintptr(a)
 func Pointer(a interface{}) unsafe.Pointer {
@@ -650,8 +669,8 @@ func Pointer(a interface{}) unsafe.Pointer {
 	default:
 		return unsafe.Pointer(reflect.ValueOf(a).Pointer())
 	}
-	panicUnsupportedFn("uintptr", a)
-	return unsafe.Pointer(uintptr(0))
+	//panicUnsupportedFn("uintptr", a)
+	//return unsafe.Pointer(uintptr(0))
 }
 // String returns string(a)
 func String(a interface{}) string {
@@ -670,14 +689,20 @@ func String(a interface{}) string {
 	panicUnsupportedFn("string", a)
 	return ""
 }
+
 // Bool returns bool(a)
 func Bool(a interface{}) bool {
 	switch a1 := a.(type) {
 	case bool:
 		return a1
-	case int:
-		return a1 == 1
+	default:
+		return truth(reflect.ValueOf(a1))
 	}
-	panicUnsupportedFn("bool", a)
-	return false
+	//panicUnsupportedFn("bool", a)
+	//return false
 }
+
+
+
+
+

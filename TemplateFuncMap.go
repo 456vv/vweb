@@ -196,6 +196,8 @@ var TemplateFuncMap      = map[string]interface{}{
     "BitOr":builtin.BitOr,						//BitOr returns a | b
     "BitNot":builtin.BitNot,					//BitNot returns ^a
     "BitAndNot":builtin.BitAndNot,				//BitAndNot returns a &^ b
+    "Or":builtin.Or,							//Or returns 1 || true
+    "And":builtin.And,							//And returns 1 && true
     "Not":builtin.Not,							//Not returns !a
     "LT":builtin.LT,							//LT returns a < b
     "GT":builtin.GT,							//GT returns a > b
