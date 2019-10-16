@@ -174,6 +174,7 @@ var TemplateFuncMap      = map[string]interface{}{
     "Len":builtin.Len,							//Len([]T/string/map[T]T)
     "Cap":builtin.Cap,							//Cap([]T)
     "GetSlice":builtin.GetSlice,				//GetSlice([]T, 1, 5)
+    "GetSlice":builtin.GetSlice3,				//GetSlice3([]T, 1, 5, 7)
     "Copy":builtin.Copy,						//Copy([]T, []T)
     "SliceOf":builtin.SliceOf,					//SliceOf(T)
     "MakeSlice":builtin.MakeSlice,				//MakeSlice(T, len, cap)
