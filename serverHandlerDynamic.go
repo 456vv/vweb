@@ -193,7 +193,7 @@ func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error {
             }
             T.exec = shdq
         default:
-    		return errors.New("vweb: TThe file type of the first line of the file is not recognized")
+    		return errors.New("vweb: The file type of the first line of the file is not recognized")
     }
     return nil
 }
