@@ -9,9 +9,12 @@ import(
     "strings"
     "errors"
     "os"
+    "reflect"
+    "sync"
+    "context"
 )
 
-
+var errTemplateNotParse =  errors.New("vweb: The template has not been parsed yet!")
 
 //标头-模本-处理动态页面文件
 type shdtHeader struct{
@@ -134,9 +137,12 @@ func (T *serverHandlerDynamicTemplate) parse(r *bufio.Reader) (err error) {
 //	error				执行失败
 func (T *serverHandlerDynamicTemplate) execute(out *bytes.Buffer, in interface{}) error {
 	if T.t == nil {
-		return errors.New("vweb: The template has not been parsed yet!")
+		return errTemplateNotParse
 	}
     //执行模板
+    if tdot, ok := in.(DotContexter); ok {
+    	tdot.WithContext(context.WithValue(tdot.Context(), "Template", &serverHandlerDynamicTemplateExtend{t:T.t}))
+    }
 	return T.t.ExecuteTemplate(out, T.fileName, in)
 }
 
@@ -276,4 +282,48 @@ func (T *serverHandlerDynamicTemplate) format(delimLeft, delimRight, c string) s
     }else{
         return c
     }
+}
+
+
+type part struct{
+	input 	[]reflect.Value
+	output 	[]reflect.Value
+	wait	sync.WaitGroup
+}
+func (T *part) Args(i int) reflect.Value {
+	if len(T.input) >= i {
+		return reflect.Value{}
+	}
+	return T.input[i]
+}
+func (T *part) Result(out ...reflect.Value){
+	T.output = append(T.output, out...)
+	T.wait.Done()
+}
+
+//这是个额外扩展，由于模板不能实现函数创建，只能在这里构造一个支持创建函数。
+//需要结合 reflect.MakeFunc(typ Type, fn func(args []Value) (results []Value)) Value 来使用
+type serverHandlerDynamicTemplateExtend struct{
+	t *template.Template
+}
+
+//NewFunc 构建一个新的函数，仅限在template中使用
+//	func([]reflect.Value) []reflect.Value)	新的函数
+func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error) {
+	if T.t == nil {
+		return nil, errTemplateNotParse
+	}
+	if T.t.Lookup(name) == nil {
+		return nil, fmt.Errorf("vweb: Template content not found {{define \"%s\"}} ... {{end}} , Calling this method does not support", name)
+	}
+	return func(in []reflect.Value) []reflect.Value {
+		p := &part{input: in,}
+		p.wait.Add(1)
+		err := T.t.ExecuteTemplate(ioutil.Discard, name, p)
+		if err != nil {
+			panic(err)
+		}
+		p.wait.Wait()
+		return p.output
+	}, nil
 }

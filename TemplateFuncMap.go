@@ -52,6 +52,7 @@ func goCallSlice(f interface{}, name string, args ...interface{}) {
 	callv.CallSlice(inv)
 }
 
+
 // 模板函数映射
 var TemplateFuncMap      = map[string]interface{}{
     "ForMethod": ForMethod,
@@ -174,6 +175,7 @@ var TemplateFuncMap      = map[string]interface{}{
     "Len":builtin.Len,							//Len([]T/string/map[T]T)
     "Cap":builtin.Cap,							//Cap([]T)
     "GetSlice":builtin.GetSlice,				//GetSlice([]T, 1, 5)
+    "GetSlice3":builtin.GetSlice3,				//GetSlice3([]T, 1, 5, 7)
     "Copy":builtin.Copy,						//Copy([]T, []T)
     "SliceOf":builtin.SliceOf,					//SliceOf(T)
     "MakeSlice":builtin.MakeSlice,				//MakeSlice(T, len, cap)

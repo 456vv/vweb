@@ -352,8 +352,8 @@ var dotFuncMap = map[string]map[string]interface{}{
 		"UDPConn":func(inf interface{}) *net.UDPConn {if inf == nil {return new(net.UDPConn)};switch v := inf.(type){case *net.UDPConn:return v;case net.UDPConn:return &v;default:if t, ok := inf.(*net.UDPConn); ok {return t}else if t, ok := inf.(net.UDPConn); ok {return &t};return (*net.UDPConn)(nil)}},
 		"DialUDP":net.DialUDP,
 		"ListenMulticastUDP":net.ListenMulticastUDP,
-		"ListenUDP":net.ListenUDP,
-    },
+ 		"ListenUDP":net.ListenUDP,
+   },
 	"net/http":{
 		"LocalAddrContextKey":http.LocalAddrContextKey,
 		"ServerContextKey":http.ServerContextKey,

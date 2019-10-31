@@ -267,10 +267,29 @@ func GetSlice(a, i, j interface{}) interface{} {
 	}
 	if j != nil {
 		j1 = asInt(j)
-	} else {
+	}else{
 		j1 = va.Len()
 	}
 	return va.Slice(i1, j1).Interface()
+}
+//GetSlice3([]T, 1, 5, 6)
+func GetSlice3(a, i, j, c interface{}) interface{} {
+	var va = reflect.ValueOf(a)
+	var i1, j1, c1 int
+	if i != nil {
+		i1 = asInt(i)
+	}
+	if j != nil {
+		j1 = asInt(j)
+	}else{
+		j1 = va.Len()
+	}
+	if c != nil {
+		c1 = asInt(c)
+	}else{
+		c1 = va.Len()
+	}
+	return va.Slice3(i1, j1, c1).Interface()
 }
 //Copy([]T, []T)
 func Copy(a, b interface{}) int {

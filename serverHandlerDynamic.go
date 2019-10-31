@@ -98,7 +98,7 @@ func (T *ServerHandlerDynamic) ServeHTTPCtx(ctx context.Context, rw http.Respons
         Site        : T.Site,
         Exchange    : vmap.NewMap(),
     }
-    dock = dock.WithContext(context.WithValue(ctx, "Dynamic", T))
+    dock.WithContext(context.WithValue(ctx, "Dynamic", T))
 	var body = new(bytes.Buffer)
 	defer func(){
 		dock.Free()
@@ -181,19 +181,19 @@ func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error {
             	return err
             }
             T.exec = shdt
-        case "//qlang":
-        	shdq := &serverHandlerDynamicQlang{
-            	rootPath	: T.RootPath,
-               	pagePath	: T.PagePath,
-        	}
-            shdq.libReadFunc = T.LibReadFunc
-            err := shdq.parse(bufio.NewReader(bufr))
-            if err != nil {
-            	return err
-            }
-            T.exec = shdq
+        //case "//qlang":
+        //	shdq := &serverHandlerDynamicQlang{
+        //    	rootPath	: T.RootPath,
+        //       	pagePath	: T.PagePath,
+        //	}
+        //    shdq.libReadFunc = T.LibReadFunc
+        //    err := shdq.parse(bufio.NewReader(bufr))
+        //    if err != nil {
+        //    	return err
+        //    }
+        //    T.exec = shdq
         default:
-    		return errors.New("vweb: TThe file type of the first line of the file is not recognized")
+    		return errors.New("vweb: The file type of the first line of the file is not recognized")
     }
     return nil
 }

@@ -6,7 +6,7 @@ golang vweb, 简单的web服务器。
 ```go
 vweb.go======================================================================================================================
 const (
-    Version                 string = "v1.3.8"                                    			// 版本号
+    Version                 string = "v1.3.11"                                    			// 版本号
 )
 
 var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
@@ -183,7 +183,12 @@ type ServerGroup struct {                                                       
     func (T *ServerGroup) Close() error                                                     // 关闭服务集群
 
 TemplateDot.go======================================================================================================================
-type TemplateDoter interface{                                                       // 可以在模本中使用的方法
+type DotContexter interface{															// DotContexter 上下文接口
+    Context() context.Context                                             					// 上下文
+    WithContext(ctx context.Context)														// 替换上下文
+}
+
+type TemplateDoter interface{															// TemplateDoter 可以在模本中使用的方法
     PKG(pkg string) map[string]interface{}                                                  // 调用包函数
     Request() *http.Request                                                                 // 用户的请求信息
     RequestLimitSize(l int64) *http.Request                                                 // 请求限制大小
@@ -197,10 +202,10 @@ type TemplateDoter interface{                                                   
     PluginRPC(name string) (PluginRPC, error)                                               // 插件RPC方法调用
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
     Config() interface{}																	// 网站配置
-    Defer(call interface{}, args ... interface{}) error					 					// 退回调用函数
-    Context() context.Context                                             					// 上下文
-    WithContext(ctx context.Context) *TemplateDot											// 替换上下文
+    Defer(call interface{}, args ... interface{}) error										// 退回调用
+    DotContexter
 }
+
 type TemplateDot struct {                                                           // 模板点
     Writed              bool                                                                // 模板或动态？
     R                   *http.Request                                                       // 请求
@@ -225,7 +230,7 @@ type TemplateDot struct {                                                       
 	func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error				// 退回调用
 	func (T *TemplateDot) Free()															// 释放调用
     func (T *TemplateDot) Context() context.Context                                         // 上下文
-    func (T *TemplateDot) WithContext(ctx context.Context) *TemplateDot						// 替换上下文
+    func (T *TemplateDot) WithContext(ctx context.Context)						            // 替换上下文
 
 serverHandlerDynamic.go======================================================================================================================
 type ServerHandlerDynamic struct {                                                  // 处理动态页面文件

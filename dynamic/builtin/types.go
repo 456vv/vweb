@@ -29,6 +29,7 @@ var builtinTypes = map[string]reflect.Type{
 	"error":        reflect.TypeOf((*error)(nil)).Elem(),
 	"struct":		reflect.TypeOf((*struct{})(nil)).Elem(),
 }
+
 func builtinType(typ interface{}) reflect.Type {
 	if t, ok := typ.(string); ok {
 		
