@@ -183,7 +183,7 @@ type ServerGroup struct {                                                       
     func (T *ServerGroup) Close() error                                                     // 关闭服务集群
 
 TemplateDot.go======================================================================================================================
-type Contexter interface{																// Contexter 上下文接口
+type DotContexter interface{															// DotContexter 上下文接口
     Context() context.Context                                             					// 上下文
     WithContext(ctx context.Context)														// 替换上下文
 }
@@ -203,7 +203,7 @@ type TemplateDoter interface{															// TemplateDoter 可以在模本中�
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
     Config() interface{}																	// 网站配置
     Defer(call interface{}, args ... interface{}) error										// 退回调用
-    Contexter
+    DotContexter
 }
 
 type TemplateDot struct {                                                           // 模板点

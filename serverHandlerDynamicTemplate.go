@@ -140,7 +140,7 @@ func (T *serverHandlerDynamicTemplate) execute(out *bytes.Buffer, in interface{}
 		return errTemplateNotParse
 	}
     //执行模板
-    if tdot, ok := in.(Contexter); ok {
+    if tdot, ok := in.(DotContexter); ok {
     	tdot.WithContext(context.WithValue(tdot.Context(), "Template", &serverHandlerDynamicTemplateExtend{t:T.t}))
     }
 	return T.t.ExecuteTemplate(out, T.fileName, in)

@@ -6,8 +6,8 @@ import(
     "context"
 )
 
-// Contexter 上下文接口
-type Contexter interface{
+// DotContexter 上下文接口
+type DotContexter interface{
     Context() context.Context                                             					// 上下文
     WithContext(ctx context.Context)														// 替换上下文
 }
@@ -28,7 +28,7 @@ type TemplateDoter interface{
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
     Config() interface{}																	// 网站配置
     Defer(call interface{}, args ... interface{}) error										// 退回调用
-    Contexter
+    DotContexter
 }
 
 //模板点
