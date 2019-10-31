@@ -52,6 +52,7 @@ func goCallSlice(f interface{}, name string, args ...interface{}) {
 	callv.CallSlice(inv)
 }
 
+
 // 模板函数映射
 var TemplateFuncMap      = map[string]interface{}{
     "ForMethod": ForMethod,

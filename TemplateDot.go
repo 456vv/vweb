@@ -5,6 +5,13 @@ import(
     "github.com/456vv/vmap/v2"
     "context"
 )
+
+// Contexter 上下文接口
+type Contexter interface{
+    Context() context.Context                                             					// 上下文
+    WithContext(ctx context.Context)														// 替换上下文
+}
+
 // TemplateDoter 可以在模本中使用的方法
 type TemplateDoter interface{
     PKG(pkg string) map[string]interface{}                                                  // 调用包函数
@@ -21,9 +28,9 @@ type TemplateDoter interface{
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
     Config() interface{}																	// 网站配置
     Defer(call interface{}, args ... interface{}) error										// 退回调用
-    Context() context.Context                                             					// 上下文
-    WithContext(ctx context.Context) *TemplateDot											// 替换上下文
+    Contexter
 }
+
 //模板点
 type TemplateDot struct {
     Writed      		bool                                                                        // 模板或动态？
@@ -35,6 +42,8 @@ type TemplateDot struct {
     ec					exitCall																	// 退回调用函数
     ctx					context.Context																// 上下文
 }
+
+
 //PKG 调用包函数，外部调用者自行增加的函数，可以使用ExtendDotFuncMap函数。
 //	pkg string                包名
 //	map[string]interface{}    包函数集
@@ -168,13 +177,9 @@ func (T *TemplateDot) Context() context.Context {
 }
 //WithContext 替换上下文
 //	ctx context.Context 上下文
-//	 *TemplateDot		模板点
-func (T *TemplateDot) WithContext(ctx context.Context) *TemplateDot {
+func (T *TemplateDot) WithContext(ctx context.Context) {
 	if ctx == nil {
 		panic("nil context")
 	}
-	t2 := new(TemplateDot)
-	*t2 = *T
-	t2.ctx = ctx
-	return t2
+	T.ctx = ctx
 }

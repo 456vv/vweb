@@ -174,9 +174,24 @@ func Test_serverHandlerDynamicTemplate_loadTmpl(t *testing.T) {
     }
 }
 
+func Test_serverHandlerDynamicTemplateExtend_NewFunc(t *testing.T) {
 
-
-
+    shdt := serverHandlerDynamicTemplate{}
+	err := shdt.parseText("\r\n{{define \"func\"}}123456{{end}}{{$t := .Context.Value \"Template\"}}{{$f := $t.NewFunc \"func\"}}{{print (NotError $f)}}","test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := &bytes.Buffer{}
+	in := &TemplateDot{}
+	err = shdt.execute(buf, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "true"{
+		t.Fatalf("错误的结果，true == %s", buf.String())
+	}
+	
+}
 
 
 
