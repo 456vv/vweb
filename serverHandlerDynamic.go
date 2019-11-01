@@ -11,6 +11,7 @@ import (
     "os"
     "errors"
     "context"
+    "runtime"
 )
 
 
@@ -202,10 +203,18 @@ func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error {
 //	bufw *bytes.Buffer	模板返回数据
 //	dock interface{}	与模板对接接口
 //	error				错误
-func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) error {
+func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) (err error) {
 	if T.exec == nil {
 		return errors.New("vweb: Parse the template content first and then call the Execute")
 	}
+	defer func (){
+		if e := recover(); e != nil{
+			const size = 64 << 10
+			buf := make([]byte, size)
+			buf = buf[:runtime.Stack(buf, false)]
+			err = fmt.Errorf("vweb: Dynamic code execute error。%v\n%s", e, buf)
+		}
+	}()
 	return T.exec.execute(bufw, dock)
 }
 
