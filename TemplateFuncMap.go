@@ -31,27 +31,45 @@ func templateFuncMapError(v interface{}) error {
     return nil
 }
 
-func goCall(f interface{}, name string, args ...interface{}){
-	var (
-		callv 	= reflect.ValueOf(f).MethodByName(name)
-		inv 	[]reflect.Value
-	)
-	for arg := range args {
-		inv = append(inv, reflect.ValueOf(arg))
+func callMethod(f interface{}, name string, args ...interface{}) ([]interface{}, error) {
+	
+	var isMethodFunc bool
+	vfn := reflect.ValueOf(f)
+	if vfn.Kind() == reflect.Ptr {
+		//func (T *A) B(){}
+		if vfn.NumMethod() > 0  {
+			t := vfn.MethodByName(name)
+			if t.Kind() == reflect.Func {
+				vfn = t
+				isMethodFunc = true
+			}
+		}else{
+			vfn = inDirect(vfn)
+		}
 	}
-	callv.Call(inv)
-}
-func goCallSlice(f interface{}, name string, args ...interface{}) {
-	var (
-		callv 	= reflect.ValueOf(f).MethodByName(name)
-		inv 	[]reflect.Value
-	)
-	for arg := range args {
-		inv = append(inv, reflect.ValueOf(arg))
+	if vfn.Kind() == reflect.Struct {
+		if vfn.NumMethod() > 0  {
+			//func (T A) C(){}
+			t := vfn.MethodByName(name)
+			if t.Kind() == reflect.Func {
+				vfn = t
+				isMethodFunc = true
+			}
+		}
 	}
-	callv.CallSlice(inv)
+	if !isMethodFunc {
+		return nil, fmt.Errorf("vweb: the `%s` method was not found in `%v`", name, f)
+	}
+	return call(vfn, args...)
 }
 
+func call(f interface{}, args ...interface{}) ([]interface{}, error){
+	ef := execFunc{}
+	if err := ef.add(f, args...); err != nil {
+		return nil, err
+	}
+	return ef.exec(), nil
+}
 
 // 模板函数映射
 var TemplateFuncMap      = map[string]interface{}{
@@ -66,12 +84,14 @@ var TemplateFuncMap      = map[string]interface{}{
 	"ReflectMethod":func(inf interface{}, i int) reflect.Value {return reflect.ValueOf(inf).Method(i)},
 	"ReflectMethodByName":func(inf interface{}, name string) reflect.Value {return reflect.ValueOf(inf).MethodByName(name)},
 	"ReflectIndex":func(inf interface{}, i int) reflect.Value {return reflect.ValueOf(inf).Index(i)},
-	"_reflectValue_":func(s []reflect.Value, v ...reflect.Value) []reflect.Value {return append(s, v...)},
-	"GoCall":func(f interface{}, name string, args ...interface{}){go goCall(f, name, args...)},
-	"GoCallSlice":func(f interface{}, name string, args ...interface{}) {go goCallSlice(f, name, args...)},
-	"Defer":func(f interface{}, name string, args ...interface{}) func() {return func(){goCall(f, name, args...)}},
-	"DeferSlice":func(f interface{}, name string, args ...interface{}) func() {return func(){goCallSlice(f, name, args...)}},
-	"PtrTo":func(inf interface{}) interface{} {v := reflect.Indirect(reflect.ValueOf(inf));return TypeSelect(v)},
+    "Value":builtin.Value,						//Value(v) reflect.Value
+	"_Value_":func(s []reflect.Value, v ...reflect.Value) []reflect.Value {return append(s, v...)},
+	"Call":call,
+	"CallMethod":callMethod,
+	"Defer":func(f interface{}, args ...interface{}) func() {return func(){call(f, args...)}},
+	"DeferMethod":func(f interface{}, name string, args ...interface{}) func() {return func(){callMethod(f, name, args...)}},
+	"Go":func(f func()){go f()},
+	"PtrTo":func(inf interface{}) interface{} {v := reflect.Indirect(reflect.ValueOf(inf));return typeSelect(v)},
     "ToPtr":func(inf interface{}) interface{} {return &inf},
 	"Nil":func() interface{} {return nil},
 	"NotNil":func(inf interface{}) bool {return inf != nil},
@@ -161,7 +181,6 @@ var TemplateFuncMap      = map[string]interface{}{
     "_Complex128": func(c complex128) *complex128 {return &c},
     "Complex128_": func(c *complex128) complex128 {return *c},
     "SetComplex128": func(c *complex128, v complex128) *complex128 {*c = v;return c},
-    "Value":builtin.Value,						//Value(v) reflect.Value
     "Type":builtin.Type,						//Type(v) reflect.Type
     "Panic":builtin.Panic,						//Panic(v)
     "Make":builtin.Make,						//Make([]T, length, cap)|Make([T]T, length)|Make(Chan, length)

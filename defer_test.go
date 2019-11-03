@@ -55,7 +55,7 @@ func Test_exitCall_executeDefer(t *testing.T){
     if err != nil {t.Fatal(err) }
 	ns.Free()
 	time.Sleep(time.Second)
-	if ns.expCall != nil || !ok {
+	if ns.efs != nil || !ok {
 		t.Fatalf("不能执行退出调用函数")
 	}
 

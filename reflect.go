@@ -2,6 +2,7 @@ package vweb
 import (
     "reflect"
     "fmt"
+    "unsafe"
 )
 
 
@@ -55,7 +56,7 @@ func forType(x interface{}, str string, flx string, floor int) string {
 }
 
 //TypeSelect 类型选择
-//	v reflect.Value        映射一种未知类型的变量
+//	v reflect.Value        	映射一种未知类型的变量
 //	interface{}            读出v的值
 func TypeSelect(v reflect.Value) interface{} {
     return typeSelect(v)
@@ -75,20 +76,34 @@ func typeSelect(v reflect.Value) interface{} {
             return v.Complex()
 	    case reflect.Invalid:
             return nil
+        case reflect.String:
+            return v.String()
+       	case reflect.UnsafePointer:
+       		return unsafe.Pointer(v.Pointer())
         case reflect.Slice, reflect.Array:
             if v.CanInterface() {
                 return v.Interface()
             }
-            var t []interface{}
-            for i:=0; i<v.Len(); i++ {
-                t = append(t, typeSelect(v.Index(i)))
+            
+            l := v.Len()
+            c := v.Cap()
+            vet := reflect.SliceOf(v.Elem().Type())
+            cv := reflect.MakeSlice(vet, l, c)
+            for i:=0; i<l; i++ {
+            	cv = reflect.Append(cv, reflect.ValueOf(typeSelect(v.Index(i))))
             }
-            return t
+            return cv.Interface()
         default:
+        	//Interface
+        	//Map
+        	//Struct
+        	//Chan
+        	//Func
+        	//Ptr
             if v.CanInterface() {
                 return v.Interface()
             }
-            return v.String()
+            panic(fmt.Errorf("vweb: 该类型 %s，无法转换为 interface{}", v.Kind()))
     }
 }
 
@@ -146,7 +161,7 @@ func depthField(s interface{}, index interface{}) (interface{}, error) {
     	reflectValue = sid.FieldByName(index.(string))
     case reflect.Map:
     	if sid.IsNil() {
-     		return nil, fmt.Errorf("vweb.DepthField: 该字段是 nil。错误的字段名为（%#v）", index)
+     		return nil, fmt.Errorf("vweb: 该字段是 nil。错误的字段名为（%#v）", index)
   	 	}
     	reflectValue = sid.MapIndex(reflect.ValueOf(index))
     case reflect.Slice, reflect.Array:
@@ -154,10 +169,10 @@ func depthField(s interface{}, index interface{}) (interface{}, error) {
     		reflectValue = sid.Index(index.(int))
     	}
     default:
-    	return nil, fmt.Errorf("vweb.DepthField: 非结构类型，无法正确读取。错误的类型为（%s）", sid.Kind())
+    	return nil, fmt.Errorf("vweb: 非结构类型，无法正确读取。错误的类型为（%s）", sid.Kind())
     }
     if reflectValue.Kind() == reflect.Invalid {
-    	return nil, fmt.Errorf("vweb.DepthField: 该字段不是有效。错误的字段名为（%#v）", index)
+    	return nil, fmt.Errorf("vweb: 该字段不是有效。错误的字段名为（%#v）", index)
     }
-    return TypeSelect(reflectValue), nil
+    return typeSelect(reflectValue), nil
 }
