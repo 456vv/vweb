@@ -287,8 +287,16 @@ type part struct{
 	input 	[]reflect.Value
 	output 	[]reflect.Value
 }
+
 func (T *part) Args(i int) interface{} {
-	if len(T.input) < i {
+	if i == -1 {
+		var ret []interface{}
+		for _, in := range T.input {
+			ret = append(ret, typeSelect(in))
+		}
+		return ret
+	}
+	if len(T.input) > i {
 		v := T.input[i]
 		return typeSelect(v)
 	}
@@ -326,9 +334,11 @@ func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]refl
 }
 
 	
-func (T *serverHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, err error, args ...interface{}) []interface{} {
-	
-	var inv []reflect.Value
+func (T *serverHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{} {
+	var(
+		inv []reflect.Value
+		ret	[]interface{}
+	)
 	for _, arg := range args {
 		inv = append(inv, reflect.ValueOf(arg))
 	}
@@ -336,5 +346,14 @@ func (T *serverHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []refl
 	if err := ef.add(f, inv); err != nil {
 		panic(err)
 	}
-	return ef.exec()
+	//NewFunc 执行后返回是[]reflect.Value
+	for _, result := range ef.exec() {
+		//已100%确认变量的类型为reflect.Value
+		//1，查看func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)
+		//2，查看func (T *execFunc) exec() (ret []interface{})
+		for _, rv := range result.([]reflect.Value) {
+			ret = append(ret, typeSelect(rv))
+		}
+	}
+	return ret
 }

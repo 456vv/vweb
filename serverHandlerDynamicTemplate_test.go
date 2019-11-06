@@ -4,6 +4,7 @@ import(
     "bufio"
     "bytes"
     "text/template"
+    "strings"
 )
 
 func Test_serverHandlerDynamicTemplate_separation(t *testing.T) {
@@ -191,8 +192,34 @@ func Test_serverHandlerDynamicTemplateExtend_NewFunc(t *testing.T) {
 	if buf.String() != "true"{
 		t.Fatalf("错误的结果，true == %s", buf.String())
 	}
-	
 }
 
-
+func Test_serverHandlerDynamicTemplateExtend_Call(t *testing.T) {
+	//仅支持本地测试,需要替换text/template 中的文件，在本目录下的patch目录可以找到有关文件
+	return
+	text := `
+{{define "func"}}
+{{CallMethod . "Result" (.Args -1)}}
+{{end}}
+{{$t := .Context.Value "Template"}}
+{{$f := $t.NewFunc "func"}}
+{{$rets := $t.Call $f 1 0}}
+{{print $rets}}
+`
+    shdt := serverHandlerDynamicTemplate{}
+	err := shdt.parseText(text, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := &bytes.Buffer{}
+	in := &TemplateDot{}
+	err = shdt.execute(buf, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := strings.ReplaceAll(buf.String(),"\n","")
+	if result != "[1 0]" {
+		t.Fatalf("错误的结果，[1 0] == %s", result)
+	}
+}
 
