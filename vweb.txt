@@ -18,8 +18,8 @@ var TemplateFuncMap         = map[string]interface{...}                         
 reflect.go======================================================================================================================
 func ForMethod(x interface{}) string                                                        // 遍历方法
 func ForType(x interface{}) string                                                          // 遍历字段
-func TypeSelect(v interface{}) interface{}                                                	// 类型选择
-func InDirect(v interface{}) reflect.Value                                                	// 指针到内存
+func TypeSelect(v reflect.Value) interface{}                                                // 类型选择
+func InDirect(v reflect.Value) reflect.Value                                                // 指针到内存
 func DepthField(s interface{}, index ... string) (field interface{}, err error)             // 深入读取字段
 
 cookie.go======================================================================================================================
