@@ -10,7 +10,6 @@ import(
     "errors"
     "os"
     "reflect"
-    "sync"
     "context"
 )
 
@@ -284,21 +283,29 @@ func (T *serverHandlerDynamicTemplate) format(delimLeft, delimRight, c string) s
     }
 }
 
-
 type part struct{
 	input 	[]reflect.Value
 	output 	[]reflect.Value
-	wait	sync.WaitGroup
 }
-func (T *part) Args(i int) reflect.Value {
-	if len(T.input) >= i {
-		return reflect.Value{}
+
+func (T *part) Args(i int) interface{} {
+	if i == -1 {
+		var ret []interface{}
+		for _, in := range T.input {
+			ret = append(ret, typeSelect(in))
+		}
+		return ret
 	}
-	return T.input[i]
+	if len(T.input) > i {
+		v := T.input[i]
+		return typeSelect(v)
+	}
+	return nil
 }
-func (T *part) Result(out ...reflect.Value){
-	T.output = append(T.output, out...)
-	T.wait.Done()
+func (T *part) Result(out ...interface{}){
+	for _, arg := range out {
+		T.output = append(T.output, reflect.ValueOf(arg))
+	}
 }
 
 //这是个额外扩展，由于模板不能实现函数创建，只能在这里构造一个支持创建函数。
@@ -318,12 +325,35 @@ func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]refl
 	}
 	return func(in []reflect.Value) []reflect.Value {
 		p := &part{input: in,}
-		p.wait.Add(1)
 		err := T.t.ExecuteTemplate(ioutil.Discard, name, p)
 		if err != nil {
 			panic(err)
 		}
-		p.wait.Wait()
 		return p.output
 	}, nil
+}
+
+	
+func (T *serverHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{} {
+	var(
+		inv []reflect.Value
+		ret	[]interface{}
+	)
+	for _, arg := range args {
+		inv = append(inv, reflect.ValueOf(arg))
+	}
+	ef := execFunc{}
+	if err := ef.add(f, inv); err != nil {
+		panic(err)
+	}
+	//NewFunc 执行后返回是[]reflect.Value
+	for _, result := range ef.exec() {
+		//已100%确认变量的类型为reflect.Value
+		//1，查看func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)
+		//2，查看func (T *execFunc) exec() (ret []interface{})
+		for _, rv := range result.([]reflect.Value) {
+			ret = append(ret, typeSelect(rv))
+		}
+	}
+	return ret
 }

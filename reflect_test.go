@@ -28,7 +28,7 @@ func Test_ForType(t *testing.T){
 
 func Test_TypeSelect(t *testing.T){
 	var i int = 19
-	t.Logf("%#v", TypeSelect(reflect.ValueOf(i)))
+	t.Logf("%#v", typeSelect(reflect.ValueOf(i)))
 }
 
 func Test_InDirect(t *testing.T){
