@@ -68,9 +68,6 @@ func forType(x interface{}, str string, flx string, floor int, all bool) string 
     return s
 }
 
-//TypeSelect 类型选择
-//	v reflect.Value        	映射一种未知类型的变量
-//	interface{}            读出v的值
 func typeSelect(v reflect.Value) interface{} {
     switch v.Kind() {
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
