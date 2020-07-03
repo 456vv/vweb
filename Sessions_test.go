@@ -6,12 +6,15 @@ import (
     "time"
     "net/http"
 //    "fmt"
-    "net/http/httptest"
+   "net/http/httptest"
 )
 
+
+
+
 func Test_Sessions_processDeadAll(t *testing.T){
-    nss := newSessions()
-    nss.Expired=time.Second*3
+    nss := Sessions{}
+    nss.Expired = time.Second
 
     ns := NewSession()
     err := ns.Defer(t.Log, "1", "2", []string{}, "看到这里，表示Session.Defer 成功执行")
@@ -19,26 +22,26 @@ func Test_Sessions_processDeadAll(t *testing.T){
     	t.Fatal(err)
     }
     nss.SetSession("A", ns)
-
-    time.Sleep(time.Second*5)
-
+    time.Sleep(time.Second*2)
+    
     ns1 := NewSession()
     nss.SetSession("B", ns1)
     nss.ProcessDeadAll()
-
-    if nss.sessions.Has("A") {
+    
+    if nss.ss.Has("A") {
     	t.Fatal("无法删除过期Session条目")
     }
-    if !nss.sessions.Has("B") {
+    if !nss.ss.Has("B") {
     	t.Fatal("误删除未过期Session条目")
     }
+    time.Sleep(time.Second)
 }
 
 
 func Test_Sessions_triggerDeadSession(t *testing.T){
 
-    nss := newSessions()
-    nss.Expired=time.Second*3
+    nss := Sessions{}
+    nss.Expired=time.Second
 
     ns := NewSession()
     err := ns.Defer(t.Log, "1", "2", []string{}, "看到这里，表示Session.Defer 成功执行")
@@ -46,53 +49,72 @@ func Test_Sessions_triggerDeadSession(t *testing.T){
     	t.Fatal(err)
     }
     nss.SetSession("A", ns)
-	mse := nss.sessions.Get("A").(*manageSession)
+	mse := nss.ss.Get("A").(*manageSession)
     ok := nss.triggerDeadSession(mse)
     if ok {
     	t.Fatal("错误的手工判断会话已经过期。")
     }
 
-    time.Sleep(time.Second*5)
+    time.Sleep(time.Second*1)
 
     ok = nss.triggerDeadSession(mse)
     if !ok {
     	t.Fatal("无法手工判断会话是否已经过期。")
     }
+    time.Sleep(time.Second)
 
 }
 
-func Test_Sessions_GenerateSessionIdSalt(t *testing.T){
-    nss := newSessions()
+func Test_Sessions_generateSessionIdSalt_1(t *testing.T){
+    nss := Sessions{}
     nss.Size=64
     nss.Salt="1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM"
     for i:=0;i<1000;i++ {
-        s := nss.GenerateSessionIdSalt()
+        s := nss.generateSessionIdSalt()
         if len(s) != nss.Size {
             t.Fatalf("长度非（%d）位", nss.Size)
         }
     }
 }
 
-func Test_Sessions_GenerateSessionIdNoSalt(t *testing.T){
-    nss := newSessions()
+func Test_Sessions_generateSessionIdSalt_2(t *testing.T){
+	ss := Sessions{}
+	salt := ss.generateSessionIdSalt()
+	if salt != "" {
+		t.Fatalf("发生错误，预定为(), 返回为(%s)", salt)
+	}
+}
+
+
+
+func Test_Sessions_generateSessionIdNoSalt_1(t *testing.T){
+    nss := Sessions{}
     nss.Size=64
     for i:=0;i<1000;i++ {
-        s := nss.GenerateSessionId()
+        s := nss.generateSessionId()
         if len(s) != nss.Size {
             t.Fatalf("长度非（%d）位", nss.Size)
         }
     }
+}
+
+func Test_Sessions_generateSessionIdNoSalt_2(t *testing.T){
+	ss := Sessions{}
+	salt := ss.generateSessionId()
+	if salt != "" {
+		t.Fatalf("发生错误，预定为(), 返回为(%s)", salt)
+	}
 }
 
 func Test_Session_generateRandSessionId(t *testing.T){
-	nss := newSessions()
+	nss := Sessions{}
 	nss.Size=64
 	nss.Salt=""
 	for i:=0;i<100;i++{
 		id := nss.generateRandSessionId()
-		nss.sessions.Set(id, id)
+		nss.ss.Set(id, id)
 	}
-	if nss.sessions.Len() != 100 {
+	if nss.ss.Len() != 100 {
 		t.Fatalf("错误长度不足")
 	}
 }
@@ -113,7 +135,7 @@ func Test_Sessions_SessionID(t *testing.T){
     }
 
     for _, test := range tests {
-        ss := newSessions()
+        ss := Sessions{}
         ss.Name=test.name
         ss.SetSession(test.id, NewSession())
         req := &http.Request{
@@ -132,7 +154,8 @@ func Test_Sessions_SessionID(t *testing.T){
 
 func Test_Sessions_writeToClient(t *testing.T){
 
-    ss := newSessions()
+    ss := Sessions{}
+    ss.Name = "VID"
     recorder := httptest.NewRecorder()
     ss.writeToClient(recorder, "A")
     header := recorder.Header()
@@ -146,7 +169,7 @@ func Test_Sessions_writeToClient(t *testing.T){
     }
 }
 func Test_Sessions_Session(t *testing.T){
-    ss := newSessions()
+    ss := Sessions{}
     ss.Name="VID"
     recorder := httptest.NewRecorder()
     req := &http.Request{

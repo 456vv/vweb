@@ -6,17 +6,19 @@ import (
     "bytes"
     "fmt"
     "bufio"
-    "github.com/456vv/vmap/v2"
     "time"
     "os"
     "errors"
     "context"
     "runtime"
+    "github.com/456vv/verror"
 )
 
 
-type executer interface{
-	execute(out *bytes.Buffer, in interface{}) error
+type DynamicTemplate interface{
+	SetPath(rootPath, pagePath string)
+	Parse(r *bufio.Reader) (err error)
+	Execute(out *bytes.Buffer, dot interface{}) error
 }
 
 //web错误调用
@@ -24,8 +26,6 @@ func webError(rw http.ResponseWriter, v ...interface{}) {
    	//500 服务器遇到了意料不到的情况，不能完成客户的请求。
     http.Error(rw, fmt.Sprint(v...), http.StatusInternalServerError)
 }
-
-
 
 //ServerHandlerDynamic 处理动态页面文件
 type ServerHandlerDynamic struct {
@@ -36,8 +36,9 @@ type ServerHandlerDynamic struct {
     //可选的
     BuffSize			int64																// 缓冲块大小
     Site        		*Site																// 网站配置
-	LibReadFunc			func(tmplName, libname string) ([]byte, error)						// 读取库
-   	exec				executer
+	Context				context.Context														// 上下文
+	Plus				map[string]DynamicTemplate											// 支持更动态文件类型
+   	exec				DynamicTemplate
    	modeTime			time.Time
 }
 
@@ -45,13 +46,7 @@ type ServerHandlerDynamic struct {
 //	rw http.ResponseWriter    响应
 //	req *http.Request         请求
 func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request){
-	T.ServeHTTPCtx(context.Background(), rw, req)
-}
-//ServeHTTPCtx 服务HTTP
-//	ctx context.Context		  上下文
-//	rw http.ResponseWriter    响应
-//	req *http.Request         请求
-func (T *ServerHandlerDynamic) ServeHTTPCtx(ctx context.Context, rw http.ResponseWriter, req *http.Request){
+	
 	if T.PagePath == "" {
 		T.PagePath = req.URL.Path
 	}
@@ -97,13 +92,17 @@ func (T *ServerHandlerDynamic) ServeHTTPCtx(ctx context.Context, rw http.Respons
         W    		: rw,
         BuffSize	: T.BuffSize,
         Site        : T.Site,
-        Exchange    : vmap.NewMap(),
+    }
+    
+    ctx := T.Context
+    if ctx == nil {
+    	ctx = req.Context()
     }
     dock.WithContext(context.WithValue(ctx, "Dynamic", T))
 	var body = new(bytes.Buffer)
 	defer func(){
 		dock.Free()
-        if !dock.Writed {
+        if !dock.Writed && err == nil {
 	        body.WriteTo(rw)
 	    }
 	}()
@@ -152,15 +151,15 @@ func (T *ServerHandlerDynamic) ParseFile(path string) error {
 //Parse 解析模板
 //	bufr *bytes.Reader	模板内容
 //	error				错误
-func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error {
+func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error) {
 	if T.PagePath == "" {
-    	return errors.New("vweb: ServerHandlerDynamic.PagePath is not a valid path")
+    	return verror.TrackError("vweb: ServerHandlerDynamic.PagePath is not a valid path")
 	}
 	
     //文件首行
     firstLine, err := bufr.ReadBytes('\n')
     if err != nil || len(firstLine) == 0 {
-    	return fmt.Errorf("vweb: Dynamic content is empty! Error: %s", err.Error())
+    	return verror.TrackErrorf("vweb: Dynamic content is empty! Error: %s", err.Error())
     }
     drop := 0
 	if firstLine[len(firstLine)-1] == '\n' {
@@ -170,33 +169,31 @@ func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error {
 		}
 		firstLine = firstLine[:len(firstLine)-drop]
 	}
-    switch string(firstLine) {
-        case "//template":
-            var shdt = &serverHandlerDynamicTemplate{
-            	rootPath	: T.RootPath,
-               	pagePath	: T.PagePath,
-            }
-            shdt.libReadFunc = T.LibReadFunc
-            err := shdt.parse(bufio.NewReader(bufr))
-            if err != nil {
-            	return err
-            }
-            T.exec = shdt
-        //case "//qlang":
-        //	shdq := &serverHandlerDynamicQlang{
-        //    	rootPath	: T.RootPath,
-        //       	pagePath	: T.PagePath,
-        //	}
-        //    shdq.libReadFunc = T.LibReadFunc
-        //    err := shdq.parse(bufio.NewReader(bufr))
-        //    if err != nil {
-        //    	return err
-        //    }
-        //    T.exec = shdq
-        default:
+	
+	dynmicType := string(firstLine)
+    switch dynmicType {
+    case "//template":
+        var shdt = &serverHandlerDynamicTemplate{}
+		shdt.SetPath(T.RootPath, T.PagePath)
+        err = shdt.Parse(bufio.NewReader(bufr))
+        if err != nil {
+        	return
+        }
+        T.exec = shdt
+    default:
+    	if T.Plus == nil || len(dynmicType) < 3 {
     		return errors.New("vweb: The file type of the first line of the file is not recognized")
+    	}
+		if shdt, ok := T.Plus[dynmicType[2:]]; ok {
+			shdt.SetPath(T.RootPath, T.PagePath)
+			err = shdt.Parse(bufio.NewReader(bufr))
+	        if err != nil {
+	        	return
+	        }
+	       T.exec = shdt
+		}
     }
-    return nil
+    return
 }
 
 //Execute 执行模板
@@ -215,7 +212,8 @@ func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) (er
 			err = fmt.Errorf("vweb: Dynamic code execute error。%v\n%s", e, buf)
 		}
 	}()
-	return T.exec.execute(bufw, dock)
+	
+	return T.exec.Execute(bufw, dock)
 }
 
 

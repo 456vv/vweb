@@ -19,7 +19,6 @@ var errTemplateNotParse =  errors.New("vweb: The template has not been parsed ye
 type shdtHeader struct{
     filePath        		[]string                              			                // 文件路径, map[文件名或别名]文件路径
     delimLeft,delimRight    string                                                          // 语法识别符
-    rFile					func(file string) ([]byte, error)								// 打开文件
 }
 
 //openFile 打开文件内容
@@ -36,18 +35,14 @@ func (h *shdtHeader) openIncludeFile(rootPath, pagePath string) (map[string]stri
 		err 		error
 	)
 	for _, v := range h.filePath {
-		if h.rFile != nil {
-			c, err = h.rFile(v)
+		if v[0] == '/' || v[0] == '\\' {
+            filePath = filepath.Clean(v)
 		}else{
-			if v[0] == '/' || v[0] == '\\' {
-	            filePath = filepath.Clean(v)
-			}else{
-				filePath = filepath.Join(dirPath, v)
-				filePath = filepath.Clean(filePath)
-	        }
-	       	filePath = filepath.Join(rootPath, filePath)
-			c, err = ioutil.ReadFile(filePath)
-		}
+			filePath = filepath.Join(dirPath, v)
+			filePath = filepath.Clean(filePath)
+        }
+       	filePath = filepath.Join(rootPath, filePath)
+		c, err = ioutil.ReadFile(filePath)
 		if err != nil {
 			return nil, fmt.Errorf("vweb: Dynamically embedded template file read failed(%s)", err.Error())
 		}
@@ -62,7 +57,6 @@ func (h *shdtHeader) openIncludeFile(rootPath, pagePath string) (map[string]stri
 type serverHandlerDynamicTemplate struct {
 	rootPath			string																// 文件目录
 	pagePath			string																// 文件名称
-	libReadFunc			func(tmplName, libName string) ([]byte, error)
  	
  	fileName			string
 	t 					*template.Template
@@ -70,7 +64,7 @@ type serverHandlerDynamicTemplate struct {
 func (T *serverHandlerDynamicTemplate) parseText(content, name string) error {
 	T.fileName = name
 	r := bufio.NewReader(strings.NewReader(content))
-	return T.parse(r)
+	return T.Parse(r)
 }
 func (T *serverHandlerDynamicTemplate) parseFile(path string) error {
 	//文件名
@@ -86,9 +80,16 @@ func (T *serverHandlerDynamicTemplate) parseFile(path string) error {
 	}
 	r := bufio.NewReader(bytes.NewBuffer(b))
 	T.fileName = filepath.Base(path)
-	return T.parse(r)
+	return T.Parse(r)
 }
-func (T *serverHandlerDynamicTemplate) parse(r *bufio.Reader) (err error) {
+func (T *serverHandlerDynamicTemplate) SetPath(root, page string) {
+	T.rootPath = root
+	T.pagePath = page
+    if T.fileName == "" {
+    	T.fileName = filepath.Base(T.pagePath)
+    }
+}
+func (T *serverHandlerDynamicTemplate) Parse(r *bufio.Reader) (err error) {
 	var(
 		h			shdtHeader                          //文件头
 		c			string                              //内容
@@ -101,13 +102,7 @@ func (T *serverHandlerDynamicTemplate) parse(r *bufio.Reader) (err error) {
     if err != nil {
         return
     }
-    
-    //打开文件头嵌入模板文件内容集
-    if T.libReadFunc != nil {
-	    h.rFile=func(libName string)([]byte, error){
-	    	return T.libReadFunc(T.fileName, libName)
-	    }
-    }
+
     libs, err = h.openIncludeFile(T.rootPath, T.pagePath)
     if err != nil {
         return
@@ -116,7 +111,7 @@ func (T *serverHandlerDynamicTemplate) parse(r *bufio.Reader) (err error) {
     //模板文件内容载入Tmplate
     t := template.New(T.fileName)
     t.Delims(h.delimLeft, h.delimRight)
-    t.Funcs(TemplateFuncMap)
+    t.Funcs(TemplateFunc)
 
     //解析主体内容
     c = T.format(h.delimLeft, h.delimRight, c)
@@ -129,12 +124,7 @@ func (T *serverHandlerDynamicTemplate) parse(r *bufio.Reader) (err error) {
     T.t, err = T.loadTmpl(h.delimLeft, h.delimRight, t, libs)
     return
 }
-
-//Execute 执行模板
-//	out *bytes.Buffer	模板中返回的内容
-//	in interface{}		模板中调用的接口
-//	error				执行失败
-func (T *serverHandlerDynamicTemplate) execute(out *bytes.Buffer, in interface{}) error {
+func (T *serverHandlerDynamicTemplate) Execute(out *bytes.Buffer, in interface{}) error {
 	if T.t == nil {
 		return errTemplateNotParse
 	}
@@ -234,7 +224,7 @@ func (T *serverHandlerDynamicTemplate) format(delimLeft, delimRight, c string) s
             clines  := strings.Split(c, line)
             clinesL := len(clines)-1
             for k, cline := range clines {
-                clineTrim := strings.Trim(cline, " \t")
+                clineTrim 	:= strings.Trim(cline, " \t")
                 leftHas     := strings.HasSuffix(clineTrim, delimLeft)
                 rightHas    := strings.HasPrefix(clineTrim, delimRight)
                 switch true {
@@ -302,6 +292,7 @@ func (T *part) Args(i int) interface{} {
 	}
 	return nil
 }
+
 func (T *part) Result(out ...interface{}){
 	for _, arg := range out {
 		T.output = append(T.output, reflect.ValueOf(arg))
@@ -309,7 +300,7 @@ func (T *part) Result(out ...interface{}){
 }
 
 //这是个额外扩展，由于模板不能实现函数创建，只能在这里构造一个支持创建函数。
-//需要结合 reflect.MakeFunc(typ Type, fn func(args []Value) (results []Value)) Value 来使用
+//在创建的函数内部，需要使用 Args 方法读取参数，使用 Result 方法返回结果。
 type serverHandlerDynamicTemplateExtend struct{
 	t *template.Template
 }
@@ -333,7 +324,10 @@ func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]refl
 	}, nil
 }
 
-	
+//Call 执行函数
+//	f func([]reflect.Value) []reflect.Value	由NewFunc创建的函数
+//	args ...interface{}						可变参数
+//	[]interface{}							返回结果
 func (T *serverHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{} {
 	var(
 		inv []reflect.Value

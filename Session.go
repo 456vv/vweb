@@ -7,6 +7,7 @@ import (
 
 //Sessioner 用户独立的内存存储接口
 type Sessioner interface {
+	Token() string
 	Set(key, val interface{})
     Has(key interface{}) bool
     Get(key interface{}) interface{}
@@ -18,8 +19,6 @@ type Sessioner interface {
     Defer(call interface{}, args ... interface{}) error
     Free()
 }
-
-
 
 //Session 会话用于用户保存数据
 type Session struct{
@@ -34,6 +33,11 @@ func NewSession() *Session {
     }
 }
 
+// Token 读取当前的令牌
+//	string	令牌
+func (T *Session) Token() string {
+	return T.id
+}
 
 // Defer 在用户会话时间过期后，将被调用。
 //	call interface{}            函数
@@ -42,13 +46,13 @@ func NewSession() *Session {
 //  例：
 //	.Defer(fmt.Println, "1", "2")
 //	.Defer(fmt.Printf, "%s", "汉字")
-func (s *Session) Defer(call interface{}, args ... interface{}) error {
-	return s.exitCall.Defer(call, args...)
+func (T *Session) Defer(call interface{}, args ... interface{}) error {
+	return T.exitCall.Defer(call, args...)
 }
 
 
 //Free 执行结束Defer和键值有效期
-func (s *Session) Free() {
+func (T *Session) Free() {
 	//执行退出函数
-	s.exitCall.Free()
+	T.exitCall.Free()
 }

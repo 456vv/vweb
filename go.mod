@@ -1,9 +1,12 @@
-module github.com/456vv/vweb
+module github.com/456vv/vweb/v2
+
+go 1.14
 
 require (
-	//github.com/456vv/qlang v0.0.0-20190925162212-b2527647a64d
-	github.com/456vv/vconnpool v1.0.0
-	github.com/456vv/vmap/v2 v2.2.2
+	github.com/456vv/vconnpool v1.1.1
+	github.com/456vv/verror v1.1.0
+	github.com/456vv/vmap/v2 v2.2.5
+	github.com/456vv/vweb/v2/builtin v0.0.0-00010101000000-000000000000
 )
 
-go 1.13
+replace github.com/456vv/vweb/v2/builtin => ./builtin

@@ -5,56 +5,28 @@ import (
     "time"
     "net/http"
     "github.com/456vv/vmap/v2"
+    "github.com/456vv/verror"
 )
 
 type manageSession struct{
-	s		*Session
+	s		Sessioner
 	recent	time.Time
 }
 
 // Sessions集
 type Sessions struct{
-    Expired         time.Duration                                       // 保存session时间长（默认：20分钟）
-    Name            string                                              // 标识名称(默认:VID)
-    Size            int                                                 // 会话ID长度(默认长度64位)
+    Expired         time.Duration                                       // 保存session时间长
+    Name            string                                              // 标识名称
+    Size            int                                                 // 会话ID长度
     Salt            string                                              // 加盐，由于计算机随机数是伪随机数。（可默认为空）
     ActivationID    bool                                                // 为true，保持会话ID
-    sessions        *vmap.Map                                           // 集，map[id]*Session
+    ss        		vmap.Map                                           // 集，map[id]*Session
 }
 
-func newSessions() *Sessions {
-    T := &Sessions{
-        Name:"VID",
-        Expired: time.Minute * 20,
-        Size: 64,
-        sessions: vmap.NewMap(),
-    }
-    return T
-}
-
-func (T *Sessions) init(){
-	if T.sessions == nil {
-		T.sessions = vmap.NewMap()
-	}
-}
-
-//update 更新配置
-func (T *Sessions) update(confSession ConfigSitePropertySession){
-
-    if confSession.Expired != 0 {
-        T.Expired = time.Duration(confSession.Expired) * time.Millisecond
-    }
-
-    if confSession.Name != "" {
-        T.Name = confSession.Name
-    }
-
-    if confSession.Size != 0 {
-        T.Size = confSession.Size
-    }
-
-    T.Salt 			= confSession.Salt
-    T.ActivationID 	= confSession.ActivationID
+//Len 当前Session数量
+//	int	数量
+func (T *Sessions) Len() int {
+	return T.ss.Len()
 }
 
 //ProcessDeadAll 定时来处理过期的Session
@@ -62,9 +34,8 @@ func (T *Sessions) update(confSession ConfigSitePropertySession){
 func (T *Sessions) ProcessDeadAll() []interface{} {
     var expId   []interface{}
 	if T.Expired != 0 {
-		T.init()
 	    currTime := time.Now()
-		T.sessions.Range(func(id, mse interface{}) bool{
+		T.ss.Range(func(id, mse interface{}) bool{
 			ms := mse.(*manageSession)
 	        recentTime := ms.recent.Add(T.Expired)
 	        if currTime.After(recentTime) {
@@ -75,7 +46,7 @@ func (T *Sessions) ProcessDeadAll() []interface{} {
 	        }
 			return true
 		})
-	    T.sessions.Dels(expId)
+	    T.ss.Dels(expId)
 	}
     return expId
 }
@@ -93,27 +64,24 @@ func (T *Sessions) triggerDeadSession(ms *manageSession) (ok bool) {
     return
 }
 
-//sessionIdSalt 加盐
-//	rnd []byte	标识字节串
-//	string  	标识符
-func (T *Sessions) sessionIdSalt(rnd []byte) string {
-    return AddSalt(rnd, T.Salt)
-}
-
 //generateSessionIdSalt 生成Session标识符,并加盐
 //	string  标识符
-func (T *Sessions) GenerateSessionIdSalt() string {
-    var rnd = make([]byte, T.Size)
+func (T *Sessions) generateSessionIdSalt() string {
+	rnd := make([]byte, T.Size)
     err := GenerateRandomId(rnd)
     if err != nil {
     	panic(err)
     }
-    return T.sessionIdSalt(rnd)
+    if T.Salt == "" {
+	    id := fmt.Sprintf("%x", rnd)
+	    return id[:T.Size]
+    }
+    return AddSalt(rnd, T.Salt)
 }
 
 //generateSessionId 生成Session标识符
 //	string  标识符
-func (T *Sessions) GenerateSessionId() string {
+func (T *Sessions) generateSessionId() string {
 	rnd := make([]byte, T.Size)
     err := GenerateRandomId(rnd)
     if err != nil {
@@ -131,37 +99,32 @@ func (T *Sessions) GenerateSessionId() string {
 func (T *Sessions) SessionId(req *http.Request) (id string, err error) {
     c, err := req.Cookie(T.Name)
     if err != nil || c.Value == "" {
-    	return "", fmt.Errorf("vweb.Sessions: 该用会话属性（%s）名称，从客户端请求中没有找可用ID值。", T.Name)
+    	return "", verror.TrackErrorf("vweb: 该用会话属性（%s）名称，从客户端请求中没有找可用ID值。", T.Name)
     }
     return c.Value, nil
 }
 
 //NewSession 使用id读取会话，不存在，则新建
 //	id string   id标识符
-//	*session    会话
-func (T *Sessions) NewSession(id string) *Session {
-	s, err := T.GetSession(id)
-	if err != nil {
-		return T.SetSession(id, NewSession())
-	}
-	return s
+//	Sessioner   会话
+func (T *Sessions) NewSession() Sessioner {
+	return T.SetSession(T.generateRandSessionId(), NewSession())
 }
 
 //GetSession 使用id读取会话
 //	id string   id标识符
-//	*session    会话
+//	Sessioner   会话
 //	error       错误
-func (T *Sessions) GetSession(id string) (*Session, error) {
-	T.init()
-    mse, ok := T.sessions.GetHas(id)
+func (T *Sessions) GetSession(id string) (Sessioner, error) {
+    mse, ok := T.ss.GetHas(id)
     if !ok {
-    	return nil, fmt.Errorf("vweb.Sessions: 该ID（%s）不是有效的。", id)
+    	return nil, verror.TrackErrorf("vweb: 该ID（%s）不是有效的。", id)
     }
     ms := mse.(*manageSession)
 
     if T.triggerDeadSession(ms) {
-    	T.sessions.Del(id)
-        return nil, fmt.Errorf("vweb.Sessions: 该ID（%s）是有效的，但会话已经过期了。", id)
+    	T.ss.Del(id)
+        return nil, verror.TrackErrorf("vweb: 该ID（%s）是有效的，但会话已经过期了。", id)
     }
     ms.recent = time.Now()
     return ms.s, nil
@@ -169,47 +132,51 @@ func (T *Sessions) GetSession(id string) (*Session, error) {
 
 //SetSession 使用id写入新的会话
 //	id string   id标识符
-//	s *Session  新的会话
-//	*Session    会话
-func (T *Sessions) SetSession(id string, s *Session) *Session {
-	T.init()
-	mse, ok := T.sessions.GetHas(id)
-	if ok {
-    	ms := mse.(*manageSession)
-    	if ms.s.id == s.id {
-    		//已经存在，无法再设置
-    		return s
-    	}else{
-    		//替换原有Session，需要清理原有的defer
-    		go ms.s.Free()
-    	}
+//	s Sessioner 新的会话
+//	Sessioner   会话
+func (T *Sessions) SetSession(id string, s Sessioner) Sessioner {
+	return T.setSession(id, s, true)
+}
+
+func (T *Sessions) setSession(id string, s Sessioner, free bool) Sessioner {
+	if inf, ok := T.ss.GetHas(id); ok {
+		ms := inf.(*manageSession)
+		if ms.s.Token() == s.Token() {
+	    	//已经存在，无法再设置
+	    	return s
+		}
+		if free {
+	    	//替换原有Session，需要清理原有的defer
+			go ms.s.Free()
+		}
 	}
-	//对应这个id，并保存
-	s.id = id
+	if t, can := s.(*Session); can {
+		//对应这个id，并保存
+		t.id = id
+	}
 	ms := &manageSession{
 		s:s,
 		recent:time.Now(),
 	}
-    T.sessions.Set(id, ms)
+    T.ss.Set(id, ms)
     return s
 }
 
 //DelSession 使用id删除的会话
 //	id string   id标识符
 func (T *Sessions) DelSession(id string) {
-	T.init()
-    if mse, ok := T.sessions.GetHas(id); ok {
+    if mse, ok := T.ss.GetHas(id); ok {
 	    ms := mse.(*manageSession)
 		go ms.s.Free()
-		T.sessions.Del(id)
+		T.ss.Del(id)
     }
 }
 
 //writeToClient 写入到客户端
 //	rw http.ResponseWriter  响应
 //	id string               id标识符
-//	*session    			会话
-func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) *Session {
+//	Sessioner    			会话
+func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) Sessioner {
     cookie := &http.Cookie{
         Name: T.Name,
         Value: id,
@@ -227,13 +194,13 @@ func (T *Sessions) generateRandSessionId() string {
 		id 			string
 		maxWait	 	= time.Second
 		wait		time.Duration
-		printErr	= "vweb.Sessions: 会话ID即将耗尽，请尽快加大调整ID长度。本次已为用户分配临时ID。"
+		printErr	= "vweb: 警告>>会话ID即将耗尽，请尽快加大调整ID长度。本次已为用户分配临时ID。"
 	)
 	
     if T.Salt != "" {
-    	for id = T.GenerateSessionIdSalt(); T.sessions.Has(id);{
+    	for id = T.generateSessionIdSalt(); T.ss.Has(id);{
     		wait=delay(wait, maxWait)
-    		id = T.GenerateSessionIdSalt()
+    		id = T.generateSessionIdSalt()
     		if wait >= maxWait {
     			id+="-temp"
     			//ID即将耗尽
@@ -242,9 +209,9 @@ func (T *Sessions) generateRandSessionId() string {
     	}
    		return id
     }
-	for id = T.GenerateSessionId(); T.sessions.Has(id);{
+	for id = T.generateSessionId(); T.ss.Has(id);{
 		wait=delay(wait, maxWait)
-		id = T.GenerateSessionId()
+		id = T.generateSessionId()
 		if wait >= maxWait {
 			id+="-temp"
 			//ID即将耗尽
@@ -264,7 +231,6 @@ func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner 
     if err != nil {
     	//客户是第一次请求，没有会话ID
     	//现在生成一个ID给客户端
-
 	    id = T.generateRandSessionId()
         return T.writeToClient(rw, id)
     }

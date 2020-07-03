@@ -4,29 +4,6 @@ golang vweb, 简单的web服务器。
 
 # **列表：**
 ```go
-vweb.go======================================================================================================================
-const (
-    Version                 string = "v1.3.12"                                    			// 版本号
-)
-
-var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
-
-func.go======================================================================================================================
-func ExtendDotFuncMap(deputy map[string]map[string]interface{})                             // 扩展点函数映射，在模板上的点（.）可以调用
-func GenerateRandomId(rnd []byte) error                                                     // 生成随机ID
-func GenerateRandom(length int) ([]byte, error)												// 生成随机ID
-func GenerateRandomString(length int) (string, error)										// 生成随机ID
-func AddSalt(rnd []byte, salt string) string 												// 加盐
-func PagePath(root, p string, index []string) (os.FileInfo, string, error)   				// 页路径
-TemplateFuncMap.go======================================================================================================================
-var TemplateFuncMap         = map[string]interface{...}                                     // 模板函数映射（默认）
-
-reflect.go======================================================================================================================
-func ForMethod(x interface{}) string                                                        // 遍历方法
-func ForType(x interface{}) string                                                          // 遍历字段
-func TypeSelect(v reflect.Value) interface{}                                                // 类型选择
-func InDirect(v reflect.Value) reflect.Value                                                // 指针到内存
-func DepthField(s interface{}, index ... string) (field interface{}, err error)             // 深入读取字段
 
 cookie.go======================================================================================================================
 type Cookier interface {                                                            // Cookie接口
@@ -46,6 +23,57 @@ type Cookie struct{                                                             
     func (c *Cookie) ReadAll() map[string]string                                            // 读出所有
     func (c *Cookie) RemoveAll()                                                            // 删除所有
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+vweb.go======================================================================================================================
+const (
+    Version                 string = "v1.3.12"                                              // 版本号
+)
+
+var DotFuncMap      = make(map[string]map[string]interface{})                               // 点函数映射
+
+func.go======================================================================================================================
+func ExtendDotFuncMap(deputy map[string]map[string]interface{})                             // 扩展点函数映射，在模板上的点（.）可以调用
+func GenerateRandomId(rnd []byte) error                                                     // 生成随机ID
+func GenerateRandom(length int) ([]byte, error)                                             // 生成随机ID
+func GenerateRandomString(length int) (string, error)                                       // 生成随机ID
+func AddSalt(rnd []byte, salt string) string                                                // 加盐
+func PagePath(root, p string, index []string) (os.FileInfo, string, error)                  // 页路径
+TemplateFuncMap.go======================================================================================================================
+var TemplateFuncMap         = map[string]interface{...}                                     // 模板函数映射（默认）
+
+reflect.go======================================================================================================================
+func ForMethod(x interface{}) string                                                        // 遍历方法
+func ForType(x interface{}) string                                                          // 遍历字段
+func TypeSelect(v reflect.Value) interface{}                                                // 类型选择
+func InDirect(v reflect.Value) reflect.Value                                                // 指针到内存
+func DepthField(s interface{}, index ... string) (field interface{}, err error)             // 深入读取字段
+
+
 global.go======================================================================================================================
 type Globaler interface {                                                            // Global接口（动态页中使用）
     Set(key, val interface{})                                                               // 设置
@@ -62,11 +90,11 @@ type Sessioner interface {                                                      
     Get(key interface{}) interface{}                                                        // 读取
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取
     Del(key interface{})                                                                    // 删除
-    SetExpired(key interface{}, d time.Duration)											// 设置有效期
-    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))					// 设置有效期，过期调用函数
+    SetExpired(key interface{}, d time.Duration)                                            // 设置有效期
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))                   // 设置有效期，过期调用函数
     Reset()                                                                                 // 重置
     Defer(call interface{}, arg ...interface{}) error                                       // 会话过期调用函数
-    Free()																					// 会话释放调用函数
+    Free()                                                                                  // 会话释放调用函数
 }
 type Session struct{                                                                // 会话用于用户保存数据
     *vmap.Map                                                                               // 数据，用户存储的数据
@@ -86,10 +114,10 @@ type Sessions struct{                                                           
     func (T *Sessions) GenerateSessionId() string                                           // 生成ID
     func (T *Sessions) GenerateSessionIdSalt() string                                       // 生成ID(加盐)
     func (T *Sessions) SessionId(req *http.Request) (id string, err error)                  // 读取SessionID
-	func (T *Sessions) NewSession(id string) *Session                              		 	// 读取Session，如果不存在则新建
+    func (T *Sessions) NewSession(id string) *Session                                       // 读取Session，如果不存在则新建
     func (T *Sessions) GetSession(id string) (*Session, error)                              // 读取Session
     func (T *Sessions) SetSession(id string, s *Session) *Session                           // 写入Session
-	func (T *Sessions) DelSession(id string)											 	// 删除Session
+    func (T *Sessions) DelSession(id string)                                                // 删除Session
     func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner         // 读出Session
     func (T *Sessions) ProcessDeadAll() []interface{}                                       // 处理用户过期的会话
 
@@ -101,7 +129,7 @@ type Swaper interface {
     Len() int                                                                               // 长度
     Set(key, val interface{})                                                               // 设置
     SetExpired(key interface{}, d time.Duration)                                            // 设置有效期
-    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))					// 设置有效期，过期调用函数
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))                   // 设置有效期，过期调用函数
     Has(key interface{}) bool                                                               // 检查
     Get(key interface{}) interface{}                                                        // 读取
     GetHas(key interface{}) (val interface{}, ok bool)                                      // 检查+读取
@@ -123,7 +151,7 @@ type Swaper interface {
 site.go======================================================================================================================
 var DefaultSitePool    = NewSitePool()                                                      // 网站池（默认）
 type SitePool struct {                                                              // 网站池
-	Pool					*vmap.Map                                                       // map[池名]*Site
+    Pool                    *vmap.Map                                                       // map[池名]*Site
 }
     func NewSitePool() *SitePool                                                            // 池对象
     func (sp *SitePool) SetRecoverSession(d time.Duration)                                  // 设置回收无效的会话
@@ -183,12 +211,12 @@ type ServerGroup struct {                                                       
     func (T *ServerGroup) Close() error                                                     // 关闭服务集群
 
 TemplateDot.go======================================================================================================================
-type DotContexter interface{															// DotContexter 上下文接口
-    Context() context.Context                                             					// 上下文
-    WithContext(ctx context.Context)														// 替换上下文
+type DotContexter interface{                                                            // DotContexter 上下文接口
+    Context() context.Context                                                               // 上下文
+    WithContext(ctx context.Context)                                                        // 替换上下文
 }
 
-type TemplateDoter interface{															// TemplateDoter 可以在模本中使用的方法
+type TemplateDoter interface{                                                           // TemplateDoter 可以在模本中使用的方法
     PKG(pkg string) map[string]interface{}                                                  // 调用包函数
     Request() *http.Request                                                                 // 用户的请求信息
     RequestLimitSize(l int64) *http.Request                                                 // 请求限制大小
@@ -201,8 +229,8 @@ type TemplateDoter interface{															// TemplateDoter 可以在模本中�
     Swap() Swaper                                                                           // 信息交换
     PluginRPC(name string) (PluginRPC, error)                                               // 插件RPC方法调用
     PluginHTTP(name string) (PluginHTTP, error)                                             // 插件HTTP方法调用
-    Config() interface{}																	// 网站配置
-    Defer(call interface{}, args ... interface{}) error										// 退回调用
+    Config() interface{}                                                                    // 网站配置
+    Defer(call interface{}, args ... interface{}) error                                     // 退回调用
     DotContexter
 }
 
@@ -226,25 +254,25 @@ type TemplateDot struct {                                                       
     func (T *TemplateDot) PluginRPC(name string) (PluginRPC, error)                         // 插件RPC方法调用
     func (T *TemplateDot) PluginHTTP(name string) (PluginHTTP, error)                       // 插件HTTP方法调用
     func (T *TemplateDot) Swap() Swaper                                                     // 信息交换
-    func (T *TemplateDot) Config() ConfigSite												// 网站的配置
-	func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error				// 退回调用
-	func (T *TemplateDot) Free()															// 释放调用
+    func (T *TemplateDot) Config() ConfigSite                                               // 网站的配置
+    func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error               // 退回调用
+    func (T *TemplateDot) Free()                                                            // 释放调用
     func (T *TemplateDot) Context() context.Context                                         // 上下文
-    func (T *TemplateDot) WithContext(ctx context.Context)						            // 替换上下文
+    func (T *TemplateDot) WithContext(ctx context.Context)                                  // 替换上下文
 
 serverHandlerDynamic.go======================================================================================================================
 type ServerHandlerDynamic struct {                                                  // 处理动态页面文件
     RootPath, PagePath  string                                                              // 根目录, 页路径
     BuffSize            int64                                                               // 缓冲块大小
     Site                *Site                                                               // 网站配置
-   	LibReadFunc			func(tmplName, libname string) ([]byte, error)						// 读取库
+    LibReadFunc         func(tmplName, libname string) ([]byte, error)                      // 读取库
 }
     func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request)     // 服务HTTP
-    func (T *ServerHandlerDynamic) ServeHTTPCtx(ctx context.Context, rw http.ResponseWriter, req *http.Request)	// 服务HTTP（上下文）
-	func (T *ServerHandlerDynamic) ParseText(content, name string) error					// 解析文本
-	func (T *ServerHandlerDynamic) ParseFile(path string) error								// 解析文件
-	func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error							// 解析
-	func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) error		// 执行模板
+    func (T *ServerHandlerDynamic) ServeHTTPCtx(ctx context.Context, rw http.ResponseWriter, req *http.Request) // 服务HTTP（上下文）
+    func (T *ServerHandlerDynamic) ParseText(content, name string) error                    // 解析文本
+    func (T *ServerHandlerDynamic) ParseFile(path string) error                             // 解析文件
+    func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) error                          // 解析
+    func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) error      // 执行模板
 PluginHTTP.go======================================================================================================================
 type PluginHTTP interface{                                                          // HTTP插件接口
     ServeHTTP(w http.ResponseWriter, r *http.Request)                                       // 服务HTTP
@@ -278,19 +306,19 @@ type PluginRPCClient struct {                                                   
     func(T *PluginRPCClient) Connection() (PluginRPC, error)                                // 连接
 
 serverHandlerStatic.go======================================================================================================================
-type ServerHandlerStatic struct{													// 静态页
-    RootPath, PagePath  string          													// 根目录, 页路径
-	PageExpired			int64																// 页面过期时间（秒为单位）
-	BuffSize			int64																// 缓冲块大小
+type ServerHandlerStatic struct{                                                    // 静态页
+    RootPath, PagePath  string                                                              // 根目录, 页路径
+    PageExpired         int64                                                               // 页面过期时间（秒为单位）
+    BuffSize            int64                                                               // 缓冲块大小
 }
     func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Request)      // 服务HTTP
 
 route.go======================================================================================================================
-type Route struct{																	// 路由器
-	HandlerError	func(w http.ResponseWriter, r *http.Request)							// 错误网址访问处理
+type Route struct{                                                                  // 路由器
+    HandlerError    func(w http.ResponseWriter, r *http.Request)                            // 错误网址访问处理
 }
-	func (T *Route) HandleFunc(url string,  handler func(w http.ResponseWriter, r *http.Request)	// 绑定处理函数
-	func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request)								// 服务HTTP
+    func (T *Route) HandleFunc(url string,  handler func(w http.ResponseWriter, r *http.Request)    // 绑定处理函数
+    func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request)                               // 服务HTTP
 config.go======================================================================================================================
 type ConfigSiteForward struct {                                     // 转发
     Path        []string                                                    // 多种路径匹配
@@ -323,7 +351,7 @@ type ConfigSitePlugin struct {                                      // 插件
     MaxConn                 int                                             // 最大连接数
 
     //HTTP
-	ProxyURL				string											// 验证用户密码或是否使用socks5
+    ProxyURL                string                                          // 验证用户密码或是否使用socks5
     Host                    string                                          // Host
     Scheme                  string                                          // 协议
     TLS                     ConfigSitePluginTLS                             // TLS
@@ -331,7 +359,7 @@ type ConfigSitePlugin struct {                                      // 插件
     DisableKeepAlives       bool                                            // 禁止长连接
     DisableCompression      bool                                            // 禁止压缩
     MaxIdleConnsPerHost     int                                             // 最大空闲连接每个主机
-	MaxConnsPerHost			int												// 最大连接的每个主机
+    MaxConnsPerHost         int                                             // 最大连接的每个主机
     IdleConnTimeout         int64                                           // 设置空闲连接超时（毫秒单位）
     ResponseHeaderTimeout   int64                                           // 请求Header超时（毫秒单位）
     ExpectContinueTimeout   int64                                           // 发送Expect: 100-continue标头的PUT请求超时
@@ -369,7 +397,7 @@ type ConfigSitePropertySession struct {                             // 会话
 type ConfigSiteProperty struct {                                    // 性能
     ConnMaxNumber       int64                                               // 连接最大数量
     ConnSpeed           int64                                               // 连接宽带速度
-    BuffSize	       int64                                              	// 缓冲区大小
+    BuffSize           int64                                                // 缓冲区大小
     Session             ConfigSitePropertySession                           // 会话
 }
 type ConfigSite struct {                                            // 站点

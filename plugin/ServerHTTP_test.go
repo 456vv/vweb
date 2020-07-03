@@ -28,7 +28,7 @@ func Test_Server_HTTP_1(t *testing.T) {
 
 	//请求一个连接
 	httpClient := &http.Client{}
-	httpResponse, err := httpClient.Get("http://"+sh.L.Addr().String()+"/123")
+	httpResponse, err := httpClient.Get("http://"+sh.l.Addr().String()+"/123")
 	if err != nil {
 		t.Fatalf("请求连接失败，错误：%v", err)
 	}
@@ -65,7 +65,7 @@ func Test_Server_HTTP_2(t *testing.T) {
 
 	//请求一个连接
 	httpClient := &http.Client{}
-	httpResponse, err := httpClient.Get("http://"+sh.L.Addr().String()+"/123")
+	httpResponse, err := httpClient.Get("http://"+sh.l.Addr().String()+"/123")
 	if err != nil {
 		t.Fatalf("请求连接失败，错误：%v", err)
 	}
@@ -100,7 +100,7 @@ func Test_Server_HTTP_3(t *testing.T) {
 
 	//请求一个连接
 	httpClient := &http.Client{}
-	httpResponse, err := httpClient.Get("http://"+serverHTTP.L.Addr().String()+"/123")
+	httpResponse, err := httpClient.Get("http://"+serverHTTP.l.Addr().String()+"/123")
 	if err != nil {
 		t.Fatalf("请求连接失败，错误：%v", err)
 	}
@@ -142,7 +142,7 @@ func Test_Server_HTTP_4(t *testing.T) {
 	go serverHTTP.Serve(netListener)
 
 	time.Sleep(time.Second * 2)
-    addr := serverHTTP.L.Addr().String()
+    addr := serverHTTP.l.Addr().String()
 	//请求一个连接
 	httpClient := &http.Client{
         Transport: &http.Transport{

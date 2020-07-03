@@ -3,7 +3,7 @@ import(
     //"strings"
     "reflect"
     "fmt"
-   "github.com/456vv/vweb/dynamic/builtin"
+   "github.com/456vv/vweb/v2/builtin"
 )
 
 /*
@@ -72,18 +72,14 @@ func call(f interface{}, args ...interface{}) ([]interface{}, error){
 }
 
 // 模板函数映射
-var TemplateFuncMap      = map[string]interface{}{
+var TemplateFunc = map[string]interface{}{
+	"Import": func(pkgName string) map[string]interface{} {return dotPackage[pkgName]},
     "ForMethod": ForMethod,
     "ForType": ForType,
-    "TypeSelect": TypeSelect,
+    "typeSelect": typeSelect,
     "InDirect": InDirect,
     "DepthField": DepthField,
-	"ReflectField":func(inf interface{}, i int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).Field(i)},
-	"ReflectFieldByName":func(inf interface{}, name string) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).FieldByName(name)},
-	"ReflectFieldByIndex":func(inf interface{}, index []int) reflect.Value {return reflect.Indirect(reflect.ValueOf(inf)).FieldByIndex(index)},
-	"ReflectMethod":func(inf interface{}, i int) reflect.Value {return reflect.ValueOf(inf).Method(i)},
-	"ReflectMethodByName":func(inf interface{}, name string) reflect.Value {return reflect.ValueOf(inf).MethodByName(name)},
-	"ReflectIndex":func(inf interface{}, i int) reflect.Value {return reflect.ValueOf(inf).Index(i)},
+    "GoTypeTo":builtin.GoTypeTo,
     "Value":builtin.Value,						//Value(v) reflect.Value
 	"_Value_":func(s []reflect.Value, v ...reflect.Value) []reflect.Value {return append(s, v...)},
 	"Call":call,
@@ -184,23 +180,16 @@ var TemplateFuncMap      = map[string]interface{}{
     "Type":builtin.Type,						//Type(v) reflect.Type
     "Panic":builtin.Panic,						//Panic(v)
     "Make":builtin.Make,						//Make([]T, length, cap)|Make([T]T, length)|Make(Chan, length)
-    "MakeMap":builtin.MakeMap,					//MakeMap(T)
-    "MapOf":builtin.MapOf,						//MapOf(T,T)
     "MapFrom":builtin.MapFrom,					//MapFrom(T1,V1, T2,V2, ...)
+    "SliceFrom":builtin.SliceFrom,				//SliceFrom(值0, 值1,...)
     "Delete":builtin.Delete,					//Delete(map[T]T, "key")
     "Set":builtin.Set,							//Set([]T, 位置0,值1, 位置1,值2, 位置2,值3)|Set(map[T]T, 键名0,值1, 键名1,值2, 键名2,值3)|Set(struct{}, 名称0,值1, 名称1,值2, 名称2,值3)
-    "SetIndex":builtin.SetIndex,				//SetIndex(map[T]T/[]T/struct{}, key, val)
     "Get":builtin.Get,							//Get(map[T]T/[]T/struct{}/string/number, key)
     "Len":builtin.Len,							//Len([]T/string/map[T]T)
     "Cap":builtin.Cap,							//Cap([]T)
     "GetSlice":builtin.GetSlice,				//GetSlice([]T, 1, 5)
     "GetSlice3":builtin.GetSlice3,				//GetSlice3([]T, 1, 5, 7)
     "Copy":builtin.Copy,						//Copy([]T, []T)
-    "SliceOf":builtin.SliceOf,					//SliceOf(T)
-    "MakeSlice":builtin.MakeSlice,				//MakeSlice(T, len, cap)
-    "SliceFrom":builtin.SliceFrom,				//SliceFrom(值0, 值1,...)
-    "StructInit":builtin.StructInit,			//StructInit(struct{}, key1, val1, ...)
-    "MapInit":builtin.MapInit,					//MapInit(map[T]T, key1, val0, ...)
     "Compute": builtin.Compute,					//Compute(1, "+", 2)
     "Inc":builtin.Inc,							//Inc returns a+1
     "Dec":builtin.Dec,							//Dec returns a-1

@@ -185,7 +185,7 @@ func Test_serverHandlerDynamicTemplateExtend_NewFunc(t *testing.T) {
 	}
 	buf := &bytes.Buffer{}
 	in := &TemplateDot{}
-	err = shdt.execute(buf, in)
+	err = shdt.Execute(buf, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func Test_serverHandlerDynamicTemplateExtend_Call(t *testing.T) {
 	}
 	buf := &bytes.Buffer{}
 	in := &TemplateDot{}
-	err = shdt.execute(buf, in)
+	err = shdt.Execute(buf, in)
 	if err != nil {
 		t.Fatal(err)
 	}
