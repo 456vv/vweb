@@ -6,7 +6,7 @@ require (
 	github.com/456vv/vbody v1.2.2
 	github.com/456vv/vcipher v1.0.0
 	github.com/456vv/verifycode v1.0.3
-	github.com/456vv/vforward v1.0.2
+	github.com/456vv/vforward v1.0.3
 	github.com/456vv/vweb/v2 v2.0.0-00010101000000-000000000000
 	github.com/456vv/vweb/v2/builtin v0.0.0-00010101000000-000000000000
 	github.com/456vv/vweb/v2/server v0.0.0-00010101000000-000000000000
