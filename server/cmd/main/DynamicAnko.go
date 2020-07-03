@@ -22,12 +22,12 @@ type serverHandlerDynamicAnko struct{
  	fileName			string
  	stmt				ast.Stmt
 }
-func (T *serverHandlerDynamicAnko) parseText(content, name string) error {
+func (T *serverHandlerDynamicAnko) ParseText(content, name string) error {
 	T.fileName = name
 	r := bufio.NewReader(strings.NewReader(content))
 	return T.Parse(r)
 }
-func (T *serverHandlerDynamicAnko) parseFile(path string) error {
+func (T *serverHandlerDynamicAnko) ParseFile(path string) error {
 	//文件名
 	file, err := os.Open(path)
 	if err != nil {

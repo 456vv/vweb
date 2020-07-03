@@ -505,6 +505,8 @@ func typeSelect(v reflect.Value) interface{} {
         if v.CanInterface() {
             return v.Interface()
         }
-        panic(fmt.Errorf("the type %s cannot be converted to an interface{}", v.Kind()))
     }
+    
+   panic(fmt.Errorf("vweb: 该类型 %s，无法转换为 interface 类型", v.Kind()))
+   return nil
 }

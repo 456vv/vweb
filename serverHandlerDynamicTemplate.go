@@ -61,12 +61,12 @@ type serverHandlerDynamicTemplate struct {
  	fileName			string
 	t 					*template.Template
 }
-func (T *serverHandlerDynamicTemplate) parseText(content, name string) error {
+func (T *serverHandlerDynamicTemplate) ParseText(content, name string) error {
 	T.fileName = name
 	r := bufio.NewReader(strings.NewReader(content))
 	return T.Parse(r)
 }
-func (T *serverHandlerDynamicTemplate) parseFile(path string) error {
+func (T *serverHandlerDynamicTemplate) ParseFile(path string) error {
 	//文件名
 	file, err := os.Open(path)
 	if err != nil {

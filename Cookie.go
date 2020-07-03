@@ -4,11 +4,11 @@ import (
 )
 
 type Cookier interface {
-	ReadAll() map[string]string
-	RemoveAll()
-	Get(name string) string
-	Add(name, value, path, domain string, maxAge int, secure, only bool, sameSite http.SameSite)
-	Del(name string)
+    ReadAll() map[string]string																						// 读取所有
+    RemoveAll()																										// 删除所用
+    Get(name string) string																							// 读取
+    Add(name, value, path, domain string, maxAge int, secure, only bool, sameSite http.SameSite)					// 增加
+    Del(name string)																								// 删除
 }
 
 

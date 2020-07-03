@@ -7,31 +7,27 @@ import (
 
 //Sessioner 用户独立的内存存储接口
 type Sessioner interface {
-	Token() string
-	Set(key, val interface{})
-    Has(key interface{}) bool
-    Get(key interface{}) interface{}
-    GetHas(key interface{}) (val interface{}, ok bool)
-    Del(key interface{})
-    SetExpired(key interface{}, d time.Duration)
-    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))
-    Reset()
-    Defer(call interface{}, args ... interface{}) error
-    Free()
+    Token() string																									// 编号
+    Set(key, val interface{})																						// 设置
+    Has(key interface{}) bool																						// 判断
+    Get(key interface{}) interface{}																				// 读取
+    GetHas(key interface{}) (val interface{}, ok bool)																// 读取判断
+    Del(key interface{})																							// 删除
+    SetExpired(key interface{}, d time.Duration)																	// 过期
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))											// 过期调用
+    Reset()																											// 重置
+    Defer(call interface{}, args ...interface{}) error																// 退出调用
+    Free()																											// 释放调用
 }
 
 //Session 会话用于用户保存数据
 type Session struct{
-    *vmap.Map                                                                               // 数据，用户存储的数据
+    vmap.Map                                                                                // 数据，用户存储的数据
 	id			string																		// id，给Sessions使用的
     exitCall	exitCall																	// 退回调用函数
 }
 
-func NewSession() *Session {
-	return &Session{
-        Map : vmap.NewMap(),
-    }
-}
+
 
 // Token 读取当前的令牌
 //	string	令牌

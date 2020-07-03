@@ -1,26 +1,21 @@
 package vweb
 import (
-	//"fmt"
     "net"
     "net/http"
-    //"net/url"
-    //"crypto/x509"
     "crypto/tls"
-    //"io"
     "time"
-    //"io/ioutil"
     "context"
     "github.com/456vv/verror"
 )
 
 //http插件接口
 type PluginHTTP interface{
-	Type() PluginType
-    ServeHTTP(w http.ResponseWriter, r *http.Request)								// 服务HTTP
-    RoundTrip(r *http.Request) (resp *http.Response, err error)						// 代理
-    CancelRequest(req *http.Request)												// 取消HTTP请求
-    CloseIdleConnections()															// 关闭空闲连接
-    RegisterProtocol(scheme string, rt http.RoundTripper)							// 注册新协议
+    Type() PluginType																								// 类型
+    ServeHTTP(w http.ResponseWriter, r *http.Request)           													// 服务HTTP
+    RoundTrip(r *http.Request) (resp *http.Response, err error) 													// 代理
+    CancelRequest(req *http.Request)                            													// 取消HTTP请求
+    CloseIdleConnections()                                      													// 关闭空闲连接
+    RegisterProtocol(scheme string, rt http.RoundTripper)       													// 注册新协议
 }
 //插件HTTP客户端
 type PluginHTTPClient struct{

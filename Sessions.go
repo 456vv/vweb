@@ -19,7 +19,7 @@ type Sessions struct{
     Name            string                                              // 标识名称
     Size            int                                                 // 会话ID长度
     Salt            string                                              // 加盐，由于计算机随机数是伪随机数。（可默认为空）
-    ActivationID    bool                                                // 为true，保持会话ID
+    ActivationID    bool                                                // 为true，保持会话ID。意思就是会话ID过期了，可以激活再次使用
     ss        		vmap.Map                                           // 集，map[id]*Session
 }
 
@@ -104,11 +104,10 @@ func (T *Sessions) SessionId(req *http.Request) (id string, err error) {
     return c.Value, nil
 }
 
-//NewSession 使用id读取会话，不存在，则新建
-//	id string   id标识符
+//NewSession 新建会话
 //	Sessioner   会话
-func (T *Sessions) NewSession() Sessioner {
-	return T.SetSession(T.generateRandSessionId(), NewSession())
+func (T *Sessions) NewSessnion() Sessioner {
+	return T.SetSession(T.generateRandSessionId(), &Session{})
 }
 
 //GetSession 使用id读取会话
@@ -186,7 +185,7 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) Sessioner {
     wh := rw.Header()
     wh.Add("Set-Cookie", cookie.String())
 
-    return T.SetSession(id, NewSession())
+    return T.SetSession(id, &Session{})
 }
 
 func (T *Sessions) generateRandSessionId() string {

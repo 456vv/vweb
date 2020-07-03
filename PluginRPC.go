@@ -15,11 +15,11 @@ import (
 
 //rpc插件接口
 type PluginRPC interface{
-	Type() PluginType
-    Register(value interface{})
-    Call(name string, arg interface{}) (interface{}, error)
-    Discard() error
-    Close() error
+    Type() PluginType																								// 类型
+    Register(value interface{})																						// 注册struct类型
+    Call(name string, arg interface{}) (interface{}, error)															// 调用
+    Discard() error																									// 废弃连接
+    Close() error																									// 关闭
 }
 
 //插件RPC客户端

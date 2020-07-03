@@ -20,9 +20,9 @@ type TemplateDoter interface{
     Session() Sessioner                                                                     // 用户的会话缓存
     Global() Globaler                                                                       // 全站缓存
     Cookie() Cookier                                                                        // 用户的Cookie
-    Swap() Swaper                                                                           // 信息交换
+    Swap() *vmap.Map                                                                        // 信息交换
     Defer(call interface{}, args ... interface{}) error										// 退回调用
-    DotContexter
+    DotContexter																			// 上下文
 }
 
 
@@ -115,7 +115,7 @@ func (T *TemplateDot) Cookie() Cookier {
 
 //Swap 信息交换
 //	Swaper  映射
-func (T *TemplateDot) Swap() Swaper {
+func (T *TemplateDot) Swap() *vmap.Map {
     return &T.exchange
 }
 

@@ -63,7 +63,7 @@ func (T *SitePool) RangeSite(f func(name string, site *Site) bool){
 	})
 }
 
-//SetRecoverSession 设置回收无效的会话。
+//SetRecoverSession 设置回收无效的会话。默认为1秒
 //	d time.Duration     回收时间隔，不可以是0
 func (T *SitePool) SetRecoverSession(d time.Duration) {
     T.recoverSessionTick = d
@@ -132,7 +132,9 @@ type Site struct {
 	identity	string
 }
 
-func (T *Site) Identity() string {
+// PoolName 网站池名称
+//	string	名称
+func (T *Site) PoolName() string {
 	return T.identity
 }
 

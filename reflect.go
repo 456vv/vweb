@@ -71,9 +71,6 @@ func forType(x interface{}, str string, flx string, floor int, all bool) string 
 //TypeSelect 类型选择
 //	v reflect.Value        	映射一种未知类型的变量
 //	interface{}            读出v的值
-func TypeSelect(v reflect.Value) interface{} {
-    return typeSelect(v)
-}
 func typeSelect(v reflect.Value) interface{} {
     switch v.Kind() {
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -188,7 +185,7 @@ func depthField(s interface{}, index interface{}) (interface{}, error) {
     if reflectValue.Kind() == reflect.Invalid {
     	return nil, verror.TrackErrorf("vweb: 该字段不是有效。错误的字段名为（%#v）", index)
     }
-    return typeSelect(reflectValue), nil
+    return reflectValue.Interface(), nil
 }
 
 //CopyStruct 结构字段从src 复制 dsc，不需要相同的结构。他只复制相同类型的字段。

@@ -76,7 +76,6 @@ var TemplateFunc = map[string]interface{}{
 	"Import": func(pkgName string) map[string]interface{} {return dotPackage[pkgName]},
     "ForMethod": ForMethod,
     "ForType": ForType,
-    "typeSelect": typeSelect,
     "InDirect": InDirect,
     "DepthField": DepthField,
     "GoTypeTo":builtin.GoTypeTo,

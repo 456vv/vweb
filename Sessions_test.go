@@ -16,7 +16,7 @@ func Test_Sessions_processDeadAll(t *testing.T){
     nss := Sessions{}
     nss.Expired = time.Second
 
-    ns := NewSession()
+    ns := &Session{}
     err := ns.Defer(t.Log, "1", "2", []string{}, "看到这里，表示Session.Defer 成功执行")
     if err != nil {
     	t.Fatal(err)
@@ -24,7 +24,7 @@ func Test_Sessions_processDeadAll(t *testing.T){
     nss.SetSession("A", ns)
     time.Sleep(time.Second*2)
     
-    ns1 := NewSession()
+    ns1 := &Session{}
     nss.SetSession("B", ns1)
     nss.ProcessDeadAll()
     
@@ -43,7 +43,7 @@ func Test_Sessions_triggerDeadSession(t *testing.T){
     nss := Sessions{}
     nss.Expired=time.Second
 
-    ns := NewSession()
+    ns := &Session{}
     err := ns.Defer(t.Log, "1", "2", []string{}, "看到这里，表示Session.Defer 成功执行")
     if err != nil {
     	t.Fatal(err)
@@ -137,7 +137,7 @@ func Test_Sessions_SessionID(t *testing.T){
     for _, test := range tests {
         ss := Sessions{}
         ss.Name=test.name
-        ss.SetSession(test.id, NewSession())
+        ss.SetSession(test.id, &Session{})
         req := &http.Request{
             Header: test.header,
         }

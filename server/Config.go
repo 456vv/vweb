@@ -221,7 +221,7 @@ type ConfigSiteProperty struct {
 type ConfigSite struct {
     Status              bool                                                // 状态，是否启动此站点
     Name                string                                              // 站点别名
-    Identity			string												// 站点维一码
+    Identity			string												// 站点维一码，可以说是池名
 
     Host                []string                                            // 域名绑定
     Forward          	map[string]ConfigSiteForward          				// 转发
