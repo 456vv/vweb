@@ -1,1 +1,0 @@
-main.exe -ConfigFile config.json

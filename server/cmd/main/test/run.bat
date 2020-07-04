@@ -1,0 +1,1 @@
+start ../bin/V-WEB-Server-win-amd64.exe -ConfigFile config.json
