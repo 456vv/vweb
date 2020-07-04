@@ -1,4 +1,4 @@
-go get -u
+go get
 
 set GOOS=windows
 set GOARCH=amd64

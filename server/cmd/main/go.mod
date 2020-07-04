@@ -11,13 +11,10 @@ require (
 	github.com/456vv/verror latest
 	github.com/456vv/vforward latest
 	github.com/456vv/vmap/v2 latest
-	github.com/456vv/vweb/v2 v2.0.0-00010101000000-000000000000
-	github.com/456vv/vweb/v2/builtin v0.0.0-00010101000000-000000000000
-	github.com/456vv/vweb/v2/server v0.0.0-00010101000000-000000000000
-	github.com/456vv/vweb/v2/server/watch v0.0.0-00010101000000-000000000000
+	github.com/456vv/vweb/v2 latest
 	github.com/fsnotify/fsnotify latest
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
-	github.com/mattn/anko v0.1.8
+	github.com/mattn/anko latest
 	golang.org/x/image latest
 )
 
