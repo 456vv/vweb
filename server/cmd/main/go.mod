@@ -13,15 +13,12 @@ require (
 	github.com/456vv/vmap/v2 latest
 	github.com/456vv/vweb/v2 latest
 	github.com/fsnotify/fsnotify latest
-	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
+	github.com/golang/freetype latest
 	github.com/mattn/anko latest
 	golang.org/x/image latest
 )
 
 replace github.com/456vv/vweb/v2 => ../../../
-
 replace github.com/456vv/vweb/v2/builtin => ../../../builtin
-
 replace github.com/456vv/vweb/v2/server => ../../../server
-
 replace github.com/456vv/vweb/v2/server/watch => ../../../server/watch
