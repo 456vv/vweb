@@ -40,8 +40,6 @@ func (T *serverHandlerStaticHeader) etag() string {
     return fmt.Sprintf("\"%x:%x\"", modifiedTime, fileSize)
 }
 
-
-
 //ranges 格式化Range，并过滤无效的
 //	ranges string    请求标头Range
 //	r []shshRange
@@ -53,13 +51,13 @@ func (T *serverHandlerStaticHeader) ranges(ranges string) (r []shshRange, n int6
 	)
 	ri	:= strings.Index(ranges, "bytes=")
 	if ri != 0 || len(ranges) <= 6 {
-		return nil, 0, errors.New("vweb.serverHandlerStaticHeader.ranges: 附带的Range内容不支持，格式应该是(Range: bytes=0-1024)")
+		return nil, 0, errors.New("vweb: 附带的Range内容不支持，格式应该是(Range: bytes=0-1024)")
 	}
 	rdata	:= strings.Split(ranges[6:], ",")
 	for _, v := range rdata {
 		rv := strings.Split(v, "-")
 		if len(rv) == 1 || len(rv) >2 || (rv[0] == "" && rv[1] == "0") {
-			return nil, 0, fmt.Errorf("vweb.serverHandlerStaticHeader.ranges: 这不是有效的格式。Error(%s)", v)
+			return nil, 0, fmt.Errorf("vweb: 这不是有效的格式。Error(%s)", v)
 		}
 		start, serr	:= strconv.ParseInt(rv[0], 10, 64)
 		end, lerr := strconv.ParseInt(rv[1], 10, 64)
@@ -86,7 +84,7 @@ func (T *serverHandlerStaticHeader) ranges(ranges string) (r []shshRange, n int6
             }
 		default:
 			//错误的格式
-			return nil, 0, fmt.Errorf("vweb.serverHandlerStaticHeader.ranges: Range数值不正确，Error(%s)", v)
+			return nil, 0, fmt.Errorf("vweb: Range数值不正确，Error(%s)", v)
 		}
 		//开始大于结束，无效的，跳过。
 		if start > end{
@@ -140,8 +138,6 @@ func (T *serverHandlerStaticHeader) setPageExpired(pageExpired int64) {
     T.wh.Set("Cache-Control", fmt.Sprintf("must-revalidate,max-age=%d", pageExpired))
     T.wh.Set("Expires", time.Now().Add(time.Duration(pageExpired)*time.Second).Format(http.TimeFormat))
 }
-
-
 
 //ServerHandlerStatic 处理静态页面文件
 type ServerHandlerStatic struct{
@@ -215,7 +211,7 @@ func (T *ServerHandlerStatic) header(rw http.ResponseWriter, req *http.Request) 
     	//如果 Range 头域为空，可以使用ETag来缓存
 	    if shsh.etag() == rh.Get("If-None-Match"){
 	    	rw.WriteHeader(304)
-	    	return nil, fmt.Errorf("vweb.ServerHandlerStatic.header: 服务端文件没有变化")
+	    	return nil, fmt.Errorf("vweb: 服务端文件没有变化")
 	    }
         shsh.setContentLength()
     }else{
@@ -256,58 +252,58 @@ func (T *ServerHandlerStatic) body(rw http.ResponseWriter, rangeBlock []shshRang
         flush    = rw.(http.Flusher)
     )
     switch len(rangeBlock) {
-        case 0:
-            rw.WriteHeader(200)
-            //正常读出文件
-            for {
-		        nr, er := file.Read(p)
-		        if nr > 0{
-			        nw, ew := rw.Write(p[:nr])
-			        if ew != nil || nr != nw {
-			        	//日志
-			        	return
-			        }
-			        flush.Flush()
+    case 0:
+        rw.WriteHeader(200)
+        //正常读出文件
+        for {
+	        nr, er := file.Read(p)
+	        if nr > 0{
+		        nw, ew := rw.Write(p[:nr])
+		        if ew != nil || nr != nw {
+		        	//日志
+		        	return
 		        }
-		        if er != nil {
-			        //日志
-			       	return
-		        }
-            }
-        case 1:
-            //只有一个块
-            block := rangeBlock[0]
-            wh.Set("Content-Length", fmt.Sprint(block.length))
-            wh.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", block.seek, (block.seek + block.length)-1, T.fileInfo.Size()))
-            //标头写入完成
-            rw.WriteHeader(206)
-            file.Seek(block.seek, 0)
-            io.Copy(rw, io.LimitReader(file, block.length))
-            //rw.(io.ReaderFrom).ReadFrom(io.LimitReader(file, block.length))
-        default:
-            //多个块
-            bytesBuffer := bytes.NewBuffer(nil)
-            multipartWriter := multipart.NewWriter(bytesBuffer)
-            defer multipartWriter.Close()
+		        flush.Flush()
+	        }
+	        if er != nil {
+		        //日志
+		       	return
+	        }
+        }
+    case 1:
+        //只有一个块
+        block := rangeBlock[0]
+        wh.Set("Content-Length", fmt.Sprint(block.length))
+        wh.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", block.seek, (block.seek + block.length)-1, T.fileInfo.Size()))
+        //标头写入完成
+        rw.WriteHeader(206)
+        file.Seek(block.seek, 0)
+        io.Copy(rw, io.LimitReader(file, block.length))
+        //rw.(io.ReaderFrom).ReadFrom(io.LimitReader(file, block.length))
+    default:
+        //多个块
+        bytesBuffer := bytes.NewBuffer(nil)
+        multipartWriter := multipart.NewWriter(bytesBuffer)
+        defer multipartWriter.Close()
 
-            bytesBuffer.WriteString("\r\n") //首行是空行
-            for _, block := range rangeBlock {
-            	textprotoMIMEHeader := make(textproto.MIMEHeader)
-                textprotoMIMEHeader.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", block.seek, block.seek+(block.length-1), T.fileInfo.Size()))
-                textprotoMIMEHeader.Set("Content-Type", wh.Get("Content-Type"))
-                ioWriter, err := multipartWriter.CreatePart(textprotoMIMEHeader)
-                if err != nil {
-                    break
-                }
-                
-                file.Seek(block.seek, 0)
-            	io.CopyN(ioWriter, file, block.length)
+        bytesBuffer.WriteString("\r\n") //首行是空行
+        for _, block := range rangeBlock {
+        	textprotoMIMEHeader := make(textproto.MIMEHeader)
+            textprotoMIMEHeader.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", block.seek, block.seek+(block.length-1), T.fileInfo.Size()))
+            textprotoMIMEHeader.Set("Content-Type", wh.Get("Content-Type"))
+            ioWriter, err := multipartWriter.CreatePart(textprotoMIMEHeader)
+            if err != nil {
+                break
             }
-            bytesBuffer.WriteString(fmt.Sprintf("\r\n--%s\r\n", multipartWriter.Boundary())) //结尾分行符
-            //设置数据长度和内容类型
-            wh.Set("Content-Length", fmt.Sprint(bytesBuffer.Len()))
-            wh.Set("Content-Type", fmt.Sprintf("multipart/byteranges; boundary=%s", multipartWriter.Boundary()))
-            rw.WriteHeader(206)
-            bytesBuffer.WriteTo(rw)
+            
+            file.Seek(block.seek, 0)
+        	io.CopyN(ioWriter, file, block.length)
+        }
+        bytesBuffer.WriteString(fmt.Sprintf("\r\n--%s\r\n", multipartWriter.Boundary())) //结尾分行符
+        //设置数据长度和内容类型
+        wh.Set("Content-Length", fmt.Sprint(bytesBuffer.Len()))
+        wh.Set("Content-Type", fmt.Sprintf("multipart/byteranges; boundary=%s", multipartWriter.Boundary()))
+        rw.WriteHeader(206)
+        bytesBuffer.WriteTo(rw)
     }
 }

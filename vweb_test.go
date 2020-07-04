@@ -4,24 +4,24 @@ import(
 	"net/http"
 )
 
-func Test_ExtendDotFuncMap(t *testing.T){
-	test := map[string]map[string]interface{}{
-		"A":{"a1":"av1"},
-		"B":{"b1":"bv1"},
-	}
-	ExtendDotFuncMap(test)
-	for k, v := range test {
-		funcMap, ok := DotFuncMap[k]
-		if !ok {
-			t.Fatalf("无法增加点函数(%s)", k)
-		}
-		for k1, v1 := range v {
-			if funcMap[k1] != v1 {
-				t.Fatalf("两个值不匹配%s != %s", funcMap[k1], v1)
-			}
-		}
-	}
-}
+//func Test_ExtendDotFuncMap(t *testing.T){
+//	test := map[string]map[string]interface{}{
+//		"A":{"a1":"av1"},
+//		"B":{"b1":"bv1"},
+//	}
+//	ExtendDotFuncMap(test)
+//	for k, v := range test {
+//		funcMap, ok := DotFuncMap[k]
+//		if !ok {
+//			t.Fatalf("无法增加点函数(%s)", k)
+//		}
+//		for k1, v1 := range v {
+//			if funcMap[k1] != v1 {
+//				t.Fatalf("两个值不匹配%s != %s", funcMap[k1], v1)
+//			}
+//		}
+//	}
+//}
 
 func Test_GenerateRandomId(t *testing.T){
 	rnd := make([]byte, 10)

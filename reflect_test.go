@@ -10,6 +10,7 @@ type TForMethod struct{}
 func (tf *TForMethod) A1(){}
 func (tf *TForMethod) A2(){}
 func (tf *TForMethod) A3(){}
+func (tf *TForMethod) a4(){}
 func Test_ForMethod(t *testing.T){
 	var tForMethod = &TForMethod{}
 	t.Logf("\n%s", ForMethod(tForMethod))
@@ -22,7 +23,7 @@ type TForType struct{
 }
 func Test_ForType(t *testing.T){
 	var tForType = &TForType{}
-	t.Logf("\n%s", ForType(tForType))
+	t.Logf("\n%s", ForType(tForType, false))
 }
 
 
@@ -74,3 +75,62 @@ func Test_DepthField(t *testing.T) {
     	t.Fatal(err)
     }
 }
+
+func Test_CopyStructDeep(t *testing.T){
+	a := A{
+		B:B{
+			C:&C{},
+			F:map[string]string{"2":"2"},
+		},
+	}
+	b := A{
+		B:B{
+			C:&C{D:1},
+			F:map[string]string{"1":"1"},
+		},
+	}
+	if err := CopyStructDeep(&a, &b, nil); err != nil {
+		t.Fatal(err)
+	}
+	
+	if len(a.B.F) != 2 {
+		t.Fatal("复制失败-0")
+	}
+	delete(a.B.F, "2")
+	
+	if !reflect.DeepEqual(&a, &b) {
+		t.Fatal("复制失败-1")
+	}
+	delete(b.B.F, "1")
+	if reflect.DeepEqual(&a, &b) {
+		t.Fatal("复制失败-2")
+	}
+	delete(a.B.F, "1")
+	a.B.C.D=2
+	if reflect.DeepEqual(&a, &b) {
+		t.Fatal("复制失败-3")
+	}
+	
+	
+	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

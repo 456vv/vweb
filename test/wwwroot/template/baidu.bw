@@ -1,17 +1,12 @@
 //template
 
 {{
-	//$Reflect := .PKG "reflect"
-	$bw := .PluginHTTP "bw"
+    $ctx := .Context
+    $Plugin := $ctx.Value "Plugin"
+    
+    $Pbw := $Plugin.HTTP "bw"
 	$Request := .Request
+    Set $Request "Host" ""
 	$ResponseWriter	:= .ResponseWriter
-
-	//$RequestValue := call $Reflect.ValueOf $Request
-	//$RequestValue1 := $RequestValue.Elem
-	//$Method := $RequestValue1.FieldByName "Method"
-	//$Method.SetString "PUT"
-
-	$bw.ServeHTTP $ResponseWriter $Request
+	$Pbw.ServeHTTP $ResponseWriter $Request
 }}
-
-111

@@ -4,17 +4,16 @@ import(
     "os"
     "net/http"
     "time"
-  //  "log"
+    "path/filepath"
     "net/http/httptest"
     "io/ioutil"
 )
 
 
 func Test_serverHandlerStaticHeader(t *testing.T) {
-	dir := "./test"
-	tempFile, err := ioutil.TempFile(dir, "T")
+	tempFile, err := ioutil.TempFile("", "T")
 	if err != nil {
-		t.Fatalf("打开文件(%s)错误：%v", tempFile.Name(), err)
+		t.Fatalf("打开文件错误：%v", err)
 	}
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
@@ -84,10 +83,9 @@ func Test_serverHandlerStaticHeader(t *testing.T) {
 
 
 func Test_ServerHandlerStatic_header(t *testing.T) {
-	dir := "./test"
-	tempFile, err := ioutil.TempFile(dir, "T")
+	tempFile, err := ioutil.TempFile("", "T")
 	if err != nil {
-		t.Fatalf("打开文件(%s)错误：%v", tempFile.Name(), err)
+		t.Fatalf("打开文件错误：%v", err)
 	}
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
@@ -136,10 +134,9 @@ func Test_ServerHandlerStatic_header(t *testing.T) {
 
 
 func Test_serverHandlerStatic_body(t *testing.T) {
-	dir := "./test"
-	tempFile, err := ioutil.TempFile(dir, "T")
+	tempFile, err := ioutil.TempFile("", "T")
 	if err != nil {
-		t.Fatalf("打开文件(%s)错误：%v", tempFile.Name(), err)
+		t.Fatalf("打开文件错误：%v", err)
 	}
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
@@ -153,7 +150,7 @@ func Test_serverHandlerStatic_body(t *testing.T) {
         fileInfo		: fi,
 	}
 	var shs	= &ServerHandlerStatic{
-		RootPath		: dir,
+		RootPath		: filepath.Dir(tempFile.Name()),
 		PagePath		: fi.Name(),
 		BuffSize		: 1024,
         fileInfo		: fi,

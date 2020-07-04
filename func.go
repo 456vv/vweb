@@ -3,29 +3,26 @@ package vweb
 import(
 	"strings"
 	"time"
-	"fmt"
     "crypto/rand"
     mathRand "math/rand"
     "encoding/base64"
 	"os"
 	"path"
+	"github.com/456vv/verror"
 )
 
-//ExtendDotFuncMap 扩展点函数映射，在模板上的点（.）可以调用
-//	deputy map[string]map[string]interface{}  点函数集
-func ExtendDotFuncMap(deputy map[string]map[string]interface{}) {
-    for k, v := range deputy {
-        _, ok := DotFuncMap[k]
-        if !ok {
-            DotFuncMap[k] = make(map[string]interface{})
-        }
-        for j, d := range v {
-            DotFuncMap[k][j] = d
-        }
-    }
+
+//ExtendTemplatePackage 扩展模板的包
+//	pkgName string					包名
+//	deputy map[string]interface{} 	函数集
+func ExtendTemplatePackage(pkgName string, deputy map[string]interface{}) {
+	if _, ok := dotPackage[pkgName]; !ok {
+		dotPackage[pkgName] = make(map[string]interface{})
+	}
+	for name, fn  := range deputy {
+		dotPackage[pkgName][name]=fn
+	}
 }
-
-
 
 //derogatoryDomain 贬域名
 //	host string             host地址
@@ -70,7 +67,7 @@ func equalDomain(host, domain string) (ok bool) {
 //	err error	错误
 func GenerateRandomId(rnd []byte) error {
     if rnd == nil {
-    	return fmt.Errorf("vweb.GenerateRandomId: 参数为 nil, 无法生成随机数据！")
+    	return verror.TrackErrorf("vweb: 参数为 nil, 无法生成随机数据！")
     }
     if _, err := rand.Read(rnd); err != nil {
 	    //当系统随机API函数不可用，将使用备用随机数。
@@ -111,7 +108,7 @@ func GenerateRandomString(length int) (string, error){
 	}
 	base64Encoding := base64.NewEncoding(encodeStd).WithPadding(base64.StdPadding).Strict()
 	base64Encoding.EncodedLen(length)
-	return base64Encoding.EncodeToString(b)[:length], err
+	return base64Encoding.EncodeToString(b)[:length], nil
 }
 
 //AddSalt 加盐
@@ -124,6 +121,9 @@ func AddSalt(rnd []byte, salt string) string {
 	    length	= len(salt)
 	    l		= len(rnd)
     )
+    if l == 0 {
+    	return ""
+    }
     if length != 0 {
 	    for i:=0; i<l; i++ {
 	    	rnd[i] = rnd[i] ^ salt[start]
@@ -172,7 +172,7 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 			return fi, pc, nil
 		}
 	}
-	return nil, "", fmt.Errorf("Access (%s) page document does not exist!", p)
+	return nil, "", verror.TrackErrorf("Access (%s) page document does not exist!", p)
 }
 
 func delay(wait, maxDelay time.Duration) time.Duration {

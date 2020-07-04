@@ -6,8 +6,8 @@ ddddddddddd
 {{template "a1" .}}
 
 {{
-.PKG "33"
-$rw := .ResponseWriter
-$rw.WriteString "11111111"
+    Import "33"
+    $rw := .ResponseWriter
+    $rw.WriteString "11111111"
 }}
 

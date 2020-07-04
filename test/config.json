@@ -1,61 +1,80 @@
 {
     "Servers":{
-        "127.0.0.1:440":{
-            "Status":true,
+        "Public":{
             "CC":{
-                "Deadline":10000,
-                "WriteDeadline":10000,
-                "ReadDeadline":10000,
-                "KeepAlive":true,
-                "KeepAlivePeriod":600000,
-                "Linger":0,
-                "NoDelay":true,
-                "ReadBuffer":4096,
-                "WriteBuffer":4096
+                "A":{
+                    "Deadline":10000,
+                    "WriteDeadline":10000,
+                    "ReadDeadline":10000,
+                    "KeepAlive":true,
+                    "KeepAlivePeriod":600000,
+                    "Linger":0,
+                    "NoDelay":true,
+                    "ReadBuffer":4096,
+                    "WriteBuffer":4096
+                },
             },
             "CS":{
-                "ReadTimeout":10000,
-                "WriteTimeout":10000,
-                "MaxHeaderBytes":0,
-                "KeepAlivesEnabled":true,
-                "ShutdownConn": true,
-                "TLS":{
-                    "File":[{
-                        "CertFile":"./test/Cer/Cert-test.pem",
-                        "KeyFile":"./test/Cer/Cert-test.key"
-                    }],
-                    "NextProtos":["http/1.1","h2"],
-                    "CipherSuites":[],
-                    "PreferServerCipherSuites":true,
-                    "SessionTicketsDisabled":false,
-                    "SessionTicketKey":[],
-                    "MinVersion":771,
-                    "MaxVersion":771
+                "B":{
+                    "ReadTimeout":10000,
+                    "WriteTimeout":10000,
+                    "MaxHeaderBytes":0,
+                    "KeepAlivesEnabled":true,
+                    "ShutdownConn": true,
+                    "TLS":{
+                        "File":[{
+                            "CertFile":"./test/Cer/Cert-test.pem",
+                            "KeyFile":"./test/Cer/Cert-test.key"
+                        }],
+                        "NextProtos":["http/1.1","h2"],
+                        "CipherSuites":[],
+                        "PreferServerCipherSuites":true,
+                        "SessionTicketsDisabled":false,
+                        "SessionTicketKey":[],
+                        "MinVersion":771,
+                        "MaxVersion":771
+                    }
                 }
             }
-        },"127.0.0.1:80":{
-            "Status":true,
-            "CC":{
-                "Deadline":0,
-                "WriteDeadline":10000,
-                "ReadDeadline":10000,
-                "KeepAlive":true,
-                "KeepAlivePeriod":60000,
-                "Linger":0,
-                "NoDelay":true,
-                "ReadBuffer":4096,
-                "WriteBuffer":4096
+            
+        },
+        "Listen":{
+            "127.0.0.1:440":{
+                "Status":true,
+                "Default":{
+                    "CC":{},
+                    "CS":{},
+                }
+                "Public":{
+                    "CC":"A",
+                    "CS":"B",
+                },
             },
-            "CS":{
-                "ReadTimeout":0,
-                "WriteTimeout":0,
-                "ReadHeaderTimeout":0,
-                "IdleTimeout":0,
-                "MaxHeaderBytes":0,
-                "KeepAlivesEnabled":true,
-                "ShutdownConn": true
+            "127.0.0.1:80":{
+                "Status":true,
+                "CC":{
+                    "Deadline":0,
+                    "WriteDeadline":10000,
+                    "ReadDeadline":10000,
+                    "KeepAlive":true,
+                    "KeepAlivePeriod":60000,
+                    "Linger":0,
+                    "NoDelay":true,
+                    "ReadBuffer":4096,
+                    "WriteBuffer":4096
+                },
+                "CS":{
+                    "ReadTimeout":0,
+                    "WriteTimeout":0,
+                    "ReadHeaderTimeout":0,
+                    "IdleTimeout":0,
+                    "MaxHeaderBytes":0,
+                    "KeepAlivesEnabled":true,
+                    "ShutdownConn": true
+                }
             }
         }
+
     },
     "Sites":{
 	    "Site": [

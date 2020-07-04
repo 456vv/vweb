@@ -7,32 +7,35 @@ import (
     "bufio"
     "errors"
     "io"
- //   "context"
     "fmt"
-    "time"
     "github.com/456vv/vconnpool"
+    "github.com/456vv/verror"
 )
 
 
 //rpc插件接口
 type PluginRPC interface{
-    Register(value interface{})
-    Call(name string, arg interface{}) (interface{}, error)
-    Discard() error
-    Close() error
+    Type() PluginType																								// 类型
+    Register(value interface{})																						// 注册struct类型
+    Call(name string, arg interface{}) (interface{}, error)															// 调用
+    Discard() error																									// 废弃连接
+    Close() error																									// 关闭
 }
 
 //插件RPC客户端
 type PluginRPCClient struct {
-    ConnPool            *vconnpool.ConnPool	// 连接池
-    Path 				string				// 路径
-    Addr				string            	// 地址
+    ConnPool	*vconnpool.ConnPool	// 连接池
+    Addr		string				// 地址
+    Path		string				// 路径
 }
 
 //快速连接RPC
-//	PluginRPC	插件RPC
-//	error		错误
+//	PluginRPC			插件RPC
+//	error				错误
 func(T *PluginRPCClient) Connection() (PluginRPC, error) {
+	if T.ConnPool == nil {
+		return nil, verror.TrackError("vweb: ConnPool字段不可以为空！")
+	}
     //RPC客户端连接
     conn, err := T.ConnPool.Dial("tcp", T.Addr)
     if err != nil {
@@ -76,57 +79,17 @@ func connentRPCClient(conn net.Conn, p string) (*rpc.Client, error) {
 	}
 }
 
-//配置RPC插件客户端
-//	c *PluginRPCClient			客户端插件对象，创建时候可以是nil。
-//	config ConfigSitePlugin		配置
-//	*PluginRPCClient			返回客户端插件对象
-//	error						错误
-func ConfigPluginRPCClient(c *PluginRPCClient, config ConfigSitePlugin) (*PluginRPCClient, error) {
-	return configRPCClient(c, config)
-}
-
-//快速的配置RPC
-func configRPCClient(c *PluginRPCClient, config ConfigSitePlugin) (*PluginRPCClient, error) {
-    netDialer := &net.Dialer{
-        Timeout 	: time.Duration(config.Timeout) * time.Millisecond,
-        KeepAlive   : time.Duration(config.KeepAlive) * time.Millisecond,
-        FallbackDelay: time.Duration(config.FallbackDelay) * time.Millisecond,
-        DualStack	: config.DualStack,
-    }
-
-	//设置本地拨号地址
-	if config.LocalAddr != "" {
-		netTCPAddr, err := net.ResolveTCPAddr("tcp", config.LocalAddr)
-		if err == nil {
-			netDialer.LocalAddr = netTCPAddr
-		}else{
-   	    	return nil, fmt.Errorf("vweb: 本地 ConfigSitePlugin.LocalAddr 无法解析这个地址(%s)。格式应该是 111.222.444.555:0 或者 www.xxx.com:0", config.LocalAddr)
-		}
-	}
-	
-    //RPC客户端连接池
-    if c == nil {
-    	c = &PluginRPCClient{
-    		ConnPool:&vconnpool.ConnPool{},
-    	}
-    }
-    
-    c.ConnPool.Dialer = netDialer
-    c.ConnPool.IdeConn = config.IdeConn
-    c.ConnPool.MaxConn = config.MaxConn
-   	c.Path  = config.Path
-    c.Addr	= config.Addr
-	
-	return c, nil
-}
-
-
 //pluginRPC 插件连接RPC
 type pluginRPC struct{
     *rpc.Client			// 配置端
     conn	net.Conn
 }
 
+//插件类型
+//	PluginType 插件类型
+func (T *pluginRPC) Type() PluginType {
+	return PluginTypeRPC
+}
 //Register RPC注册类型，仅用于RPC客户端。默认gob编码
 //	value interface{}     注册类型
 func (prpc *pluginRPC) Register(value interface{}){
@@ -163,4 +126,3 @@ func (prpc *pluginRPC) Discard() error {
 	}
 	return conn.Discard()
 }
-

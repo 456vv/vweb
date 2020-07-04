@@ -1,9 +1,10 @@
 package plugin
 import(
-	"github.com/456vv/vweb"
+	"github.com/456vv/vweb/v2"
 	"net"
 	"net/http"
     "crypto/tls"
+    "context"
 )
 
 type ServerTLSFile struct {
@@ -13,30 +14,38 @@ type ServerTLSFile struct {
 //ServerHTTP 服务器HTTP
 type ServerHTTP struct {
 	*http.Server													            // HTTP
-	L           net.Listener										        	// 监听器
+	Addr		string															// 监听地址
     Route       *vweb.Route                                     				// 路由表
+	l           tcpKeepAliveListener										   	// 监听器
 }
 
 //NewServerHTTP HTTP服务对象
 func NewServerHTTP() *ServerHTTP {
-	var shttp = &ServerHTTP{
-			Server  : new(http.Server),
-            Route   : &vweb.Route{},
-	    }
-        shttp.Server.Handler = http.HandlerFunc(shttp.Route.ServeHTTP)
-    return shttp
+	var ser = &ServerHTTP{
+		Server  : new(http.Server),
+        Route   : &vweb.Route{},
+    }
+    ser.Server.Handler = http.HandlerFunc(ser.Route.ServeHTTP)
+	ser.Server.BaseContext = func(l net.Listener) context.Context {
+		return context.WithValue(context.Background(), "Listener", ser.l.TCPListener)
+	}
+	ser.Server.ConnContext = func(ctx context.Context, rwc net.Conn) context.Context {
+		return context.WithValue(ctx, "Conn", rwc)
+	}
+    
+	 return ser
 }
-
 
 //LoadTLS 加载证书文件
 //	config *tls.Config          证书配置
 //	files []ServerTLSFile       证书文件
-func (shttp *ServerHTTP) LoadTLS(config *tls.Config, files []ServerTLSFile) error {
-    shttp.Server.TLSConfig = config
+func (T *ServerHTTP) LoadTLS(config *tls.Config, files []ServerTLSFile) error {
+
+	T.l.tlsconf = config
     for _, file := range files {
 	    cert, err := tls.LoadX509KeyPair(file.CertFile, file.KeyFile)
         if err != nil {
-            shttp.Server.TLSConfig = nil
+            T.l.tlsconf = nil
             return err
         }
         config.Certificates = append(config.Certificates, cert)
@@ -46,44 +55,35 @@ func (shttp *ServerHTTP) LoadTLS(config *tls.Config, files []ServerTLSFile) erro
     return nil
 }
 
-
 //ListenAndServe 监听并启动
 //	error 错误
-func (shttp *ServerHTTP) ListenAndServe() error {
-	addr := shttp.Addr
-	if addr == "" {
-		addr = ":http"
+func (T *ServerHTTP) ListenAndServe() error {
+	
+	if T.Addr == "" {
+		T.Addr = ":http"
 	}
-	ln, err := net.Listen("tcp", addr)
+	l, err := net.Listen("tcp", T.Addr)
 	if err != nil {
 		return err
 	}
-    shttp.L = tcpKeepAliveListener{ln.(*net.TCPListener)}
-	return shttp.Serve(shttp.L)
-}
+	return T.Serve(l)
 
+}
 
 //Serve 监听
 //	error 错误
-func (shttp *ServerHTTP) Serve(l net.Listener) error{
-    config := shttp.Server.TLSConfig
-    if config != nil {
-        if !strSliceContains(config.NextProtos, "http/1.1") {
-        	config.NextProtos = append(config.NextProtos, "http/1.1")
-        }
-        l = tls.NewListener(l, config)
-    }
-    shttp.L = l
-    shttp.Server.Addr = l.Addr().String()
-	return shttp.Server.Serve(l)
-}
+func (T *ServerHTTP) Serve(l net.Listener) error{
 
+    T.Addr = l.Addr().String()
+	T.l.TCPListener = l.(*net.TCPListener)
+	return T.Server.Serve(&T.l)
+}
 
 //Close 判断监听的连接
 //	error 错误
-func (shttp *ServerHTTP) Close() error {
-    if shttp.L != nil {
-        return shttp.L.Close()
+func (T *ServerHTTP) Close() error {
+    if T.Server != nil {
+        return T.Server.Close()
     }
     return nil
 }
