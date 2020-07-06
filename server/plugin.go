@@ -3,7 +3,7 @@ import (
 	"sync"
 	"github.com/456vv/vweb/v2"
 	"github.com/456vv/verror"
-	"github.com/456vv/vconnpool"
+	"github.com/456vv/vconnpool/v2"
 	"net"
 	"net/http"
 	"time"

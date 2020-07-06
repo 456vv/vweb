@@ -8,7 +8,7 @@ import (
     "errors"
     "io"
     "fmt"
-    "github.com/456vv/vconnpool"
+    "github.com/456vv/vconnpool/v2"
     "github.com/456vv/verror"
 )
 

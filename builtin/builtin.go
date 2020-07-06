@@ -668,9 +668,11 @@ func GoTypeTo(v reflect.Value) func(typ ...interface{}) {
 			av := reflect.ValueOf(a[0])
 			avt := av.Type()
 			if avt.ConvertibleTo(vv.Type()) {
+				//*{} to *{}
 				av = av.Convert(vv.Type())
 				vv.Set(av)
 			}else if avt.ConvertibleTo(vv.Type().Elem()) {
+				//{} to {}
 				av = av.Convert(vv.Type().Elem())
 				if vv.IsNil() {
 					vv.Set( reflect.New(vv.Type().Elem()) )

@@ -12,7 +12,7 @@ import(
     "encoding/asn1"
     "encoding/json"
     "github.com/456vv/vmap/v2"
-    "github.com/456vv/vconnpool"
+    "github.com/456vv/vconnpool/v2"
     "github.com/456vv/vforward"
     "github.com/456vv/vconn"
     "github.com/456vv/vbody"
