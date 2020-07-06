@@ -8,7 +8,7 @@ import (
     "log"
     "time"
     "fmt"
-    "reflect"
+    //"reflect"
 	"github.com/456vv/vcipher"
 	"github.com/456vv/verifycode"
     "github.com/456vv/vforward"
@@ -82,16 +82,16 @@ func main(){
 	for name, fn := range vweb.TemplateFunc {
 		e.Define(name, fn)
 	}
-	for name, pkg := range templatePackage {
-		fns, ok := env.Packages[name]
-		if !ok {
-			fns = make(map[string]reflect.Value)
-			env.Packages[name] = fns
-		}
-		for n, f := range pkg {
-			fns[n] = reflect.ValueOf(f)
-		}
-	}
+	//for name, pkg := range templatePackage {
+	//	fns, ok := env.Packages[name]
+	//	if !ok {
+	//		fns = make(map[string]reflect.Value)
+	//		env.Packages[name] = fns
+	//	}
+	//	for n, f := range pkg {
+	//		fns[n] = reflect.ValueOf(f)
+	//	}
+	//}
 	
 	//服务器
 	serverGroup := server.NewServerGroup()
