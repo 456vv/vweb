@@ -34,7 +34,7 @@
 					"ShutdownConn":	true,
 					"TLS":{
 					    "ClientCAs":[],
-						"RootCAa":[],
+						"RootCAs":[],
 						"NextProtos":["http/1.1","h2"],
 						"CipherSuites":[],
 						"PreferServerCipherSuites":true,
@@ -59,7 +59,7 @@
 				"CS":{
 					"PublicName":"B",
 					"TLS":{
-						"RootCAa":[{
+						"RootCAs":[{
 							"CertFile":"../test/Cer/Cert-test.pem",
 							"KeyFile":"../test/Cer/Cert-test.key"
 						}],
@@ -154,7 +154,7 @@
 							"CipherSuites":[157, 49162,	49172, 49187, 49199, 49195,	49200, 49196, 52392, 52393,	22016],
 							"ClientSessionCache":0,
 							"CurvePreferences":[],
-							"RootCAa":[]
+							"RootCAs":[]
 						}
 					}
 				}
@@ -208,7 +208,7 @@
 							"CipherSuites":[157, 49162,	49172, 49187, 49199, 49195,	49200, 49196, 52392, 52393,	22016],
 							"ClientSessionCache":0,
 							"CurvePreferences":[],
-							"RootCAa":[]
+							"RootCAs":[]
 						}
 					}
 				}

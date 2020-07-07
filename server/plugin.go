@@ -131,7 +131,7 @@ func configHTTPClient(c *vweb.PluginHTTPClient, config *ConfigSitePlugin) error 
 			}
 		}
 		
-        for _, filename := range config.TLS.RootCAa {
+        for _, filename := range config.TLS.RootCAs {
 			//打开文件
 			caData, err := ioutil.ReadFile(filename)
 			if err != nil {

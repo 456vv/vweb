@@ -198,7 +198,7 @@ func configTLSFile(c *tls.Config, conf *ConfigServerTLS) error {
 	
     c.Certificates = nil
     var errServerCert string
-    for _, file := range conf.RootCAa {
+    for _, file := range conf.RootCAs {
 	    cert, err := tls.LoadX509KeyPair(file.CertFile, file.KeyFile)
         if err != nil {
         	//日志
@@ -208,7 +208,7 @@ func configTLSFile(c *tls.Config, conf *ConfigServerTLS) error {
          c.Certificates = append(c.Certificates, cert)
     }
     if errServerCert != "" {
-		errStr = errStr + "解析服务端证书发生错误（CS.TLS.RootCAa）: \n" + errServerCert
+		errStr = errStr + "解析服务端证书发生错误（CS.TLS.RootCAs）: \n" + errServerCert
     }
     
     //多证书

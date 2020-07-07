@@ -55,7 +55,7 @@ type ConfigSitePluginTLS struct {
     CipherSuites        []uint16                                                            // 密码套件的列表。
     ClientSessionCache  int                                                                 // 是TLS会话恢复 ClientSessionState 条目的缓存。(Client端使用)
     CurvePreferences    []tls.CurveID                                                       // 在ECDHE握手中使用(Client端使用)
-    RootCAa             []string                                                            // 根证书文件
+    RootCAs             []string                                                            // 根证书文件
 }
 
 
@@ -305,7 +305,7 @@ type ConfigServerTLSFile struct {
 }
 
 type ConfigServerTLS struct {
-    RootCAa             []ConfigServerTLSFile                                                   // 服务端证书文件
+    RootCAs             []ConfigServerTLSFile                                                   // 服务端证书文件
     NextProtos          []string                                                                // http版本
     CipherSuites        []uint16                                                                // 密码套件
     PreferServerCipherSuites    bool                                                            // 控制服务器是否选择客户端的最首选的密码套件

@@ -288,7 +288,7 @@ func Test_Server_ConfigServer(t *testing.T){
     }
 	CS := &ConfigServer{
         TLS:&ConfigServerTLS{
-            RootCAa:[]ConfigServerTLSFile{cstlsf1,cstlsf2},
+            RootCAs:[]ConfigServerTLSFile{cstlsf1,cstlsf2},
          },
     }
     err = srv.ConfigServer(CS)
@@ -302,7 +302,7 @@ func Test_Server_ConfigServer(t *testing.T){
     
 	CS = &ConfigServer{
         TLS:&ConfigServerTLS{
-            RootCAa:[]ConfigServerTLSFile{},
+            RootCAs:[]ConfigServerTLSFile{},
          },
 	}
     err = srv.ConfigServer(CS)
