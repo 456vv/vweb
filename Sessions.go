@@ -193,7 +193,7 @@ func (T *Sessions) generateRandSessionId() string {
 		id 			string
 		maxWait	 	= time.Second
 		wait		time.Duration
-		printErr	= "vweb: 警告>>会话ID即将耗尽，请尽快加大调整ID长度。本次已为用户分配临时ID(%s)"
+		printErr	= "vweb: 警告>>会话ID即将耗尽，请尽快加大调整ID长度。本次已为用户分配临时ID(%s)\n"
 	)
     if T.Salt != "" {
     	for id = T.generateSessionIdSalt(); T.ss.Has(id);{

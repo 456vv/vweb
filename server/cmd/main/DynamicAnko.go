@@ -76,6 +76,7 @@ func (T *serverHandlerDynamicAnko) Execute(out *bytes.Buffer, in interface{}) (e
 		T.env = env.NewEnv()
 	}
 	env := T.env.NewEnv()
+	env.Define("T", in)
 
 	var retn interface{}
     if tdot, ok := in.(vweb.DotContexter); ok {
