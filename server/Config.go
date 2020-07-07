@@ -318,6 +318,20 @@ type ConfigServerTLS struct {
     ClientCAs 					[]string                                                        // 客户端拥有的“权威组织”证书的列表。(Server/Client端使用)
 
 }
+func (T *ConfigServerTLS) CipherSuitesAuto(){
+	if T.MaxVersion == 0 {
+		T.MaxVersion = tls.VersionTLS13
+	}
+	if len(T.CipherSuites) == 0 {
+		for _, cs := range tls.CipherSuites() {
+			for _, version := range cs.SupportedVersions {
+				if version >= T.MinVersion && version <= T.MaxVersion {
+					T.CipherSuites = append(T.CipherSuites, cs.ID)
+				}
+			}
+		}
+	}
+}
 
 type ConfigServer struct {
     //引用公共配置后，该以结构中的CC和CS如果也有设置，将会使用优先使用。
@@ -368,6 +382,9 @@ func (T *ConfigServerPublic) ConfigServer(origin *ConfigServer, handle func(name
 	c, ok := T.CS[origin.PublicName]
 	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
 		*origin = c
+		if origin.TLS != nil {
+			origin.TLS.CipherSuitesAuto()
+		}
 		return true
 	}
 	return false
