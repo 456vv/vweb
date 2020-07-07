@@ -27,7 +27,7 @@ import (
 //默认4K
 var defaultDataBufioSize int64 = 4096
 
-var Version	string = "VWEB/2.0.0"
+var Version	string = "Server/2.0.x"
 
 //响应完成设置
 type atomicBool int32
@@ -198,7 +198,7 @@ func configTLSFile(c *tls.Config, conf *ConfigServerTLS) error {
 	
     c.Certificates = nil
     var errServerCert string
-    for _, file := range conf.RootCAa {
+    for _, file := range conf.RootCAs {
 	    cert, err := tls.LoadX509KeyPair(file.CertFile, file.KeyFile)
         if err != nil {
         	//日志
@@ -208,7 +208,7 @@ func configTLSFile(c *tls.Config, conf *ConfigServerTLS) error {
          c.Certificates = append(c.Certificates, cert)
     }
     if errServerCert != "" {
-		errStr = errStr + "解析服务端证书发生错误（CS.TLS.RootCAa）: \n" + errServerCert
+		errStr = errStr + "解析服务端证书发生错误（CS.TLS.RootCAs）: \n" + errServerCert
     }
     
     //多证书
@@ -284,7 +284,7 @@ func (T *ServerGroup) SetSitePool(pool *vweb.SitePool) error {
 //	rw http.ResponseWriter	响应
 //	r *http.Request			请求
 func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
-
+	
     //** 检查Host是否存在
     site, ok := T.siteMan.Get(r.Host)
     if !ok {
@@ -572,11 +572,12 @@ func (T *ServerGroup) updateSitePoolAdd(cSite ConfigSite) {
 	for _, host := range cSite.Host {
 		T.siteMan.Add(host, site)
 	}
-   	
+
    	//设置Session
 	vweb.CopyStruct(site.Sessions, &cSite.Session, func(name string, dsc, src reflect.Value) bool {
 		return name == "Expired"
 	})
+	
 	site.Sessions.Expired = time.Duration(cSite.Session.Expired) * time.Second
 	site.RootDir = cSite.Directory.RootDir
 	
@@ -682,6 +683,11 @@ func (T *ServerGroup) updateConfigSites(conf *ConfigSites) error {
             		}
             		T.ErrorLog.Printf("server: %s 站点的 Forward %s 合并失败\n", cSite.Identity, name)
             	}
+            }
+            
+            //复制Property的配置
+            if cSite.Property.PublicName != "" && !conf.Public.ConfigSiteProperty(&cSite.Property, merge) {
+            	T.ErrorLog.Printf("server: %s 站点的私有Property与公共Property合并失败\n", cSite.Identity)
             }
             
             //预选分配池，初始化站点

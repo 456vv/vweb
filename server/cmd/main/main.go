@@ -8,7 +8,7 @@ import (
     "log"
     "time"
     "fmt"
-    "reflect"
+    //"reflect"
 	"github.com/456vv/vcipher"
 	"github.com/456vv/verifycode"
     "github.com/456vv/vforward"
@@ -23,7 +23,7 @@ import (
 	_ "github.com/mattn/anko/packages" //加入默认包
 )
 
-const version = "App/v2.0.0"
+const version = "App/v2.0.1"
 
 var _ *fsnotify.Op
 var _ = builtin.GoTypeTo
@@ -43,7 +43,7 @@ var (
 )
 
 func main(){
-	log.Printf("程序版本：%s | %s\n", vweb.Version, version)
+	log.Printf("程序版本：%s | %s | %s\n", vweb.Version, server.Version, version)
 	
 	//文件行参数
 	flag.Parse()
@@ -82,16 +82,16 @@ func main(){
 	for name, fn := range vweb.TemplateFunc {
 		e.Define(name, fn)
 	}
-	for name, pkg := range templatePackage {
-		fns, ok := env.Packages[name]
-		if !ok {
-			fns = make(map[string]reflect.Value)
-			env.Packages[name] = fns
-		}
-		for n, f := range pkg {
-			fns[n] = reflect.ValueOf(f)
-		}
-	}
+	//for name, pkg := range templatePackage {
+	//	fns, ok := env.Packages[name]
+	//	if !ok {
+	//		fns = make(map[string]reflect.Value)
+	//		env.Packages[name] = fns
+	//	}
+	//	for n, f := range pkg {
+	//		fns[n] = reflect.ValueOf(f)
+	//	}
+	//}
 	
 	//服务器
 	serverGroup := server.NewServerGroup()

@@ -55,7 +55,7 @@ type ConfigSitePluginTLS struct {
     CipherSuites        []uint16                                                            // 密码套件的列表。
     ClientSessionCache  int                                                                 // 是TLS会话恢复 ClientSessionState 条目的缓存。(Client端使用)
     CurvePreferences    []tls.CurveID                                                       // 在ECDHE握手中使用(Client端使用)
-    RootCAa             []string                                                            // 根证书文件
+    RootCAs             []string                                                            // 根证书文件
 }
 
 
@@ -87,7 +87,7 @@ type ConfigSitePlugin struct {
     DisableKeepAlives       bool                                                            // 禁止长连接
     DisableCompression      bool                                                            // 禁止压缩
 	MaxIdleConnsPerHost		int																// 最大空闲连接每个主机
-    MaxConnsPerHost int																		// 最大连接的每个主机
+    MaxConnsPerHost 		int																// 最大连接的每个主机
     IdleConnTimeout 		int64                                                           // 设置空闲连接超时（毫秒单位）
     ResponseHeaderTimeout   int64                                                           // 请求Header超时（毫秒单位）
     ExpectContinueTimeout   int64                                                           // 发送Expect: 100-continue标头的PUT请求超时
@@ -211,11 +211,13 @@ type ConfigSiteSession struct {
 
 //ConfigSiteProperty 配置-性能
 type ConfigSiteProperty struct {
+    //引用公共配置后，该以结构中的Header如果也有设置，将会使用优先使用。
+	PublicName		string													// 引用公共配置的名字
+	
     ConnMaxNumber       int64                                               // 连接最大数量
     ConnSpeed           int64                                               // 连接宽带速度
     BuffSize       		int64                                             	// 缓冲区大小
 }
-
 
 //ConfigSite 配置-站点
 type ConfigSite struct {
@@ -245,6 +247,7 @@ type ConfigSitePublic struct {
 	Session				map[string]ConfigSiteSession
 	Plugin				ConfigSitePlugins
 	Forward				map[string]ConfigSiteForward
+	Property			map[string]ConfigSiteProperty
 }
 
 func (T *ConfigSitePublic) ConfigSiteSession(origin *ConfigSiteSession, handle func(name string, dsc, src reflect.Value) bool) bool {
@@ -280,6 +283,17 @@ func (T *ConfigSitePublic) ConfigSiteForward(origin *ConfigSiteForward, handle f
 	}
 	return false
 }
+func (T *ConfigSitePublic) ConfigSiteProperty(origin *ConfigSiteProperty, handle func(name string, dsc, src reflect.Value) bool) bool {
+	if origin == nil {
+		return false
+	}
+	c, ok := T.Property[origin.PublicName]
+	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+		*origin = c
+		return true
+	}
+	return false
+}
 
 type ConfigSites struct {
 	Public		ConfigSitePublic
@@ -291,7 +305,7 @@ type ConfigServerTLSFile struct {
 }
 
 type ConfigServerTLS struct {
-    RootCAa             []ConfigServerTLSFile                                                   // 服务端证书文件
+    RootCAs             []ConfigServerTLSFile                                                   // 服务端证书文件
     NextProtos          []string                                                                // http版本
     CipherSuites        []uint16                                                                // 密码套件
     PreferServerCipherSuites    bool                                                            // 控制服务器是否选择客户端的最首选的密码套件
@@ -303,6 +317,20 @@ type ConfigServerTLS struct {
     MaxVersion                  uint16                                                          // 最大SSL/TLS版本。如果为零，则该包所支持的最高版本被使用。
     ClientCAs 					[]string                                                        // 客户端拥有的“权威组织”证书的列表。(Server/Client端使用)
 
+}
+func (T *ConfigServerTLS) CipherSuitesAuto(){
+	if T.MaxVersion == 0 {
+		T.MaxVersion = tls.VersionTLS13
+	}
+	if len(T.CipherSuites) == 0 {
+		for _, cs := range tls.CipherSuites() {
+			for _, version := range cs.SupportedVersions {
+				if version >= T.MinVersion && version <= T.MaxVersion {
+					T.CipherSuites = append(T.CipherSuites, cs.ID)
+				}
+			}
+		}
+	}
 }
 
 type ConfigServer struct {
@@ -325,7 +353,7 @@ type  ConfigConn struct{
     ReadDeadline        int64                                               // 设置读取超时(毫秒单位)
     KeepAlive           bool                                                // 即使没有任何通信，一个客户端可能希望保持连接到服务器的状态。
     KeepAlivePeriod     int64                                               // 保持连接超时(毫秒单位)
-    Linger              int                                                 // 数据等待发送或待确认（不太清楚这个功能有什么用？）
+    Linger              int                                                 // 连接关闭后，等待发送或待确认的数据（秒单位)。如果 sec > 0，经过sec秒后，所有剩余的未发送数据都可能会被丢弃。则与sec < 0 一样在后台发送数据。
     NoDelay             bool                                                // 设置操作系统是否延迟发送数据包,默认是无延迟的
     ReadBuffer          int                                                 // 在缓冲区读取数据大小
     WriteBuffer         int                                                 // 写入数据到缓冲区大小
@@ -354,6 +382,9 @@ func (T *ConfigServerPublic) ConfigServer(origin *ConfigServer, handle func(name
 	c, ok := T.CS[origin.PublicName]
 	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
 		*origin = c
+		if origin.TLS != nil && len(origin.TLS.CipherSuites) == 0 {
+			origin.TLS.CipherSuitesAuto()
+		}
 		return true
 	}
 	return false
