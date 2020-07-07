@@ -87,7 +87,7 @@ type ConfigSitePlugin struct {
     DisableKeepAlives       bool                                                            // 禁止长连接
     DisableCompression      bool                                                            // 禁止压缩
 	MaxIdleConnsPerHost		int																// 最大空闲连接每个主机
-    MaxConnsPerHost int																		// 最大连接的每个主机
+    MaxConnsPerHost 		int																// 最大连接的每个主机
     IdleConnTimeout 		int64                                                           // 设置空闲连接超时（毫秒单位）
     ResponseHeaderTimeout   int64                                                           // 请求Header超时（毫秒单位）
     ExpectContinueTimeout   int64                                                           // 发送Expect: 100-continue标头的PUT请求超时
@@ -211,11 +211,13 @@ type ConfigSiteSession struct {
 
 //ConfigSiteProperty 配置-性能
 type ConfigSiteProperty struct {
+    //引用公共配置后，该以结构中的Header如果也有设置，将会使用优先使用。
+	PublicName		string													// 引用公共配置的名字
+	
     ConnMaxNumber       int64                                               // 连接最大数量
     ConnSpeed           int64                                               // 连接宽带速度
     BuffSize       		int64                                             	// 缓冲区大小
 }
-
 
 //ConfigSite 配置-站点
 type ConfigSite struct {
@@ -245,6 +247,7 @@ type ConfigSitePublic struct {
 	Session				map[string]ConfigSiteSession
 	Plugin				ConfigSitePlugins
 	Forward				map[string]ConfigSiteForward
+	Property			map[string]ConfigSiteProperty
 }
 
 func (T *ConfigSitePublic) ConfigSiteSession(origin *ConfigSiteSession, handle func(name string, dsc, src reflect.Value) bool) bool {
@@ -276,6 +279,17 @@ func (T *ConfigSitePublic) ConfigSiteForward(origin *ConfigSiteForward, handle f
 	c, ok := T.Forward[origin.PublicName]
 	if ok {
 		origin.List = append(origin.List, c.List...)
+		return true
+	}
+	return false
+}
+func (T *ConfigSitePublic) ConfigSiteProperty(origin *ConfigSiteProperty, handle func(name string, dsc, src reflect.Value) bool) bool {
+	if origin == nil {
+		return false
+	}
+	c, ok := T.Property[origin.PublicName]
+	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+		*origin = c
 		return true
 	}
 	return false

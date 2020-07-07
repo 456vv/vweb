@@ -684,6 +684,11 @@ func (T *ServerGroup) updateConfigSites(conf *ConfigSites) error {
             	}
             }
             
+            //复制Property的配置
+            if cSite.Property.PublicName != "" && !conf.Public.ConfigSiteProperty(&cSite.Property, merge) {
+            	T.ErrorLog.Printf("server: %s 站点的私有Property与公共Property合并失败\n", cSite.Identity)
+            }
+            
             //预选分配池，初始化站点
             T.updateSitePoolAdd(cSite)
             
