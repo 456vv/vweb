@@ -193,9 +193,8 @@ func (T *Sessions) generateRandSessionId() string {
 		id 			string
 		maxWait	 	= time.Second
 		wait		time.Duration
-		printErr	= "vweb: 警告>>会话ID即将耗尽，请尽快加大调整ID长度。本次已为用户分配临时ID。"
+		printErr	= "vweb: 警告>>会话ID即将耗尽，请尽快加大调整ID长度。本次已为用户分配临时ID(%s)"
 	)
-	
     if T.Salt != "" {
     	for id = T.generateSessionIdSalt(); T.ss.Has(id);{
     		wait=delay(wait, maxWait)
@@ -203,7 +202,7 @@ func (T *Sessions) generateRandSessionId() string {
     		if wait >= maxWait {
     			id+="-temp"
     			//ID即将耗尽
-    			fmt.Println(printErr)
+    			fmt.Printf(printErr, id)
     		}
     	}
    		return id
@@ -214,7 +213,7 @@ func (T *Sessions) generateRandSessionId() string {
 		if wait >= maxWait {
 			id+="-temp"
 			//ID即将耗尽
-			fmt.Println(printErr)
+    		fmt.Printf(printErr, id)
 		}
 	}
 	return id

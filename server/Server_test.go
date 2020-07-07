@@ -106,6 +106,88 @@ func Test_NewServerGroup_2(t *testing.T){
 
 }
 
+func Test_NewServerGroup_3(t *testing.T){
+	sg := NewServerGroup()
+	defer sg.Close()
+
+	go func(){
+		time.AfterFunc(time.Second, func(){
+			sg.run.setTrue()
+	        sg.Close()
+	    })
+	    
+	}()
+	serv := sg.newServer("127.0.0.1:0")
+	serv.init()
+	
+	var forward = map[string]ConfigSiteForward{
+		"127.0.0.1:1234":ConfigSiteForward{
+			List:[]ConfigSiteForwards{
+				{
+				Status: true,
+				Path:[]string{".*"},
+				ExcludePath:[]string{},
+				RePath:"http://www.baidu.com/",
+			    RedirectCode:301,
+				End:true,
+				},
+			},
+		},
+		"11.0.0.1:11":ConfigSiteForward{
+			List:[]ConfigSiteForwards{
+				{
+				Status: true,
+				Path:[]string{".*"},
+				ExcludePath:[]string{},
+				RePath:"http://www.baidu.com/",
+			    RedirectCode:301,
+				End:true,
+				},
+			},
+		},
+	}
+	
+	
+	serv.Server.Handler=http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request){
+		
+	    urlPath	:= r.URL.Path
+	    if  len(forward) != 0 {
+	        var forwardC ConfigSiteForward
+	        derogatoryDomain(r.Host, func(h string) (ok bool){
+	        	forwardC, ok = forward[h]
+	            return
+	        })
+	        for _, fc := range forwardC.List {
+	        	if !fc.Status {
+	        		//跳过禁止的
+	        		continue
+	        	}
+	        	rpath, rewried, err := fc.Rewrite(urlPath)
+	        	if err != nil {
+	        		t.Logf("server: host(%s) 进行重写URL规则发发生错误：%s\n", r.Host, err.Error())
+	        		continue
+	        	}
+	        	if rewried {
+	            	if fc.RedirectCode != 0 {
+	            		//重定向,并退出
+	            		http.Redirect(rw, r, rpath, fc.RedirectCode)
+	            		return
+	            	}
+	            	
+					urlPath = rpath
+					
+	            	if fc.End {
+	            		return
+	            	}
+				}
+	        }
+	    }
+		
+		http.Error(rw, "1234567", 200)
+	})
+	sg.serve(serv)
+}
+
 func Test_ServerGroup_LoadConfigFile(t *testing.T){
 	sg := NewServerGroup()
     defer sg.Close()

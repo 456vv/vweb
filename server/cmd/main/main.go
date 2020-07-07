@@ -23,7 +23,7 @@ import (
 	_ "github.com/mattn/anko/packages" //加入默认包
 )
 
-const version = "App/v2.0.0"
+const version = "App/v2.0.1"
 
 var _ *fsnotify.Op
 var _ = builtin.GoTypeTo
@@ -43,7 +43,7 @@ var (
 )
 
 func main(){
-	log.Printf("程序版本：%s | %s\n", vweb.Version, version)
+	log.Printf("程序版本：%s | %s | %s\n", vweb.Version, server.Version, version)
 	
 	//文件行参数
 	flag.Parse()

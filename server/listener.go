@@ -24,7 +24,7 @@ func (T *listener) Accept() (c net.Conn, err error) {
 		return
 	}
 	
-    if T.cc != nil {
+    if T.cc != nil  {
 	    if d := T.cc.Deadline; d != 0 {
 	        tc.SetDeadline(time.Now().Add(time.Duration(d) * time.Millisecond))
 	    }
@@ -43,8 +43,10 @@ func (T *listener) Accept() (c net.Conn, err error) {
 	    if d := T.cc.WriteBuffer; d != 0 {
 	    	tc.SetWriteBuffer(d)
 	    }
+	    if d := T.cc.Linger; d != 0 {
+	    	tc.SetLinger(T.cc.Linger)
+	    }
 	    tc.SetKeepAlive(T.cc.KeepAlive)
-	    tc.SetLinger(T.cc.Linger)
 	    tc.SetNoDelay(T.cc.NoDelay)
     }
     

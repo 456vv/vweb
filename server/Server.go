@@ -27,7 +27,7 @@ import (
 //默认4K
 var defaultDataBufioSize int64 = 4096
 
-var Version	string = "VWEB/2.0.0"
+var Version	string = "Server/2.0.x"
 
 //响应完成设置
 type atomicBool int32
@@ -284,7 +284,7 @@ func (T *ServerGroup) SetSitePool(pool *vweb.SitePool) error {
 //	rw http.ResponseWriter	响应
 //	r *http.Request			请求
 func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
-
+	
     //** 检查Host是否存在
     site, ok := T.siteMan.Get(r.Host)
     if !ok {
@@ -572,11 +572,12 @@ func (T *ServerGroup) updateSitePoolAdd(cSite ConfigSite) {
 	for _, host := range cSite.Host {
 		T.siteMan.Add(host, site)
 	}
-   	
+
    	//设置Session
 	vweb.CopyStruct(site.Sessions, &cSite.Session, func(name string, dsc, src reflect.Value) bool {
 		return name == "Expired"
 	})
+	
 	site.Sessions.Expired = time.Duration(cSite.Session.Expired) * time.Second
 	site.RootDir = cSite.Directory.RootDir
 	
