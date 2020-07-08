@@ -67,17 +67,18 @@ func (T *SitePool) RangeSite(f func(name string, site *Site) bool){
 //	d time.Duration     回收时间隔，不可以是0
 func (T *SitePool) SetRecoverSession(d time.Duration) {
     T.recoverSessionTick = d
+    select{
+    case <-T.setTick:
+    default:
+    }
    	T.setTick <- true
 }
 
 //Start 启动池，用于读取处理过期的会话
 //	error   错误
 func (T *SitePool) Start() error {
-	if T.recoverSessionTick == 0 {
-		return verror.TrackErrorf("vweb: 网站池回收时间不是有效的")
-	}
 	if T.run.setTrue() {
-		return nil
+		return verror.TrackErrorf("vweb: 网站池已经启动!")
 	}
 	//处理Session的过期
 	go T.start()

@@ -230,7 +230,7 @@ type ServerGroup struct {
     exit                chan bool			// 退出
 	
 	run					atomicBool			// 服务器启动了
-
+	
     // 用于 .UpdateConfigFile 方法
     backConfigDate      []byte              // 备份配置数据。如果是相同数据，则不更新
     config				*Config				// 配置
@@ -893,8 +893,10 @@ func (T *ServerGroup) Start() error {
 	//站点池
 	if T.sitePool == nil {
 		pool := vweb.DefaultSitePool
-		pool.Start()
-		defer pool.Close()
+		err := pool.Start()
+		if err == nil {
+			defer pool.Close()
+		}
 		T.sitePool = pool
 	}
 	
@@ -925,6 +927,13 @@ func (T *ServerGroup) Close() error {
         return true
     })
     T.srvMan.Reset()
+    
+    T.siteMan.Range(func(host string, site *vweb.Site) bool {
+    	T.siteMan.Add(host, nil)
+    	T.sitePool.DelSite(site.PoolName())
+    	return true
+    })
+    
 	T.sitePool = nil
    	T.exit <- true
     return nil
