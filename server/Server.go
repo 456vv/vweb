@@ -871,7 +871,6 @@ func (T *ServerGroup) UpdateConfig(conf *Config) error {
 //serve 启动服务器
 func (T *ServerGroup) serve(srv *Server) {
 	if srv.status.setTrue() {
-		T.ErrorLog.Println("server: 该服务器处于监听状态，无需再监听！")
 		return
 	}
 	T.srvMan.Set(srv.Addr, srv)
