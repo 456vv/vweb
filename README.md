@@ -43,13 +43,14 @@ type DotContexter interface {                                                   
     Context() context.Context                                                                                       // 上下文
     WithContext(ctx context.Context)                                                                                // 替换上下文
 }
-type DynamicTemplate interface {                                                                                //  动态模板
+type DynamicTemplater interface {                                                                               //  动态模板
     ParseFile(path string) error                                                                                    // 解析文件
     ParseText(content, name string) error                                                                           // 解析文本
     SetPath(rootPath, pagePath string)                                                                              // 设置路径
     Parse(r *bufio.Reader) (err error)                                                                              // 解析
     Execute(out *bytes.Buffer, dot interface{}) error                                                               // 执行
 }
+type DynamicTemplateFunc func() DynamicTemplater                                                                // 动态模板方法
 type Forward struct {                                                                                           // 转发
     Path        []string                                                                                            // 多种路径匹配
     ExcludePath []string                                                                                            // 排除多种路径匹配
@@ -122,7 +123,7 @@ type ServerHandlerDynamic struct {                                              
     BuffSize int64                                                                                                  // 缓冲块大小
     Site     *Site                                                                                                  // 网站配置
     Context  context.Context                                                                                        // 上下文
-    Plus     map[string]DynamicTemplate                                                                             // 支持更动态文件类型
+    Plus     map[string]DynamicTemplateFunc                                                                         // 支持更动态文件类型
 }
     func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) (err error)                        // 执行模板
     func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error)                                            // 解析模板

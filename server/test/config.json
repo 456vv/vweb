@@ -3,9 +3,9 @@
 		"Public":{
 			"CC":{
 				"A":{
-					"Deadline":0,
-					"WriteDeadline":0,
-					"ReadDeadline":0,
+					"Deadline":10000,
+					"WriteDeadline":10000,
+					"ReadDeadline":10000,
 					"KeepAlive":true,
 					"KeepAlivePeriod":60000,
 					"Linger":0,
@@ -15,11 +15,20 @@
 				}
 			},
 			"CS":{
-				"B":{
-					"ReadTimeout":0,
-					"WriteTimeout":0,
+                "A":{
+					"ReadTimeout":10000,
+					"WriteTimeout":10000,
                     "ReadHeaderTimeout":5000,
-                    "IdleTimeout":120000,
+                    "IdleTimeout":600000,
+					"MaxHeaderBytes":0,
+					"KeepAlivesEnabled":true,
+					"ShutdownConn":	true
+                },
+				"B":{
+					"ReadTimeout":10000,
+					"WriteTimeout":10000,
+                    "ReadHeaderTimeout":5000,
+                    "IdleTimeout":600000,
 					"MaxHeaderBytes":0,
 					"KeepAlivesEnabled":true,
 					"ShutdownConn":	true,
@@ -42,7 +51,7 @@
 		},
 		"Listen":{
 			"127.0.0.1:440":{
-				"Status":true,
+				"Status":false,
 				"CC":{
 					"PublicName":"A",
                     "Deadline":123
@@ -70,7 +79,7 @@
 					"PublicName":"A"
 				},
 				"CS":{
-					"PublicName":"B",
+					"PublicName":"A",
 					"KeepAlivesEnabled":true,
 					"ShutdownConn":	true
 				}
@@ -82,10 +91,10 @@
 			"Session":{
 				"A":{
 					"Name":"BWID",
-					"Expired":1200,
+					"Expired":1200000,
 					"Size":128,
-					"Salt":"",
-					"ActivationID":true
+					"Salt":"fjasdfjpoiqrj943j9vn43ny",
+					"ActivationID":false
 				}
 			},
 			"Header":{
@@ -161,13 +170,6 @@
     					"RePath":"/template/a.bw"
     				}]
                 }
-            },
-            "Property":{
-                "A:{
-    				"ConnMaxNumber":100,
-    				"ConnSpeed":1000,
-    				"BuffSize":1000
-                }
             }
 		},
 		"Site":	[{
@@ -212,12 +214,11 @@
 				}
 			},
 			"Directory":{
-				"Root":"../test/wwwroot",
-				"Virtual":["../test/wwwroot"]
+				"Root":"wwwroot",
+				"Virtual":[]
 			},
 			"IndexFile":["index.html"],
-			"DynamicExt":[".bw"],
-            "DynmicCache":true,
+			"DynamicExt":[".bw",".ank"],
 			"Header":{
 				"PublicName":"B",
                 "Static":{
@@ -227,7 +228,12 @@
                         },
 						"PageExpired":1234
                     }
-                }
+                },
+				"MIME":{
+					".txt":"text/html",
+					".bw":"text/html",
+					".ank":"text/html"
+				}
 			},
 			"Log":{},
 			"ErrorPage":{},
@@ -250,7 +256,6 @@
 			"Directory":{},
 			"IndexFile":[],
 			"DynamicExt":[],
-            "DynmicCache":true,
 			"Header":{
 				"Static":{},
 				"Dynamic":{},

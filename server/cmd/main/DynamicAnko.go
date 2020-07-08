@@ -72,6 +72,7 @@ func (T *serverHandlerDynamicAnko) Execute(out *bytes.Buffer, in interface{}) (e
 	if T.stmt == nil {
 		return errors.New("The template has not been parsed and is not available!")
 	}
+	
 	if T.env == nil {
 		T.env = env.NewEnv()
 	}

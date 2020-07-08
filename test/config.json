@@ -12,7 +12,7 @@
                     "NoDelay":true,
                     "ReadBuffer":4096,
                     "WriteBuffer":4096
-                },
+                }
             },
             "CS":{
                 "B":{
@@ -43,12 +43,12 @@
                 "Status":true,
                 "Default":{
                     "CC":{},
-                    "CS":{},
-                }
+                    "CS":{}
+                },
                 "Public":{
                     "CC":"A",
-                    "CS":"B",
-                },
+                    "CS":"B"
+                }
             },
             "127.0.0.1:80":{
                 "Status":true,

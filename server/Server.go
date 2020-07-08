@@ -220,8 +220,8 @@ func configTLSFile(c *tls.Config, conf *ConfigServerTLS) error {
 }
 
 type ServerGroup struct {
-    ErrorLog			*log.Logger 					// 错误日志文件
-    DynamicTemplate		map[string]vweb.DynamicTemplate		// 支持更多动态
+    ErrorLog			*log.Logger 							// 错误日志文件
+    DynamicTemplate		map[string]vweb.DynamicTemplateFunc		// 支持更多动态
     
     // srvMan 存储值类型是 *Server，读取时需要转换类型
     srvMan              vmap.Map            // map[ip:port]*Server	服务器集
@@ -345,7 +345,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 				urlPath = rpath
 				
             	if fc.End {
-            		return
+            		break
             	}
 			}
         }
@@ -358,7 +358,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
     )
     
     if site.RootDir != nil {
-    	rootPath = site.RootDir(r.URL.Path)
+    	rootPath = site.RootDir(pagePath)
     }
     
     if rootPath == "." {
