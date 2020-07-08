@@ -12,6 +12,7 @@ import (
     "context"
     "runtime"
     "github.com/456vv/verror"
+    "io"
 )
 
 
@@ -104,17 +105,22 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	var body = new(bytes.Buffer)
 	defer func(){
 		dock.Free()
-        if !dock.Writed && err == nil {
-	        body.WriteTo(rw)
-	    }
+		if err != nil {
+			if !dock.Writed {
+				webError(rw, err.Error())
+				return
+			}
+			io.WriteString(rw, err.Error())
+			fmt.Println(err.Error())
+			return
+		}
+		if !dock.Writed {
+			body.WriteTo(rw)
+		}
 	}()
 
 	//执行模板内容
 	err = T.Execute(body, (TemplateDoter)(dock))
-    if err != nil {
-    	webError(rw, err.Error())
-        return
-    }
 }
 
 //ParseText 解析模板
