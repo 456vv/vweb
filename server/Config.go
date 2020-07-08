@@ -199,7 +199,7 @@ type ConfigSiteSession struct {
     //引用公共配置后，该以结构中的Header如果也有设置，将会使用优先使用。
 	PublicName		string													// 引用公共配置的名字
     Name            string                                                  // 会话名称
-    Expired         int64                                                   // 过期时间(毫秒单位，默认20分钟)
+    Expired         int64                                                   // 过期时间(秒单位，默认20分钟)
     Size            int                                                     // 会话ID长度(默认长度40位)
     Salt            string                                                  // 加盐，由于计算机随机数是伪随机数。（可默认为空）
 
