@@ -23,7 +23,7 @@ import (
 	_ "github.com/mattn/anko/packages" //加入默认包
 )
 
-const version = "App/v2.0.1"
+const version = "App/v2.0.2"
 
 var _ *fsnotify.Op
 var _ = builtin.GoTypeTo
@@ -95,10 +95,10 @@ func main(){
 	
 	//服务器
 	serverGroup := server.NewServerGroup()
-	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplate{
-		"ank": &serverHandlerDynamicAnko{
-			env: e,
-		},
+	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplateFunc{
+		"ank": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
+			return &serverHandlerDynamicAnko{env: e}
+		}),
 	}
 	defer serverGroup.Close()
 	

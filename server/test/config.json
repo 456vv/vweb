@@ -15,6 +15,15 @@
 				}
 			},
 			"CS":{
+                "A":{
+					"ReadTimeout":10000,
+					"WriteTimeout":10000,
+                    "ReadHeaderTimeout":5000,
+                    "IdleTimeout":600000,
+					"MaxHeaderBytes":0,
+					"KeepAlivesEnabled":true,
+					"ShutdownConn":	true
+                },
 				"B":{
 					"ReadTimeout":10000,
 					"WriteTimeout":10000,
@@ -42,7 +51,7 @@
 		},
 		"Listen":{
 			"127.0.0.1:440":{
-				"Status":true,
+				"Status":false,
 				"CC":{
 					"PublicName":"A",
                     "Deadline":123
@@ -70,7 +79,7 @@
 					"PublicName":"A"
 				},
 				"CS":{
-					"PublicName":"B",
+					"PublicName":"A",
 					"KeepAlivesEnabled":true,
 					"ShutdownConn":	true
 				}
@@ -205,12 +214,11 @@
 				}
 			},
 			"Directory":{
-				"Root":"../test/wwwroot",
-				"Virtual":["../test/wwwroot"]
+				"Root":"wwwroot",
+				"Virtual":[]
 			},
 			"IndexFile":["index.html"],
-			"DynamicExt":[".bw"],
-            "DynmicCache":true,
+			"DynamicExt":[".bw",".ank"],
 			"Header":{
 				"PublicName":"B",
                 "Static":{
@@ -220,7 +228,12 @@
                         },
 						"PageExpired":1234
                     }
-                }
+                },
+				"MIME":{
+					".txt":"text/html",
+					".bw":"text/html",
+					".ank":"text/html"
+				}
 			},
 			"Log":{},
 			"ErrorPage":{},
@@ -243,7 +256,6 @@
 			"Directory":{},
 			"IndexFile":[],
 			"DynamicExt":[],
-            "DynmicCache":true,
 			"Header":{
 				"Static":{},
 				"Dynamic":{},

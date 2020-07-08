@@ -72,6 +72,7 @@ func (T *serverHandlerDynamicAnko) Execute(out *bytes.Buffer, in interface{}) (e
 	if T.stmt == nil {
 		return errors.New("The template has not been parsed and is not available!")
 	}
+	
 	if T.env == nil {
 		T.env = env.NewEnv()
 	}
@@ -85,6 +86,11 @@ func (T *serverHandlerDynamicAnko) Execute(out *bytes.Buffer, in interface{}) (e
     	retn, err = vm.Run(env, nil, T.stmt)
     }
 	if err != nil {
+		//排除中断的错误
+		//可能用户关闭连接
+		if err.Error() == vm.ErrInterrupt.Error() {
+			return nil
+		}
 		return err
 	}
 	if out != nil && retn != nil {

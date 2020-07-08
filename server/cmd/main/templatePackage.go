@@ -5,6 +5,7 @@ import(
     "bytes"
     "net"
     "net/http"
+    "net/http/pprof"
     "net/url"
     "bufio"
     "strings"
@@ -405,6 +406,14 @@ var templatePackage = map[string]map[string]interface{}{
 		"PostForm":http.PostForm,
 		"ReadResponse":http.ReadResponse,
 		"Transport":func(a ...interface{}) (retn *http.Transport) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
+	},
+	"net/http/pprof":{
+		"Handler":pprof.Handler,
+		"Cmdline":pprof.Cmdline,
+		"Index":pprof.Index,
+		"Profile":pprof.Profile,
+		"Symbol":pprof.Symbol,
+		"Trace":pprof.Trace,
 	},
 	"crypto":{
 		"RegisterHash":crypto.RegisterHash,

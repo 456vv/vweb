@@ -12,16 +12,16 @@ import (
     "context"
     "runtime"
     "github.com/456vv/verror"
+    "io"
 )
 
 
-type DynamicTemplate interface{
-    ParseFile(path string) error																					// 解析文件
-    ParseText(content, name string) error																			// 解析文本
+type DynamicTemplater interface{
     SetPath(rootPath, pagePath string)																				// 设置路径
     Parse(r *bufio.Reader) (err error)																				// 解析
     Execute(out *bytes.Buffer, dot interface{}) error																// 执行
 }
+type DynamicTemplateFunc func() DynamicTemplater
 
 //web错误调用
 func webError(rw http.ResponseWriter, v ...interface{}) {
@@ -39,8 +39,8 @@ type ServerHandlerDynamic struct {
     BuffSize			int64																// 缓冲块大小
     Site        		*Site																// 网站配置
 	Context				context.Context														// 上下文
-	Plus				map[string]DynamicTemplate											// 支持更动态文件类型
-   	exec				DynamicTemplate
+	Plus				map[string]DynamicTemplateFunc										// 支持更动态文件类型
+   	exec				DynamicTemplater
    	modeTime			time.Time
 }
 
@@ -72,7 +72,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		}
 		T.modeTime = modeTime
 	}
-
+	
 	if T.exec == nil {
 	    var content, err = ioutil.ReadAll(osFile)
 	    if err != nil {
@@ -104,17 +104,22 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	var body = new(bytes.Buffer)
 	defer func(){
 		dock.Free()
-        if !dock.Writed && err == nil {
-	        body.WriteTo(rw)
-	    }
+		if err != nil {
+			if !dock.Writed {
+				webError(rw, err.Error())
+				return
+			}
+			io.WriteString(rw, err.Error())
+			fmt.Println(err.Error())
+			return
+		}
+		if !dock.Writed {
+			body.WriteTo(rw)
+		}
 	}()
 
 	//执行模板内容
 	err = T.Execute(body, (TemplateDoter)(dock))
-    if err != nil {
-    	webError(rw, err.Error())
-        return
-    }
 }
 
 //ParseText 解析模板
@@ -186,7 +191,8 @@ func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error) {
     	if T.Plus == nil || len(dynmicType) < 3 {
     		return errors.New("vweb: The file type of the first line of the file is not recognized")
     	}
-		if shdt, ok := T.Plus[dynmicType[2:]]; ok {
+		if plus, ok := T.Plus[dynmicType[2:]]; ok {
+			shdt := plus()
 			shdt.SetPath(T.RootPath, T.PagePath)
 			err = shdt.Parse(bufio.NewReader(bufr))
 	        if err != nil {
