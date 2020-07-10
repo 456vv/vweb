@@ -20,7 +20,6 @@ import (
     "github.com/456vv/verror"
     "github.com/456vv/vweb/v2"
     "context"
-    "sync"
 	"sync/atomic"
 )
 
@@ -39,7 +38,7 @@ func (T *atomicBool) setFalse() bool{ return !atomic.CompareAndSwapInt32((*int32
 type siteExtend struct {
 	config 			*ConfigSite
 	plugin 			*plugin
-	dynamicCache	sync.Map		// 缓存动态文件对象
+	dynamicCache	vmap.Map		// 缓存动态文件对象
 }
 
 //Server 服务器,使用在 ServerGroup.srvMan 字段。
@@ -403,7 +402,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 	}
 
     //** 文件动态静态分离
-    if strSliceContains(config.DynamicExt, fileExt) {
+    if strSliceContains(config.Dynamic.Ext, fileExt) {
 		//动态页面
 		
 	    //读取指定后缀类型的标头内容
@@ -422,15 +421,21 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
         
 		//处理动态格式
         var handlerDynamic *vweb.ServerHandlerDynamic
-        if inf, ok := se.dynamicCache.Load(pagePath); ok && config.DynamicCache {
+        if inf, ok := se.dynamicCache.GetHas(pagePath); ok && config.Dynamic.Cache {
         	handlerDynamic = inf.(*vweb.ServerHandlerDynamic)
+    		if config.Dynamic.CacheTimeout != 0 {
+    			se.dynamicCache.SetExpired(pagePath, time.Duration(config.Dynamic.CacheTimeout))
+    		}
         }else{
         	handlerDynamic = &vweb.ServerHandlerDynamic{
         		PagePath: pagePath,
         		Plus: T.DynamicTemplate,
         	}
-        	if config.DynamicCache {
-        		se.dynamicCache.Store(pagePath, handlerDynamic)
+        	if config.Dynamic.Cache {
+        		se.dynamicCache.Set(pagePath, handlerDynamic)
+        		if config.Dynamic.CacheTimeout != 0 {
+        			se.dynamicCache.SetExpired(pagePath, time.Duration(config.Dynamic.CacheTimeout))
+        		}
         	}
         }
         handlerDynamic.RootPath = rootPath
@@ -538,7 +543,7 @@ func (T *ServerGroup) updatePluginConn(cSite ConfigSite){
 	}else{
 		//清除动态文件缓存
 		se.dynamicCache.Range(func(ninf, vinf interface{}) bool{
-			se.dynamicCache.Delete(ninf)
+			se.dynamicCache.Del(ninf)
 			return true
 		})
 	}
@@ -577,7 +582,6 @@ func (T *ServerGroup) updateSitePoolAdd(cSite ConfigSite) {
 	vweb.CopyStruct(site.Sessions, &cSite.Session, func(name string, dsc, src reflect.Value) bool {
 		return name == "Expired"
 	})
-	
 	site.Sessions.Expired = time.Duration(cSite.Session.Expired) * time.Second
 	site.RootDir = cSite.Directory.RootDir
 	
@@ -617,7 +621,7 @@ func (T *ServerGroup) updateConfigSites(conf *ConfigSites) error {
         if cSite.Identity == "" {
             return verror.TrackErrorf("server: 配置中出现站点惟一名(Identity)为 \"\"，需要设定一个名称。")
         }
-        
+	
 		if cSite.Status {
             
 	    	//复制Session的配置
@@ -690,6 +694,14 @@ func (T *ServerGroup) updateConfigSites(conf *ConfigSites) error {
             	T.ErrorLog.Printf("server: %s 站点的私有Property与公共Property合并失败\n", cSite.Identity)
             }
             
+            //复制Dynamic的配置
+            if cSite.Dynamic.PublicName != "" && !conf.Public.ConfigSiteDynamic(&cSite.Dynamic, merge) {
+            	T.ErrorLog.Printf("server: %s 站点的私有Dynamic与公共Dynamic合并失败\n", cSite.Identity)
+            }
+			if cSite.Dynamic.CacheTimeout != 0 {
+				cSite.Dynamic.CacheTimeout *= int64(time.Second)
+			}
+			
             //预选分配池，初始化站点
             T.updateSitePoolAdd(cSite)
             
@@ -855,7 +867,6 @@ func (T *ServerGroup) UpdateConfig(conf *Config) error {
 	if conf == nil {
     	return verror.TrackErrorf("server: 配置为nil，无法更新。")
 	}
-	
 	T.config = conf
 	if T.run.isTrue() {
 		//更新网站配置

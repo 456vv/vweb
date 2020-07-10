@@ -10,7 +10,6 @@ import (
     "path/filepath"
     "reflect"
     "github.com/456vv/vweb/v2"
-    //"fmt"
 )
 
 func configMerge(handle func(name string, dsc, src reflect.Value) bool) func(name string, dsc, src reflect.Value) bool {
@@ -199,7 +198,7 @@ type ConfigSiteSession struct {
     //引用公共配置后，该以结构中的Header如果也有设置，将会使用优先使用。
 	PublicName		string													// 引用公共配置的名字
     Name            string                                                  // 会话名称
-    Expired         int64                                                   // 过期时间(秒单位，默认20分钟)
+    Expired         int64                                           		// 过期时间(秒单位，默认20分钟)
     Size            int                                                     // 会话ID长度(默认长度40位)
     Salt            string                                                  // 加盐，由于计算机随机数是伪随机数。（可默认为空）
 
@@ -219,6 +218,15 @@ type ConfigSiteProperty struct {
     BuffSize       		int64                                             	// 缓冲区大小
 }
 
+type ConfigSiteDynamic struct {
+    //引用公共配置后，该以结构中的Header如果也有设置，将会使用优先使用。
+	PublicName		string													// 引用公共配置的名字]
+	
+    Ext          	[]string                                            	// 动态文件后缀
+    Cache			bool													// 动态文件缓存解析，非缓存执行
+    CacheTimeout	int64													// 动态文件缓存解析超时，（秒为单位）
+}
+
 //ConfigSite 配置-站点
 type ConfigSite struct {
     Status              bool                                                // 状态，是否启动此站点
@@ -231,8 +239,7 @@ type ConfigSite struct {
     Directory           ConfigSiteDirectory                                 // 目录
 
     IndexFile           []string                                            // 默认页
-    DynamicExt          []string                                            // 动态文件后缀
-    DynamicCache		bool												// 动态文件缓存解析，非缓存执行
+    Dynamic				ConfigSiteDynamic
 
     Header              ConfigSiteHeader                                    // HTTP头
     Log                 ConfigSiteLog                                       // 日志
@@ -248,6 +255,7 @@ type ConfigSitePublic struct {
 	Plugin				ConfigSitePlugins
 	Forward				map[string]ConfigSiteForward
 	Property			map[string]ConfigSiteProperty
+	Dynamic				map[string]ConfigSiteDynamic
 }
 
 func (T *ConfigSitePublic) ConfigSiteSession(origin *ConfigSiteSession, handle func(name string, dsc, src reflect.Value) bool) bool {
@@ -288,6 +296,17 @@ func (T *ConfigSitePublic) ConfigSiteProperty(origin *ConfigSiteProperty, handle
 		return false
 	}
 	c, ok := T.Property[origin.PublicName]
+	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+		*origin = c
+		return true
+	}
+	return false
+}
+func (T *ConfigSitePublic) ConfigSiteDynamic(origin *ConfigSiteDynamic, handle func(name string, dsc, src reflect.Value) bool) bool {
+	if origin == nil {
+		return false
+	}
+	c, ok := T.Dynamic[origin.PublicName]
 	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
 		*origin = c
 		return true
