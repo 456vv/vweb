@@ -179,8 +179,8 @@ var TemplateFunc = map[string]interface{}{
     "Type":builtin.Type,						//Type(v) reflect.Type
     "Panic":builtin.Panic,						//Panic(v)
     "Make":builtin.Make,						//Make([]T, length, cap)|Make([T]T, length)|Make(Chan, length)
-    "MapFrom":builtin.MapFrom,					//MapFrom(T1,V1, T2,V2, ...)
-    "SliceFrom":builtin.SliceFrom,				//SliceFrom(值0, 值1,...)
+    "MapFrom":builtin.MapFrom,					//MapFrom(M, T1,V1, T2, V2, ...)
+    "SliceFrom":builtin.SliceFrom,				//SliceFrom(S, 值0, 值1,...)
     "Delete":builtin.Delete,					//Delete(map[T]T, "key")
     "Set":builtin.Set,							//Set([]T, 位置0,值1, 位置1,值2, 位置2,值3)|Set(map[T]T, 键名0,值1, 键名1,值2, 键名2,值3)|Set(struct{}, 名称0,值1, 名称1,值2, 名称2,值3)
     "Get":builtin.Get,							//Get(map[T]T/[]T/struct{}/string/number, key)
@@ -214,15 +214,15 @@ var TemplateFunc = map[string]interface{}{
     "GE":builtin.GE,							//GE returns a >= b
     "EQ":builtin.EQ,							//EQ returns a == b
     "NE":builtin.NE,							//NE returns a != b
-    "TrySend":builtin.TrySend,					//TrySend(*reflect.Value, value)	不阻塞
-    "TryRecv":builtin.TryRecv,					//TryRecv(*reflect.Value)			不阻塞
-    "Send":builtin.Send,						//Send(*reflect.Value, value)
+    "TrySend":builtin.TrySend,					//TrySend(*Chan, value)	不阻塞
+    "TryRecv":builtin.TryRecv,					//TryRecv(*Chan, value)	不阻塞
+    "Send":builtin.Send,						//Send(*Chan, value)
     "Recv":builtin.Recv,						//Recv(*Chan)
     "Close":builtin.Close,						//Close(*Chan)
     "ChanOf":builtin.ChanOf,					//ChanOf(T)
     "MakeChan":builtin.MakeChan,				//MakeChan(T, size)
-    "Max":builtin.Max,							//Max(a1, a2, ...)
-    "Min":builtin.Min,							//Min(a1, a2, ...)
+    "Max":builtin.Max,							//Max(a1, a2 ...)
+    "Min":builtin.Min,							//Min(a1, a2 ...)
     "Error": func(v interface{}) bool {
 		return templateFuncMapError(v) != nil
     },

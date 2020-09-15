@@ -21,7 +21,7 @@ import (
 	_ "github.com/mattn/anko/packages" //加入默认包
 )
 
-const version = "App/v2.0.2"
+const version = "App/v2.0.3"
 
 var _ *fsnotify.Op
 var _ = builtin.GoTypeTo
@@ -106,18 +106,24 @@ func main(){
 	
 	//设置
 	serverGroup.ErrorLog.SetOutput(logFile)
-	serverGroup.LoadConfigFile(*fConfigFile)
+	_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
+	if err != nil {
+		log.Printf("加载配置文件错误：%s\n", err)
+	}
+	if ok {
+		log.Printf("配置文件成功: %s\n", *fConfigFile)
+	}
 	timeTicker := time.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
 	defer timeTicker.Stop()
 	go func(){
 		for _ = range timeTicker.C {
 			_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
 			if err !=  nil {
-				log.Printf("加载配置文件错误：%s\n", err)
+				log.Printf("配置文件错误：%s\n", err)
 				continue
 			}
 			if ok {
-				log.Println("配置文件更新")
+				log.Println("配置文件更新!")
 			}
 		}
 	}()
@@ -136,11 +142,11 @@ func main(){
 		case fsnotify.Create, fsnotify.Write:
 			_,ok, err := serverGroup.LoadConfigFile(*fConfigFile)
 			if err !=  nil {
-				log.Printf("加载配置文件错误：%s\n", err)
+				log.Printf("配置文件错误：%s\n", err)
 				return
 			}
 			if ok {
-				log.Println("配置文件更新")
+				log.Println("配置文件更新!")
 			}
 		default:
 		}

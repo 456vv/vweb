@@ -93,12 +93,12 @@
 					"Name":"BWID",
 					"Expired":1200000,
 					"Size":128,
-					"Salt":"fjasdfjpoiqrj943j9vn43ny",
-					"ActivationID":false
+					"Salt":"",
+					"ActivationID":true
 				}
 			},
 			"Header":{
-				"B":{
+				"A":{
 					"Static":{
 						"*":{
 							"Header":{},
@@ -107,8 +107,17 @@
 					},
 					"Dynamic":{},
 					"MIME":{
-						".txt":"text/html",
-						".bw":"text/html"
+                        ".html": "text/html; charset=utf-8",
+                        ".ank": "text/html; charset=utf-8",
+                        ".bw": "text/html; charset=utf-8",
+                        ".txt": "text/plain; charset=utf-8",
+                        ".json": "application/json; charset=utf-8",
+                        ".js": "application/javascript; charset=utf-8",
+                        ".apk": "application/vnd.Android.package-archive",
+                        ".zip": "application/zip",
+                        ".rar": "application/rar",
+                        ".svg": "image/svg+xml; charset=utf-8",
+                        ".pdf": "application/pdf"
 					}
 				}
 			},
@@ -170,11 +179,24 @@
     					"RePath":"/template/a.bw"
     				}]
                 }
+            },
+            "Dynamic":{
+                "A":{
+                    "Ext":[".bw", ".ank"],
+                    "Cache":true,
+                    "CacheTimout": 120
+                }
+            },
+            "Property":{
+                "A":{
+                    "ConnMaxNumber": 0,
+                    "ConnSpeed": 0,
+                    "BuffSize": 10240
+                }
             }
 		},
 		"Site":	[{
 			"Status":true,
-			"Name":"A",
             "Identity":"A",
 			"Host":["a.baidu.com", "b.baidu.com", "127.0.0.1"],
 			"Forward":{
@@ -202,6 +224,7 @@
                         "Status":true,
 						"MaxResponseHeaderBytes":1234,
 						"TLS":{
+                            "Status": true,
 							"ServerName":"www.baidu.com",
 							"InsecureSkipVerify":true,
 							"NextProtos":["http/1.1"],
@@ -217,49 +240,44 @@
 				"Root":"wwwroot",
 				"Virtual":[]
 			},
-			"IndexFile":["index.html"],
-			"DynamicExt":[".bw",".ank"],
-			"Header":{
-				"PublicName":"B",
-                "Static":{
-                    ".html":{
-						"Header":{
-                            "A":["B"]
-                        },
-						"PageExpired":1234
-                    }
-                },
-				"MIME":{
-					".txt":"text/html",
-					".bw":"text/html",
-					".ank":"text/html"
-				}
-			},
+            "IndexFile": [
+                "index.html"
+            ],
+            "Dynamic": {
+                "PublicName": "A"
+            },
+            "Header": {
+                "PublicName": "A"
+            },
 			"Log":{},
 			"ErrorPage":{},
 			"Session":{
-				"PublicName":"A",
-				"Name":"VID"
+				"PublicName":"A"
 			},
 			"Property":{
-				"ConnMaxNumber":100,
-				"ConnSpeed":1000,
-				"BuffSize":1000
+                "PublicName": "A"
 			}
 		},{
 			"Status":false,
-			"Name":"B",
             "Identity":"B",
 			"Host":["a.baidu.com", "b.baidu.com"],
-			"HostForwarding":{},
-			"PathForwarding":{},
-			"Directory":{},
-			"IndexFile":[],
-			"DynamicExt":[],
+            "Forward": {},
+            "Plugin": {
+              "RPC": {},
+              "HTTP": {}
+            },
+			"Directory":{
+              "Root": "./site/a.baidu.com/wwwroot",
+              "Virtual": []
+            },
+			"IndexFile":[
+              "index.html"
+            ],
+			"Dynamic":{
+                "PublicName": "A"
+            },
 			"Header":{
-				"Static":{},
-				"Dynamic":{},
-				"MIME":{}
+                "PublicName": "A"
 			},
 			"Log":{},
 			"ErrorPage":{},
@@ -267,9 +285,7 @@
 				"PublicName":"A"
 			},
 			"Property":{
-				"ConnMaxNumber":100,
-				"ConnSpeed":1000,
-				"BuffSize":1000
+                "PublicName": "A"
 			}
 		}]
 	}
