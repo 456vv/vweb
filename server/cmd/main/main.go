@@ -7,8 +7,6 @@ import (
     "flag"
     "log"
     "time"
-    "fmt"
-    //"reflect"
 	"github.com/456vv/vcipher"
 	"github.com/456vv/verifycode"
     "github.com/456vv/vforward"
@@ -23,7 +21,7 @@ import (
 	_ "github.com/mattn/anko/packages" //加入默认包
 )
 
-const version = "App/v2.0.2"
+const version = "App/v2.0.3"
 
 var _ *fsnotify.Op
 var _ = builtin.GoTypeTo
@@ -34,7 +32,6 @@ var _ *vbody.Reader
 
 
 var (
-	fBackstage			= flag.Bool("Backstage", false, "后台启动进程")
 	fRootDir			= flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
 	
 	fConfigFile 		= flag.String("ConfigFile", "./config.json", "配置文件地址")
@@ -58,6 +55,11 @@ func main(){
 	if err = os.Chdir(*fRootDir); err != nil {
 		panic(err)
 	}
+	dir, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("根目录：%s\n", dir)
 	
 	//日志文件对象
 	if err = os.MkdirAll(filepath.Dir(*fLogFile), 0777); err != nil {
@@ -104,18 +106,24 @@ func main(){
 	
 	//设置
 	serverGroup.ErrorLog.SetOutput(logFile)
-	serverGroup.LoadConfigFile(*fConfigFile)
+	_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
+	if err != nil {
+		log.Printf("加载配置文件错误：%s\n", err)
+	}
+	if ok {
+		log.Printf("配置文件成功: %s\n", *fConfigFile)
+	}
 	timeTicker := time.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
 	defer timeTicker.Stop()
 	go func(){
 		for _ = range timeTicker.C {
 			_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
 			if err !=  nil {
-				log.Printf("加载配置文件错误：%s\n", err)
+				log.Printf("配置文件错误：%s\n", err)
 				continue
 			}
 			if ok {
-				log.Println("配置文件更新")
+				log.Println("配置文件更新!")
 			}
 		}
 	}()
@@ -134,33 +142,16 @@ func main(){
 		case fsnotify.Create, fsnotify.Write:
 			_,ok, err := serverGroup.LoadConfigFile(*fConfigFile)
 			if err !=  nil {
-				log.Printf("加载配置文件错误：%s\n", err)
+				log.Printf("配置文件错误：%s\n", err)
 				return
 			}
 			if ok {
-				log.Println("配置文件更新")
+				log.Println("配置文件更新!")
 			}
 		default:
 		}
 	})
-	
-	
-    if !*fBackstage {
-		time.Sleep(time.Second)
-		go func() {
-			defer serverGroup.Close()
-			log.Println("V WEB Server 启动了")
-			var in0 string
-			for err == nil {
-				log.Println("输入任何字符，并回车可以退出 V WEB Server!")
-				fmt.Scan(&in0)
-				if in0 != "" {
-					log.Println("V WEB Server 退出了")
-					return
-				}
-			}
-		}()
-	}
+
 	err = serverGroup.Start()
 	if err != nil {
 		log.Printf("启动失败：%s\n", err)

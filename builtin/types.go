@@ -164,8 +164,9 @@ func convertible(kind, tkind reflect.Kind) bool {
 }
 
 //设置map
-func setMapMember(o reflect.Value, args ...interface{}) {
+func setMapMember(m interface{}, args ...interface{}) interface{} {
 	var val reflect.Value
+	o := reflect.ValueOf(m)
 	telem := o.Type().Elem()
 	for i := 0; i < len(args); i += 2 {
 		key := reflect.ValueOf(args[i])
@@ -177,6 +178,7 @@ func setMapMember(o reflect.Value, args ...interface{}) {
 		}
 		o.SetMapIndex(key, val)
 	}
+	return m
 }
 
 //设置struct，支持接口

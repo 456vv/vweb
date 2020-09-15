@@ -1,8 +1,9 @@
 //ank
 
+var vweb = Import("vweb")
 
-    var vweb = import("vweb")
-    
-    cookie = vweb.Cookie()
-    println(cookie)
-"111"
+cookie = vweb.Cookie()
+
+println(cookie)
+
+return "111"

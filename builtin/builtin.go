@@ -49,17 +49,56 @@ func Make(typ interface{}, args ...int) interface{} {
 	case reflect.Chan:
 		return MakeChan(t, args...)
 	}
+	
 	panic(fmt.Sprintf("cannot make type `%v`", typ))
 }
 
-//MapFrom(T1,V1, T2,V2, ...)
-func MapFrom(args ...interface{}) interface{} {
+//MapFrom(M, T1, V1, T2, V2, ...)
+func MapFrom(m interface{}, args ...interface{}) interface{} {
 	n := len(args)
 	if (n & 1) != 0 {
-		panic("please use `MapFrom(key1, val1, key2, val2, ...)`")
+		panic("please use `MapFrom(T, key1, val1, key2, val2, ...)`")
 	}
 	if n == 0 {
 		return make(map[string]interface{})
+	}
+	if m != nil {
+		tt := reflect.TypeOf(m)
+		if tt.Kind() == reflect.Map {
+			return setMapMember(m, args...)
+		}
+		
+		//默认接口类型
+		mkey := reflect.TypeOf((*interface{})(nil)).Elem()
+		mval := reflect.TypeOf((*interface{})(nil)).Elem()
+		
+		mrkey := kind2Args(args, 0)
+		if mrkey != reflect.Invalid {
+			mtkey, ok := builtinTypes[mrkey.String()]
+			if ok {
+				//是基本类型
+				mkey = mtkey
+			}else{
+				//不是基本类型
+				mkey = reflect.TypeOf(args[0])
+			}
+		}
+		
+		mrval := kind2Args(args, 1)
+		if mrval != reflect.Invalid {
+			mrval, ok := builtinTypes[mrval.String()]
+			if ok {
+				//是基本类型
+				mval = mrval
+			}else{
+				//不是基本类型
+				mval = reflect.TypeOf(args[1])
+			}
+		}
+		
+		mt := reflect.MapOf( mkey, mval )
+		mv := reflect.MakeMapWithSize(mt, n/2)
+		return setMapMember(mv.Interface(), args...)
 	}
 	switch kind2Args(args, 0) {
 	case reflect.String:
@@ -121,13 +160,24 @@ func MapFrom(args ...interface{}) interface{} {
 	}
 }
 
-//SliceFrom(值0, 值1,...)
-func SliceFrom(args ...interface{}) interface{} {
+//SliceFrom(T, 值0, 值1,...)
+func SliceFrom(t interface{}, args ...interface{}) interface{} {
+	
 	n := len(args)
 	if n == 0 {
 		return []interface{}(nil)
 	}
 	
+	if t != nil {
+		tt := reflect.TypeOf(t)
+		if tt.Kind() == reflect.Array || tt.Kind() == reflect.Slice {
+			return appendInterface(t, args...)
+		}
+		arr := reflect.MakeSlice(reflect.SliceOf(tt), 0, n)
+		return appendInterface(arr.Interface(), args...)
+	}
+	
+	//t == nil
 	switch kindArgs(args) {
 	case reflect.Int:
 		return appendInts(make([]int, 0, n), args...)
@@ -164,7 +214,7 @@ func Set(m interface{}, args ...interface{}) {
 			o.Index(args[i].(int)).Set(val)
 		}
 	case reflect.Map:
-		setMapMember(o, args...)
+		setMapMember(m, args...)
 	default:
 		setMember(m, args...)
 	}
@@ -658,6 +708,8 @@ func Bool(a interface{}) bool {
 
 
 //该函数暂时测试，可能会改动。
+//	v reflect.Value		一个还没初始化变量，可能是接口类型
+//	typ ...interface{}	要把v初始化成 typ 类型，如果留空则初始化成nil
 func GoTypeTo(v reflect.Value) func(typ ...interface{}) {
 	vv := reflect.Indirect(v)
 	return func (a ...interface{}){
