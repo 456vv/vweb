@@ -66,6 +66,9 @@ func (T *SitePool) RangeSite(f func(name string, site *Site) bool){
 //SetRecoverSession 设置回收无效的会话。默认为1秒
 //	d time.Duration     回收时间隔，不可以是0
 func (T *SitePool) SetRecoverSession(d time.Duration) {
+	if d == 0 {
+		return
+	}
     T.recoverSessionTick = d
     select{
     case <-T.setTick:
@@ -94,11 +97,8 @@ func (T *SitePool) start() {
 		case <-T.setTick:
 	        //判断过期时间是否有变动
 	        if T.recoverSessionTick != rst {
-				tick.Stop()
-	        	rst = T.recoverSessionTick
-	        	if rst != 0 {
-	        		tick = time.NewTicker(rst)
-	        	}
+        		rst = T.recoverSessionTick
+				tick.Reset(rst)
 	        }
 		case <-tick.C:
             T.pool.Range(func(host, inf interface{}) bool {
