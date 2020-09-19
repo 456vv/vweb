@@ -113,20 +113,20 @@ func (T *Sessions) NewSessnion() Sessioner {
 //GetSession 使用id读取会话
 //	id string   id标识符
 //	Sessioner   会话
-//	error       错误
-func (T *Sessions) GetSession(id string) (Sessioner, error) {
+//	bool        是否存在
+func (T *Sessions) GetSession(id string) (Sessioner, bool) {
     mse, ok := T.ss.GetHas(id)
     if !ok {
-    	return nil, verror.TrackErrorf("vweb: 该ID（%s）不是有效的。", id)
+    	return nil, false
     }
     ms := mse.(*manageSession)
 
     if T.triggerDeadSession(ms) {
     	T.ss.Del(id)
-        return nil, verror.TrackErrorf("vweb: 该ID（%s）是有效的，但会话已经过期了。", id)
+        return nil, false
     }
     ms.recent = time.Now()
-    return ms.s, nil
+    return ms.s, true
 }
 
 //SetSession 使用id写入新的会话
@@ -234,8 +234,8 @@ func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner 
     }
 
     //判断Id是否有效
-    s, err := T.GetSession(id)
-    if err != nil {
+    s, ok := T.GetSession(id)
+    if !ok {
     	//会话ID过期或不存在
     	//判断是否重新使用旧ID
         if T.ActivationID && len(id) == T.Size {

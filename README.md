@@ -6,7 +6,7 @@ golang vweb, 简单的web服务器。
 ```go
 Constants
 const (
-    Version string = "VWEB/v2.0.0"                                                                                  // 版本号
+    Version string = "VWEB/v2.1.x"                                                                                  // 版本号
 )
 Variables
 var DefaultSitePool = NewSitePool()                                                                                 // 网站池（默认）
@@ -163,7 +163,7 @@ type Sessions struct {                                                          
     ActivationID bool                                                                                               // 为true，保持会话ID
 }
     func (T *Sessions) DelSession(id string)                                                                        // 使用id删除的会话
-    func (T *Sessions) GetSession(id string) (Sessioner, error)                                                     // 使用id读取会话
+    func (T *Sessions) GetSession(id string) (Sessioner, bool)                                                      // 使用id读取会话
     func (T *Sessions) Len() int                                                                                    // 数量
     func (T *Sessions) NewSession() Sessioner                                                                       // 新建会话
     func (T *Sessions) ProcessDeadAll() []interface{}                                                               // 过期处理

@@ -145,9 +145,9 @@ func Test_Sessions_SessionID(t *testing.T){
         if err != nil && !test.err {
         	t.Fatal(err)
         }
-        _, err = ss.GetSession(id)
-        if err != nil && !test.err {
-        	t.Fatal(err)
+        _, ok := ss.GetSession(id)
+        if !ok && !test.err {
+        	t.Fatal("Error")
         }
     }
 }
@@ -163,8 +163,8 @@ func Test_Sessions_writeToClient(t *testing.T){
     if !ok || len(cook) == 0 {
     	t.Fatal("Cookie写入不成功")
     }
-    _, err := ss.GetSession("A")
-    if err != nil {
+    _, ok = ss.GetSession("A")
+    if !ok {
     	t.Fatal("Session无法存储")
     }
 }
