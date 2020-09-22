@@ -13,18 +13,16 @@ var DefaultSitePool    = NewSitePool()                                          
 //SitePool 网站池
 type SitePool struct {
 	pool					sync.Map                                                        // map[host]*Site
-    recoverSessionTick      time.Duration                                             	 	// 回收无效会话(默认1秒)
-    setTick					chan bool
+    tick					*time.Ticker													// 定时器
     exit                    chan bool                                                       // 退出
     run						atomicBool														// 已经启动
 }
 
 func NewSitePool() *SitePool {
    	sp := &SitePool{
-        recoverSessionTick  : time.Second,
-        setTick             : make(chan bool,1),
-        exit                : make(chan bool),
+        exit: make(chan bool),
     }
+    sp.tick = time.NewTicker(time.Second)
     return sp
 }
 
@@ -64,43 +62,24 @@ func (T *SitePool) RangeSite(f func(name string, site *Site) bool){
 }
 
 //SetRecoverSession 设置回收无效的会话。默认为1秒
-//	d time.Duration     回收时间隔，不可以是0
+//	d time.Duration     回收时间隔，不可以等于或小于0，否则CPU爆增
 func (T *SitePool) SetRecoverSession(d time.Duration) {
-    T.recoverSessionTick = d
-    select{
-    case <-T.setTick:
-    default:
-    }
-   	T.setTick <- true
+    T.tick.Reset(d)
 }
 
 //Start 启动池，用于读取处理过期的会话
-//	error   错误
+//	error	错误
 func (T *SitePool) Start() error {
-	if T.run.setTrue() {
-		return verror.TrackErrorf("vweb: 网站池已经启动!")
-	}
-	//处理Session的过期
-	go T.start()
-    return nil
+    if T.run.setTrue() {
+    	return verror.TrackError("vweb: 站点池已经启用！")
+    }
+    go T.start()
+	return nil
 }
-
 func (T *SitePool) start() {
-	//处理Session的过期
-	rst 	:= T.recoverSessionTick
-    tick 	:= time.NewTicker(rst)
     L:for {
     	select {
-		case <-T.setTick:
-	        //判断过期时间是否有变动
-	        if T.recoverSessionTick != rst {
-				tick.Stop()
-	        	rst = T.recoverSessionTick
-	        	if rst != 0 {
-	        		tick = time.NewTicker(rst)
-	        	}
-	        }
-		case <-tick.C:
+		case <-T.tick.C:
             T.pool.Range(func(host, inf interface{}) bool {
             	if site, ok := inf.(*Site); ok {
                 	go site.Sessions.ProcessDeadAll()
@@ -108,7 +87,6 @@ func (T *SitePool) start() {
                 return true
             })
 	    case <-T.exit:
-            tick.Stop()
             break L
     	}
     }
@@ -119,6 +97,7 @@ func (T *SitePool) start() {
 func (T *SitePool) Close() error {
 	if !T.run.setFalse() {
     	T.exit <- true
+		T.tick.Stop()
 	}
     return nil
 }

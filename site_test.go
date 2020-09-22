@@ -58,8 +58,8 @@ func Test_Site_GetSite(t *testing.T) {
 func Test_Site_Start(t *testing.T) {
 	//创建池并设置刷新时间
 	sitePool := NewSitePool()
-    sitePool.SetRecoverSession(time.Second*2)
 	sitePool.Start()
+    sitePool.SetRecoverSession(time.Second*2)
 	defer sitePool.Close()
     site := sitePool.NewSite("A")
     site.Sessions.Expired = time.Second
@@ -90,8 +90,9 @@ func Test_Site_SetRecoverSession(t *testing.T) {
     //生成会话
     rw := httptest.NewRecorder()
     r := &http.Request{}
+    ok := false
     site.Sessions.Session(rw, r).Defer(func(){
-    	t.Log("ok")
+    	ok=true
     })
 	
     if site.Sessions.Len() != 1 {
@@ -100,5 +101,8 @@ func Test_Site_SetRecoverSession(t *testing.T) {
     time.Sleep(time.Second*4)
     if site.Sessions.Len() != 0 {
         t.Fatal("无法删除过期会话")
+    }
+    if !ok {
+    	t.Fatal("会话过期没有调用清除函数")
     }
 }

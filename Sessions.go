@@ -16,11 +16,11 @@ type manageSession struct{
 // Sessions集
 type Sessions struct{
     Expired         time.Duration                                       // 保存session时间长
-    Name            string                                              // 标识名称
-    Size            int                                                 // 会话ID长度
-    Salt            string                                              // 加盐，由于计算机随机数是伪随机数。（可默认为空）
-    ActivationID    bool                                                // 为true，保持会话ID。意思就是会话ID过期了，可以激活再次使用
-    ss        		vmap.Map                                           // 集，map[id]*Session
+    Name            string                                              // 标识名称。用于Cookie
+    Size            int                                                 // 会话ID长度。用于Cookie
+    Salt            string                                              // 加盐，由于计算机随机数是伪随机数。（可默认为空）。用于Cookie
+    ActivationID    bool                                                // 为true，保持会话ID。意思就是会话ID过期了，可以激活再次使用。用于Cookie
+    ss        		vmap.Map                                            // 集，map[id]*Session
 }
 
 //Len 当前Session数量
@@ -113,20 +113,20 @@ func (T *Sessions) NewSessnion() Sessioner {
 //GetSession 使用id读取会话
 //	id string   id标识符
 //	Sessioner   会话
-//	error       错误
-func (T *Sessions) GetSession(id string) (Sessioner, error) {
+//	bool        是否存在
+func (T *Sessions) GetSession(id string) (Sessioner, bool) {
     mse, ok := T.ss.GetHas(id)
     if !ok {
-    	return nil, verror.TrackErrorf("vweb: 该ID（%s）不是有效的。", id)
+    	return nil, false
     }
     ms := mse.(*manageSession)
 
     if T.triggerDeadSession(ms) {
     	T.ss.Del(id)
-        return nil, verror.TrackErrorf("vweb: 该ID（%s）是有效的，但会话已经过期了。", id)
+        return nil, false
     }
     ms.recent = time.Now()
-    return ms.s, nil
+    return ms.s, true
 }
 
 //SetSession 使用id写入新的会话
@@ -234,8 +234,8 @@ func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner 
     }
 
     //判断Id是否有效
-    s, err := T.GetSession(id)
-    if err != nil {
+    s, ok := T.GetSession(id)
+    if !ok {
     	//会话ID过期或不存在
     	//判断是否重新使用旧ID
         if T.ActivationID && len(id) == T.Size {
