@@ -717,6 +717,7 @@ func GoTypeTo(v reflect.Value) func(typ ...interface{}) {
 			if a[0] == nil {
 				return
 			}
+			//有参数，转换类型
 			av := reflect.ValueOf(a[0])
 			avt := av.Type()
 			if avt.ConvertibleTo(vv.Type()) {
@@ -734,6 +735,7 @@ func GoTypeTo(v reflect.Value) func(typ ...interface{}) {
 			return
 		}
 		
+		//无参数，仅初始化
 		for ;vv.Kind() == reflect.Ptr ;{
 			if vv.IsNil() {
 				//Chan，Func，Interface，Map，Ptr，或Slice

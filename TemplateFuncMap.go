@@ -1,6 +1,6 @@
 package vweb
 import(
-    //"strings"
+    "text/template"
     "reflect"
     "fmt"
    "github.com/456vv/vweb/v2/builtin"
@@ -72,8 +72,8 @@ func call(f interface{}, args ...interface{}) ([]interface{}, error){
 }
 
 // 模板函数映射
-var TemplateFunc = map[string]interface{}{
-	"Import": func(pkgName string) map[string]interface{} {return dotPackage[pkgName]},
+var TemplateFunc = template.FuncMap{
+	"Import": func(pkgName string) template.FuncMap {return dotPackage[pkgName]},
     "ForMethod": ForMethod,
     "ForType": ForType,
     "InDirect": InDirect,

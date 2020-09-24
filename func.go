@@ -9,15 +9,16 @@ import(
 	"os"
 	"path"
 	"github.com/456vv/verror"
+	"text/template"
 )
 
 
 //ExtendTemplatePackage 扩展模板的包
 //	pkgName string					包名
 //	deputy map[string]interface{} 	函数集
-func ExtendTemplatePackage(pkgName string, deputy map[string]interface{}) {
+func ExtendTemplatePackage(pkgName string, deputy template.FuncMap) {
 	if _, ok := dotPackage[pkgName]; !ok {
-		dotPackage[pkgName] = make(map[string]interface{})
+		dotPackage[pkgName] = make(template.FuncMap)
 	}
 	for name, fn  := range deputy {
 		dotPackage[pkgName][name]=fn
