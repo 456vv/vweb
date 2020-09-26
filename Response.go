@@ -51,9 +51,14 @@ func (T *response) WriteString(s string) (int, error){
 //	error         错误
 func (T *response) ReadFrom(src io.Reader) (written int64, err error) {
     T.td.Writed = true
+    	
+	buffsize := T.buffSize
+	if buffsize == 0 {
+		buffsize = defaultDataBufioSize
+	}
 
 	var(
-		p		= make([]byte, T.buffSize)
+		p		= make([]byte, buffsize)
 		flush	= T.w.(http.Flusher)
 	)
 	//正常读出文件
