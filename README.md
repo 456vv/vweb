@@ -43,7 +43,7 @@ type DotContexter interface {                                                   
     Context() context.Context                                                                                       // 上下文
     WithContext(ctx context.Context)                                                                                // 替换上下文
 }
-type DynamicTemplater interface {                                                                               //  动态模板
+type DynamicTemplater interface {                                                                               // 动态模板
     ParseFile(path string) error                                                                                    // 解析文件
     ParseText(content, name string) error                                                                           // 解析文本
     SetPath(rootPath, pagePath string)                                                                              // 设置路径
@@ -62,6 +62,8 @@ type Globaler interface {                                                       
     Has(key interface{}) bool                                                                                       // 检查
     Get(key interface{}) interface{}                                                                                // 读取
     Del(key interface{})                                                                                            // 删除
+    SetExpired(key interface{}, d time.Duration)                                                                    // 设置KEY有效期，过期会自动删除
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))                                           // 设置KEY有效期，过期会自动删除，并调用函数
     Reset()                                                                                                         // 重置
 }
 type PluginHTTP interface {                                                                                     // 插件HTTP

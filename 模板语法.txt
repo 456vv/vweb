@@ -38,9 +38,10 @@
     {{with $x := "output"}}{{$x | printf "%q"}}{{end}}
     and x y
     or x y
-    call .X.Y 1 2
+    call .X.Y 1 2"
     html x
     index x 1 2 3
+    slice x 1 2
     js x
     len x
     not x
