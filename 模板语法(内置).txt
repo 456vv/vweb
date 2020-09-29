@@ -132,8 +132,8 @@ GetSlice([]T, 1, 5)
 GetSlice3([]T, 1, 5, 7)
 Copy([]T, []T)
 Compute(1, "+", 2)
-Inc(a, b) 		returns a+1
-Dec(a, b) 		returns a-1
+Inc(a) 			returns a+1
+Dec(a) 			returns a-1
 Neg(a, b) 		returns -a
 Mul(a, b) 		returns a*b
 Quo(a, b) 		returns a/b
@@ -145,9 +145,9 @@ BitRshr(a, b) 	returns a >> b
 BitXor(a, b) 	returns a ^ b
 BitAnd(a, b) 	returns a & b
 BitOr(a, b) 	returns a | b
-BitNot(a, b) 	returns ^a
+BitNot(a) 		returns ^a
 BitAndNot(a, b) returns a &^ b
-Not(a, b) 		returns !a
+Not(a) 			returns !a
 LT(a, b) 		returns a < b
 GT(a, b) 		returns a > b
 LE(a, b) 		returns a <= b
