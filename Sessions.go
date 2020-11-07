@@ -176,15 +176,24 @@ func (T *Sessions) DelSession(id string) {
 //	id string               id标识符
 //	Sessioner    			会话
 func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) Sessioner {
+    wh := rw.Header()
+    
+    //防止重复写入
+    for _, c := range readSetCookies(wh) {
+    	if c.Name == T.Name {
+    		if ss, ok := T.GetSession(c.Value); ok {
+    			return ss
+    		}
+    	}
+    }
+    
     cookie := &http.Cookie{
         Name: T.Name,
         Value: id,
         Path: "/",
         HttpOnly: true,
     }
-    wh := rw.Header()
     wh.Add("Set-Cookie", cookie.String())
-
     return T.SetSession(id, &Session{})
 }
 
