@@ -1,0 +1,167 @@
+RootDir(path string) string																// 网站的根目录
+Request() *http.Request                                                                 // 用户的请求信息
+RequestLimitSize(l int64) *http.Request                                                 // 请求限制大小
+Header() http.Header                                                                    // 标头
+Response() Responser                                                                    // 数据写入响应
+ResponseWriter() http.ResponseWriter                                                    // 数据写入响应
+Session() Sessioner                                                                     // 用户的会话缓存
+Global() Globaler                                                                       // 全站缓存
+Cookie() Cookier                                                                        // 用户的Cookie
+Swap() *vmap.Map                                                                        // 信息交换
+Defer(call interface{}, args ... interface{}) error										// 退回调用
+Context() context.Context                                             					// 上下文
+WithContext(ctx context.Context)														// 替换上下文
+Import(pkgName string) map[string]interface{}
+ForMethod(x interface{}) string
+ForType(x interface{}, all bool) string
+InDirect(v reflect.Value) reflect.Value
+DepthField(v ...interface{})
+GoTypeTo(v reflect.Value) func(typ ...interface{})
+Value(v) reflect.Value
+_Value_(s []reflect.Value, v ...reflect.Value) []reflect.Value
+Call(f interface{}, args ...interface{}) ([]interface{}, error)
+CallMethod(f interface{}, name string, args ...interface{}) ([]interface{}, error)
+Defer(f interface{}, args ...interface{}) func() {return func(){call(f, args...)}}
+DeferMethod(f interface{}, name string, args ...interface{}) func() {return func(){callMethod(f, name, args...)}}
+Go(f func()){go f()}
+PtrTo(inf interface{}) interface{}
+ToPtr(inf interface{}) interface{}
+Nil() interface{}
+NotNil(inf interface{}) bool
+IsNil(inf interface{}) bool
+StringToByte(s string) []byte
+StringToRune(s string) []rune
+RuneToString(r []rune) string
+ByteToString(b []byte) string
+Append([]T, value...)
+Pointer(v interface{})
+Uintptr(v interface{})
+_Uintptr_(s []uintptr, v ...uintptr) []uintptr
+_Uintptr(s uintptr) *uintptr
+Uintptr_(s *uintptr) uintptr
+SetUintptr(s *uintptr, v uintptr) *uintptr
+Byte
+_Byte_(s []byte, v ...byte) []byte
+_Byte(s byte) *byte
+Byte_(s *byte) byte
+SetByte(s *byte, v byte) *byte
+Rune
+_Rune_(s []rune, v ...rune) []rune
+_Rune(s rune) *rune
+Rune_(s *rune) rune
+SetRune(s *rune, v rune) *rune
+String
+_String_(s []string, v ...string) []string
+_String(s string) *string
+String_(s *string) string
+SetString(s *string, v string) *string
+Bool
+Int
+_Int_(s []int, i ...int) []int
+_Int(i int) *int
+Int_(i *int) int
+SetInt(i *int, v int) *int
+Int8
+_Int8_(s []int8, i ...int8) []int8
+Int16
+_Int16_(s []int16, i ...int16) []int16
+Int32
+_Int32_(s []int32, i ...int32) []int32
+_Int32(i int32) *int32
+Int32_(i *int32) int32
+SetInt32(i *int32, v int32) *int32
+Int64
+_Int64_(s []int64, i ...int64) []int64
+_Int64(i int64) *int64
+Int64_(i *int64) int64
+SetInt64(i *int64, v int64) *int64
+Uint
+_Uint_(s []uint, i ...uint) []uint
+_Uint(i uint) *uint
+Uint_(i *uint) uint
+SetUint(i *uint, v uint) *uint
+Uint8
+_Uint8_(s []uint8, i ...uint8) []uint8
+Uint16
+_Uint16_(s []uint16, i ...uint16) []uint16
+Uint32
+_Uint32_(s []uint32, i ...uint32) []uint32
+_Uint32(i uint32) *uint32
+Uint32_(i *uint32) uint32
+SetUint32(i *uint32, v uint32) *uint32
+Uint64
+_Uint64_(s []uint64, i ...uint64) []uint64
+_Uint64(i uint64) *uint64
+Uint64_(i *uint64) uint64
+SetUint64(i *uint64, v uint64) *uint64
+Float32
+_Float32_(s []float32, f ...float32) []float32
+_Float32(f float32) *float32
+Float32_(f *float32) float32
+SetFloat32(f *float32, v float32) *float32
+Float64
+_Float64_(s []float64, f ...float64) []float64
+_Float64(f float64) *float64
+Float64_(f *float64) float64
+SetFloat64(f *float64, v float64) *float64
+Complex64
+_Complex64_(s []complex64, c ...complex64) []complex64
+_Complex64(c complex64) *complex64
+Complex64_(c *complex64) complex64
+SetComplex64(c *complex64, v complex64) *complex64
+Complex128
+_Complex128_(s []complex128, c ...complex128) []complex128
+_Complex128(c complex128) *complex128
+Complex128_(c *complex128) complex128
+SetComplex128(c *complex128, v complex128) *complex128
+Type(v)
+Panic(v)
+Make([]T, length, cap)
+Make([T]T, length)
+Make(Chan, length)
+MapFrom(M, T1,V1, T2,V2, ...)
+SliceFrom(S, 值0, 值1,...)
+Delete(map[T]T, , KEY)
+Set([]T, 位置0,值1, 位置1,值2, 位置2,值3)
+Set(map[T]T, 键名0,值1, 键名1,值2, 键名2,值3)
+Set(struct{}, 名称0,值1, 名称1,值2, 名称2,值3)
+Get(map[T]T/[]T/struct{}/string/number, key)
+Len([]T/string/map[T]T)
+Cap([]T)
+GetSlice([]T, 1, 5)
+GetSlice3([]T, 1, 5, 7)
+Copy([]T, []T)
+Compute(1, "+", 2)
+Inc(a) 			returns a+1
+Dec(a) 			returns a-1
+Neg(a, b) 		returns -a
+Mul(a, b) 		returns a*b
+Quo(a, b) 		returns a/b
+Mod(a, b) 		returns a%b
+Add(a, b) 		returns a+b
+Sub(a, b) 		returns a-b
+BitLshr(a, b) 	returns a << b
+BitRshr(a, b) 	returns a >> b
+BitXor(a, b) 	returns a ^ b
+BitAnd(a, b) 	returns a & b
+BitOr(a, b) 	returns a | b
+BitNot(a) 		returns ^a
+BitAndNot(a, b) returns a &^ b
+Not(a) 			returns !a
+LT(a, b) 		returns a < b
+GT(a, b) 		returns a > b
+LE(a, b) 		returns a <= b
+GE(a, b) 		returns a >= b
+EQ(a, b) 		returns a == b
+NE(a, b) 		returns a != b
+TrySend(*Chan, interface{}) bool	不阻塞
+TryRecv(*Chan) interface{}			不阻塞
+Send(*Chan, interface{})
+Recv(*Chan) interface{}
+Close(*Chan)
+ChanOf(T)
+MakeChan(T, size)
+Max(a1, a2, ...)
+Min(a1, a2, ...)
+Error(v interface{}) bool
+NotError(v interface{}) bool

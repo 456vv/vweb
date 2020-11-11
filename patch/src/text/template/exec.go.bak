@@ -760,13 +760,14 @@ func safeEvalCall(fun reflect.Value, args []reflect.Value, name string) (val ref
     	return reflect.ValueOf(""), nil
 	}
 	
-	if _,isBuiltin := builtins[name]; isBuiltin {
+	if _, isBuiltin := builtins()[name]; isBuiltin {
 		for i:=0;i<rlen;i++{
 			if ret[i].Type() == reflectValueType {
 				ret[i] = ret[i].Interface().(reflect.Value)
 			}
 		}
 	}
+	
 	val = ret[0]
     switch rlen {
 	case 1:
@@ -787,7 +788,7 @@ func safeEvalCall(fun reflect.Value, args []reflect.Value, name string) (val ref
         fallthrough
 	default:
 		//多个返回值
-		var cv []interface{}
+		var cv []reflect.Value
 		var results = reflect.ValueOf(&cv).Elem()
 		return reflect.Append(results, ret...), nil
 	}

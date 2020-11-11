@@ -210,7 +210,8 @@ func setStructMember(o reflect.Value, args ...interface{}) {
 		if !field.CanSet() {
 			panic(fmt.Sprintf("struct `%v` can't set name `%v`", o.Type(), args[i]))
 		}
-		field.Set(reflect.ValueOf(args[i+1]))
+		field.Set(autoConvert(field.Type(), args[i+1]))
+		//field.Set(reflect.ValueOf(args[i+1]))
 	}
 }
 

@@ -10,12 +10,12 @@ const (
 )
 Variables
 var DefaultSitePool = NewSitePool()                                                                                 // 网站池（默认）
-var TemplateFunc = map[string]interface{...}                                                                        // 模板函数映射
+var TemplateFunc = template.FuncMap{...}                                                                            // 模板函数映射
 func AddSalt(rnd []byte, salt string) string                                                                        // 加盐，与操作
 func CopyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool) error                  // 复制结构
 func CopyStructDeep(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool) error              // 复制结构深度
 func DepthField(s interface{}, index ...interface{}) (field interface{}, err error)                                 // 快速深入读取字段
-func ExtendTemplatePackage(pkgName string, deputy map[string]interface{})                                           // 扩展模板的包
+func ExtendTemplatePackage(pkgName string, deputy template.FuncMap)                                                 // 扩展模板的包
 func ForMethod(x interface{}) string                                                                                // 遍历方法
 func ForType(x interface{}, all bool) string                                                                        // 遍历字段
 func GenerateRandom(length int) ([]byte, error)                                                                     // 生成标识符
@@ -43,7 +43,7 @@ type DotContexter interface {                                                   
     Context() context.Context                                                                                       // 上下文
     WithContext(ctx context.Context)                                                                                // 替换上下文
 }
-type DynamicTemplater interface {                                                                               //  动态模板
+type DynamicTemplater interface {                                                                               // 动态模板
     ParseFile(path string) error                                                                                    // 解析文件
     ParseText(content, name string) error                                                                           // 解析文本
     SetPath(rootPath, pagePath string)                                                                              // 设置路径
@@ -62,6 +62,8 @@ type Globaler interface {                                                       
     Has(key interface{}) bool                                                                                       // 检查
     Get(key interface{}) interface{}                                                                                // 读取
     Del(key interface{})                                                                                            // 删除
+    SetExpired(key interface{}, d time.Duration)                                                                    // 设置KEY有效期，过期会自动删除
+    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))                                           // 设置KEY有效期，过期会自动删除，并调用函数
     Reset()                                                                                                         // 重置
 }
 type PluginHTTP interface {                                                                                     // 插件HTTP
@@ -165,7 +167,7 @@ type Sessions struct {                                                          
     func (T *Sessions) DelSession(id string)                                                                        // 使用id删除的会话
     func (T *Sessions) GetSession(id string) (Sessioner, bool)                                                      // 使用id读取会话
     func (T *Sessions) Len() int                                                                                    // 数量
-    func (T *Sessions) NewSession() Sessioner                                                                       // 新建会话
+    func (T *Sessions) NewSession(id string) Sessioner                                                              // 新建会话
     func (T *Sessions) ProcessDeadAll() []interface{}                                                               // 过期处理
     func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner                                 // 会话
     func (T *Sessions) SessionId(req *http.Request) (id string, err error)                                          // 从请求中读取会话标识

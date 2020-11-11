@@ -9,15 +9,17 @@ import(
 	"os"
 	"path"
 	"github.com/456vv/verror"
+	"text/template"
+	"fmt"
 )
 
 
 //ExtendTemplatePackage 扩展模板的包
 //	pkgName string					包名
 //	deputy map[string]interface{} 	函数集
-func ExtendTemplatePackage(pkgName string, deputy map[string]interface{}) {
+func ExtendTemplatePackage(pkgName string, deputy template.FuncMap) {
 	if _, ok := dotPackage[pkgName]; !ok {
-		dotPackage[pkgName] = make(map[string]interface{})
+		dotPackage[pkgName] = make(template.FuncMap)
 	}
 	for name, fn  := range deputy {
 		dotPackage[pkgName][name]=fn
@@ -67,7 +69,7 @@ func equalDomain(host, domain string) (ok bool) {
 //	err error	错误
 func GenerateRandomId(rnd []byte) error {
     if rnd == nil {
-    	return verror.TrackErrorf("vweb: 参数为 nil, 无法生成随机数据！")
+    	return verror.TrackErrorf("vweb: The parameter is nil, unable to generate random data!")
     }
     if _, err := rand.Read(rnd); err != nil {
 	    //当系统随机API函数不可用，将使用备用随机数。
@@ -172,7 +174,7 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 			return fi, pc, nil
 		}
 	}
-	return nil, "", verror.TrackErrorf("Access (%s) page document does not exist!", p)
+	return nil, "", fmt.Errorf("Access (%s) page document does not exist!", p)
 }
 
 func delay(wait, maxDelay time.Duration) time.Duration {

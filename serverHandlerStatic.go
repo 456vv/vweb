@@ -244,11 +244,16 @@ func (T *ServerHandlerStatic) body(rw http.ResponseWriter, rangeBlock []shshRang
         http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	
+	buffsize := T.BuffSize
+	if buffsize == 0 {
+		buffsize = defaultDataBufioSize
+	}
 
 	//处理静态文件的 body 数据
     var (
         wh      = rw.Header()
-        p        = make([]byte, T.BuffSize)
+        p        = make([]byte, buffsize)
         flush    = rw.(http.Flusher)
     )
     switch len(rangeBlock) {
