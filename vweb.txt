@@ -161,7 +161,7 @@ type Sessions struct {                                                          
     func (T *Sessions) DelSession(id string)                                                                        // 使用id删除的会话
     func (T *Sessions) GetSession(id string) (Sessioner, bool)                                                      // 使用id读取会话
     func (T *Sessions) Len() int                                                                                    // 数量
-    func (T *Sessions) NewSession() Sessioner                                                                       // 新建会话
+    func (T *Sessions) NewSession(id string) Sessioner                                                              // 新建会话
     func (T *Sessions) ProcessDeadAll() []interface{}                                                               // 过期处理
     func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner                                 // 会话
     func (T *Sessions) SessionId(req *http.Request) (id string, err error)                                          // 从请求中读取会话标识

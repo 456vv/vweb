@@ -105,9 +105,16 @@ func (T *Sessions) SessionId(req *http.Request) (id string, err error) {
 }
 
 //NewSession 新建会话
+//	id string	id标识符
 //	Sessioner   会话
-func (T *Sessions) NewSessnion() Sessioner {
-	return T.SetSession(T.generateRandSessionId(), &Session{})
+func (T *Sessions) NewSession(id string) Sessioner {
+	if id == "" {
+		id = T.generateRandSessionId()
+	}
+	if s, ok := T.GetSession(id); ok {
+		return s
+	}
+	return T.SetSession(id, &Session{})
 }
 
 //GetSession 使用id读取会话
