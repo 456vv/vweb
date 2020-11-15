@@ -65,9 +65,9 @@ func configHTTPClient(c *vweb.PluginHTTPClient, config *ConfigSitePlugin) error 
     c.Dialer.DualStack		= config.DualStack
 	
 	if c.Tr == nil {
-		c.Tr = http.DefaultTransport.(*http.Transport)
+		c.Tr = new(http.Transport)
+		c.Tr.Proxy = http.ProxyFromEnvironment
 	}
-	c.Tr.Proxy = http.ProxyFromEnvironment
 	if config.ProxyURL != "" {
 		u, err := url.Parse(config.ProxyURL)
 		if err != nil {
