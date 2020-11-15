@@ -34,7 +34,6 @@ func forType(x interface{}, str string, flx string, floor int, all bool) string 
         v, z reflect.Value
         f reflect.StructField
         t reflect.Type
-        k interface{}
         s string
     )
     v, ok := x.(reflect.Value)
@@ -52,6 +51,7 @@ func forType(x interface{}, str string, flx string, floor int, all bool) string 
         if f.Name != "" && !all && (f.Name[0]  < 65 || f.Name[0] > 90) {
         	continue
         }
+        var k interface{}
         z = inDirect(v.Field(i))
         if z.IsValid(){
 	        k = z
