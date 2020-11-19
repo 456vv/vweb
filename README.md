@@ -6,7 +6,7 @@ golang vweb, 简单的web服务器。
 ```go
 Constants
 const (
-    Version string = "VWEB/v2.1.x"                                                                                  // 版本号
+    Version string = "VWEB/v2.3.x"                                                                                  // 版本号
 )
 Variables
 var DefaultSitePool = NewSitePool()                                                                                 // 网站池（默认）
