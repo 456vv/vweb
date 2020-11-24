@@ -12,6 +12,8 @@ import(
     "strconv"
     "encoding/asn1"
     "encoding/json"
+    "encoding/hex"
+    "encoding/base64"
     "github.com/456vv/vmap/v2"
     "github.com/456vv/vconnpool/v2"
     "github.com/456vv/vforward"
@@ -786,6 +788,30 @@ var templatePackage = map[string]map[string]interface{}{
 		"NewEncoder":json.NewEncoder,
 		"NewDecoder":json.NewDecoder,
 		"Valid":json.Valid,
+	},
+	"encoding/hex":{
+		"Encode":hex.Encode,
+		"EncodeToString":hex.EncodeToString,
+		"EncodedLen":hex.EncodedLen,
+		"NewEncoder":hex.NewEncoder,
+		"Decode":hex.Decode,
+		"DecodeString":hex.DecodeString,
+		"DecodedLen":hex.DecodedLen,
+		"NewDecoder":hex.NewDecoder,
+		"Dump":hex.Dump,
+		"Dumper":hex.Dumper,
+	},
+	"encoding/base64":{
+		"StdPadding":base64.StdPadding,
+		"NoPadding":base64.NoPadding,
+		"StdEncoding":base64.StdEncoding,
+		"URLEncoding":base64.URLEncoding,
+		"RawStdEncoding":base64.RawStdEncoding,
+		"RawURLEncoding":base64.RawURLEncoding,
+		"NewDecoder":base64.NewDecoder,
+		"NewEncoder":base64.NewEncoder,
+		"Encoding":func(a ...interface{}) (retn *base64.Encoding) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
+		"NewEncoding":base64.NewEncoding,
 	},
     "regexp":{
         "Match":regexp.Match,
