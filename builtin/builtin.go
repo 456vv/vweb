@@ -391,8 +391,7 @@ func Float32(a interface{}) float32 {
 	case rune:return float32(a1)
 	case unsafe.Pointer:return *(*float32)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("float32", a)
-	return 0
+	return float32(autoConvert(builtinType(float32(0)), a).Float())
 }
 
 // Int returns int(a)
@@ -411,8 +410,7 @@ func Int(a interface{}) int {
 	case rune:return int(a1)
 	case unsafe.Pointer:return *(*int)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int", a)
-	return 0
+	return int(autoConvert(builtinType(int(0)), a).Int())
 }
 
 // Int8 returns int8(a)
@@ -431,8 +429,7 @@ func Int8(a interface{}) int8 {
 	case rune:return int8(a1)
 	case unsafe.Pointer:return *(*int8)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int8", a)
-	return 0
+	return int8(autoConvert(builtinType(int8(0)), a).Int())
 }
 
 // Int16 returns int16(a)
@@ -451,8 +448,7 @@ func Int16(a interface{}) int16 {
 	case rune:return int16(a1)
 	case unsafe.Pointer:return *(*int16)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int16", a)
-	return 0
+	return int16(autoConvert(builtinType(int16(0)), a).Int())
 }
 
 // Int32 returns int32(a)
@@ -471,8 +467,7 @@ func Int32(a interface{}) int32 {
 	case rune:return int32(a1)
 	case unsafe.Pointer:return *(*int32)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int32", a)
-	return 0
+	return int32(autoConvert(builtinType(int32(0)), a).Int())
 }
 
 // rune returns rune(a)
@@ -491,7 +486,7 @@ func Rune(a interface{}) rune {
 	case rune:return rune(a1)
 	case unsafe.Pointer:return *(*rune)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("rune", a)
+	panicUnsupportedOp1("rune", a)
 	return 0
 }
 
@@ -530,8 +525,7 @@ func Uint(a interface{}) uint {
 	case rune:return uint(a1)
 	case unsafe.Pointer:return *(*uint)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint", a)
-	return 0
+	return uint(autoConvert(builtinType(uint(0)), a).Uint())
 }
 
 // Uint8 returns uint8(a)
@@ -550,8 +544,7 @@ func Uint8(a interface{}) uint8 {
 	case rune:return uint8(a1)
 	case unsafe.Pointer:return *(*uint8)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint8", a)
-	return 0
+	return uint8(autoConvert(builtinType(uint8(0)), a).Uint())
 }
 
 // Byte returns byte(a)
@@ -570,7 +563,7 @@ func Byte(a interface{}) byte {
 	case rune:return byte(a1)
 	case unsafe.Pointer:return *(*byte)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("byte", a)
+	panicUnsupportedOp1("byte", a)
 	return 0
 }
 
@@ -590,8 +583,7 @@ func Uint16(a interface{}) uint16 {
 	case rune:return uint16(a1)
 	case unsafe.Pointer:return *(*uint16)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint16", a)
-	return 0
+	return uint16(autoConvert(builtinType(uint16(0)), a).Uint())
 }
 
 // Uint32 returns uint32(a)
@@ -610,8 +602,7 @@ func Uint32(a interface{}) uint32 {
 	case rune:return uint32(a1)
 	case unsafe.Pointer:return *(*uint32)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint32", a)
-	return 0
+	return uint32(autoConvert(builtinType(uint32(0)), a).Uint())
 }
 
 // Uint64 returns uint64(a)
@@ -640,8 +631,7 @@ func Complex64(a interface{}) complex64 {
 	case complex128:return complex64(a1)
 	case unsafe.Pointer:return *(*complex64)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("complex64", a)
-	return 0
+	return complex64(autoConvert(builtinType(complex64(0)), a).Complex())
 }
 
 // Complex128 returns complex128(a)
@@ -651,8 +641,7 @@ func Complex128(a interface{}) complex128 {
 	case complex128:return a1
 	case unsafe.Pointer:return *(*complex128)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("complex128", a)
-	return 0
+	return autoConvert(builtinType(complex128(0)), a).Complex()
 }
 
 // Uintptr returns uintptr(a)
