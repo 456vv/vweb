@@ -1,0 +1,13 @@
+Listener					net.TCPListener
+Conn						*net.Conn
+http.LocalAddrContextKey	net.Conn.LocalAddr()
+http.ServerContextKey		*http.Server
+Plugin						*server.Pluginer
+Dynamic						*web.ServerHandlerDynamic
+Template					*web.serverHandlerDynamicTemplateExtend{}
+								//创建/调用
+								f = t.NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)
+								t.Call(f) []interface{}
+								//参数/返回
+								.Args(i int) interface{}
+								.Result(out ...interface{})
