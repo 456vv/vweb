@@ -21,7 +21,7 @@ import (
 	_ "github.com/mattn/anko/packages" //加入默认包
 )
 
-const version = "App/v2.0.3"
+const version = "App/v2.4.0"
 
 var _ *fsnotify.Op
 var _ = builtin.GoTypeTo
@@ -73,9 +73,22 @@ func main(){
 	defer logFile.Close()
 	
 	//给template模板增加模块包
-	for name, pkg := range templatePackage {
+	for name, pkg := range templatePackage() {
 		vweb.ExtendTemplatePackage(name, pkg)
 	}
+	for name, pkg := range luteTemplatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+	for name, pkg := range yamlTemplatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+	for name, pkg := range tomlTemplatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+	for name, pkg := range reflectxTemplatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+	
 	
 	//增加anko 模块包
 	parser.EnableErrorVerbose()	//解析错误详细信息

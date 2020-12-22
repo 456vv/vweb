@@ -3,6 +3,7 @@ import (
     "path/filepath"
     "io/ioutil"
     "net/http"
+    "net/url"
     "bytes"
     "fmt"
     "bufio"
@@ -13,6 +14,7 @@ import (
     "runtime"
     "github.com/456vv/verror"
     "io"
+    "log"
 )
 
 
@@ -40,6 +42,7 @@ type ServerHandlerDynamic struct {
     Site        		*Site																// 网站配置
 	Context				context.Context														// 上下文
 	Plus				map[string]DynamicTemplateFunc										// 支持更动态文件类型
+	StaticAt			func(u *url.URL, r io.Reader, l int) (int, error)					// 静态结果。仅在 .ServeHTTP 方法中使用
    	exec				DynamicTemplater
    	modeTime			time.Time
 }
@@ -109,12 +112,25 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 				webError(rw, err.Error())
 				return
 			}
+			
 			io.WriteString(rw, err.Error())
-			fmt.Println(err.Error())
+			log.Println(err.Error())
 			return
 		}
+		
 		if !dock.Writed {
-			body.WriteTo(rw)
+			if T.StaticAt != nil {
+				br := io.TeeReader(body, rw)
+				_, err = T.StaticAt(req.URL, br, body.Len())
+				if err != nil {
+					io.WriteString(rw, err.Error())
+					log.Println(err.Error())
+					return
+				}
+			}
+			if body.Len() != 0 {
+				body.WriteTo(rw)
+			}
 		}
 	}()
 

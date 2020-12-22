@@ -16,7 +16,8 @@ func Value(v interface{}) reflect.Value {
 
 //Type(v)
 func Type(v interface{}) reflect.Type {
-	return builtinType(v)
+	t := builtinType(v)
+	return reflect.PtrTo(t)
 }
 
 //Panic(v)
@@ -29,28 +30,9 @@ func Panic(v interface{}) {
 //Make(Chan, length)
 func Make(typ interface{}, args ...int) interface{} {
 	t := builtinType(typ)
-	switch t.Kind() {
-	case reflect.Slice:
-		l, c := 0, 0
-		if len(args) == 1 {
-			l = args[0]
-			c = l
-		} else if len(args) > 1 {
-			l, c = args[0], args[1]
-		}
-		return reflect.MakeSlice(t, l, c).Interface()
-	case reflect.Map:
-		if len(args) == 1 {
-			return reflect.MakeMapWithSize(t, args[0]).Interface()
-		}
-		return reflect.MakeMap(t).Interface()
-	//case reflect.Func:
-	//	return reflect.MakeFunc(t, fn)
-	case reflect.Chan:
-		return MakeChan(t, args...)
-	}
-	
-	panic(fmt.Sprintf("cannot make type `%v`", typ))
+	v := Value(t)
+	GoTypeTo(v)()
+	return v.Elem().Interface()
 }
 
 //MapFrom(M, T1, V1, T2, V2, ...)
@@ -206,6 +188,7 @@ func Set(m interface{}, args ...interface{}) {
 		panic("call with invalid argument count: please use `Set(obj, member1, val1, ...)")
 	}
 	o := reflect.ValueOf(m)
+	o = reflect.Indirect(o)
 	switch o.Kind() {
 	case reflect.Slice, reflect.Array:
 		telem := reflect.TypeOf(m).Elem()
@@ -227,6 +210,7 @@ func Set(m interface{}, args ...interface{}) {
 //Get(number, index)
 func Get(m interface{}, key interface{}) interface{} {
 	o := reflect.ValueOf(m)
+	o = reflect.Indirect(o)
 	var s string
 	switch o.Kind() {
 	case reflect.Map:
@@ -685,7 +669,7 @@ func Bool(a interface{}) bool {
 //该函数暂时测试，可能会改动。
 //	v reflect.Value		一个还没初始化变量，可能是接口类型
 //	typ ...interface{}	要把v初始化成 typ 类型，如果留空则初始化成nil
-func GoTypeTo(v reflect.Value) func(typ ...interface{}) {
+func GoTypeTo(v reflect.Value, val ...interface{}) func(typ ...interface{}) {
 	vv := reflect.Indirect(v)
 	return func (a ...interface{}){
 		if len(a) >= 1 {
@@ -718,9 +702,46 @@ func GoTypeTo(v reflect.Value) func(typ ...interface{}) {
 			}
 			vv = vv.Elem() 
 		}
-		if !vv.IsValid() && vv.CanSet() {
-			vv.Set(reflect.Zero(vv.Type()))
+		
+		//fmt.Println(vv.Kind())
+		//fmt.Println(vv.Addr())
+		//fmt.Println(vv.CanSet())
+		//fmt.Println(vv.IsValid())
+		//fmt.Println(vv.IsZero())
+		//fmt.Println(vv.IsNil())
+		if vv.CanSet() {
+			switch vv.Kind() {
+			case reflect.Map:
+				l := 0
+				if len(val) > 0 {
+					l = val[0].(int)
+				}
+				vv.Set(reflect.MakeMapWithSize(vv.Type(), l))
+			case reflect.Slice:
+				l, c := 0,0
+				if len(val) > 0 {
+					l = val[0].(int)
+				}
+				if len(val) > 1 {
+					c = val[1].(int)
+				}
+				vv.Set(reflect.MakeSlice(vv.Type(), l, c))
+			case reflect.Func:
+				if len(val) > 0 {
+					f := val[0].(func([]reflect.Value) []reflect.Value)
+					vv.Set(reflect.MakeFunc(vv.Type(), f))
+				}
+			case reflect.Chan:
+				l := 0
+				if len(val) == 1 {
+					l = val[0].(int)
+				}
+				vv.Set(reflect.MakeChan(vv.Type(), l))
+			default:
+				vv.Set(reflect.Zero(vv.Type()))
+			}
 		}
+	
 	}
 }
 

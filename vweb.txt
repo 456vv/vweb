@@ -118,8 +118,9 @@ type ServerHandlerDynamic struct {                                              
     //可选的
     BuffSize int64                                                                                                  // 缓冲块大小
     Site     *Site                                                                                                  // 网站配置
-    Context  context.Context                                                                                        // 上下文
+    Context  context.Context                                                                                        // 上下文。仅在 .ServeHTTP 方法中使用
     Plus     map[string]DynamicTemplateFunc                                                                         // 支持更动态文件类型
+    StaticAt func(u *url.URL, r io.Reader, l int) (int, error)                                                      // 静态结果。仅在 .ServeHTTP 方法中使用
 }
     func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) (err error)                        // 执行模板
     func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error)                                            // 解析模板

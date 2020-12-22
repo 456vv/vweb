@@ -184,7 +184,9 @@
                 "A":{
                     "Ext":[".bw", ".ank"],
                     "Cache":true,
-                    "CacheTimout": 120
+                    "CacheParseTimeout":60,
+                    "CacheStaticFileDir":"public",
+                    "CacheStaticAllowPath":["/b/"]
                 }
             },
             "Property":{
@@ -203,8 +205,9 @@
 				"127.0.0.1":{
                     "PublicName":"A",
                     "List":[{
-    					"Path":["/abc/"],
-    					"RePath":"/abc.bw",
+                        "Status":true,
+    					"Path":["/b/","/b/.*\\.html"],
+    					"RePath":"/a/index.ank",
     					"End":true
     				}]
                 }
@@ -241,7 +244,8 @@
 				"Virtual":[]
 			},
             "IndexFile": [
-                "index.html"
+                "index.html",
+                "index.ank"
             ],
             "Dynamic": {
                 "PublicName": "A"
