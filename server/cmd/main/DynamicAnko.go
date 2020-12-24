@@ -1,71 +1,91 @@
 package main
 
 import (
+	"sync"
 	"bufio"
 	"io/ioutil"
 	"bytes"
 	"path/filepath"
-	"strings"
-	"os"
 	"errors"
 	"github.com/mattn/anko/env"
 	"github.com/mattn/anko/parser"
 	"github.com/mattn/anko/vm"
 	"github.com/mattn/anko/ast"
+	"github.com/mattn/anko/core"
 	_ "github.com/mattn/anko/packages" //加入默认包
 	"github.com/456vv/vweb/v2"
 )
 
+var anko_env *env.Env
+var ankoOnce sync.Once
+
 type serverHandlerDynamicAnko struct{
 	rootPath			string																// 文件目录
 	pagePath			string																// 文件名称
-	Env					*env.Env
- 	fileName			string
+ 	name				string
  	stmt				ast.Stmt
+ 	inited				bool
 }
+
+func (T *serverHandlerDynamicAnko) init(){
+	if T.inited {
+		return
+	}
+	ankoOnce.Do(func (){
+		//增加anko 模块包
+		parser.EnableErrorVerbose()	//解析错误详细信息
+		anko_env = env.NewEnv()
+		core.Import(anko_env) 		//加载内置的一些函数
+		
+		//增加内置函数
+		for name, fn := range vweb.TemplateFunc {
+			anko_env.Define(name, fn)
+		}
+	})
+	T.inited = true
+}
+
 func (T *serverHandlerDynamicAnko) ParseText(name, content string) error {
-	T.fileName = name
-	r := bufio.NewReader(strings.NewReader(content))
-	return T.Parse(r)
+	T.name = name
+	return T.parse(content)
 }
+
 func (T *serverHandlerDynamicAnko) ParseFile(path string) error {
-	//文件名
-	file, err := os.Open(path)
+	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	
-	defer file.Close()
-	b, err := ioutil.ReadAll(file)
-	if err != nil {
-		return err
-	}
-	r := bufio.NewReader(bytes.NewBuffer(b))
-	T.fileName = filepath.Base(path)
-	return T.Parse(r)
+	T.name = filepath.Base(path)
+	script := string(b)
+	return T.parse(script)
 }
+
 func (T *serverHandlerDynamicAnko) SetPath(root, page string){
 	T.rootPath = root
 	T.pagePath = page
-    if T.fileName == "" {
-    	T.fileName = filepath.Base(T.pagePath)
-    }
+    T.name = filepath.Base(page)
 }
+
 func (T *serverHandlerDynamicAnko) Parse(r *bufio.Reader) (err error) {
-	
 	contact, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
 	}
 	
 	script := string(contact)
-	T.stmt, err = parser.ParseSrc(script)
+	return T.parse(script)
+}
+
+func (T *serverHandlerDynamicAnko) parse(script string) error {
+	T.init()
+	stmt, err := parser.ParseSrc(script)
 	if err != nil {
 		if pe, ok := err.(*parser.Error); ok {
 			pe.Filename = filepath.Join(T.rootPath, T.pagePath)
 		}
 		return err
 	}
+	T.stmt = stmt
 	return nil
 }
 
@@ -74,10 +94,7 @@ func (T *serverHandlerDynamicAnko) Execute(out *bytes.Buffer, in interface{}) (e
 		return errors.New("The template has not been parsed and is not available!")
 	}
 	
-	if T.Env == nil {
-		T.Env = env.NewEnv()
-	}
-	env := T.Env.NewEnv()
+	env := anko_env.NewEnv()
 	env.Define("T", in)
 
 	var retn interface{}

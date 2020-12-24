@@ -1,13 +1,16 @@
 package main
 
 import (
+	"sync"
+	"log"
 	"bufio"
 	"bytes"
 	"path/filepath"
 	"fmt"
 	"errors"
 	"reflect"
-	"text/template"
+    "github.com/456vv/vweb/v2"
+	"github.com/goplus/gop"
 	"github.com/goplus/gop/exec/bytecode"
 	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/cl"
@@ -18,20 +21,22 @@ import (
     _ "github.com/456vv/goplus_lib"
 )
 
+var gopulusOnce sync.Once
 type serverHandlerDynamicGoPlus struct{
 	rootPath			string																// 文件目录
 	pagePath			string																// 文件名称
- 	fileName			string
+ 	name				string
  	
- 	Env					template.FuncMap
  	ctx					*bytecode.Context
  	fset				*token.FileSet
  	pkgs				map[string]*ast.Package //存放每个文件的代码
  	mainFn				exec.FuncInfo
  	inited				bool
- 	i					*bytecode.GoPackage
 }
 func (T *serverHandlerDynamicGoPlus) init(){
+	if T.inited {
+		return
+	}
 	if cl.CallBuiltinOp == nil {
 		cl.CallBuiltinOp = bytecode.CallBuiltinOp
 	}
@@ -41,14 +46,45 @@ func (T *serverHandlerDynamicGoPlus) init(){
 	if T.pkgs == nil {
 		T.pkgs = make(map[string]*ast.Package)
 	}
-	T.i = bytecode.FindGoPackage("").(*bytecode.GoPackage)
-	if T.i == nil {
-		T.i = bytecode.NewGoPackage("")
-	}
+	gopulusOnce.Do(func(){
+		gopI := bytecode.FindGoPackage("").(*bytecode.GoPackage)
+		if gopI == nil {
+			gopI = bytecode.NewGoPackage("")
+		}
+		for name, fn := range vweb.TemplateFunc {
+			tfn := reflect.TypeOf(fn)
+			switch tfn.Kind() {
+			case reflect.Func:
+				fnc := func(name string, tfn reflect.Type, fn interface{}) func(arity int, p *gop.Context) {
+					//isVariadic := tfn.IsVariadic()
+					//numIn := tfn.NumIn()
+					return func(arity int, p *gop.Context){
+						args := p.GetArgs(arity)
+						//if isVariadic && len(args) != numIn {
+						//	args = append(args, []interface{}{})
+						//}
+						log.Printf("calling %s(%v)\n", name, args)
+						retn, err := vweb.ExecFunc(fn, args...)
+						if err != nil {
+							log.Printf("callied %s(%v) error: %s\n", name, args, err)
+						}
+						p.Ret(arity, retn...)
+					}
+				}(name, tfn, fn)
+				gopI.RegisterFuncvs(gopI.Funcv(name, fn, fnc))
+			default:
+				log.Printf("导入内置函数，无法识别 %s 类型\n", tfn.Kind().String())
+			}
+		}
+	})
 	T.inited = true
 }
+
 func (T *serverHandlerDynamicGoPlus) ParseText(name, content string) error {
 	T.init()
+	if T.name == "" {
+		T.name = name
+	}
 	pkgs, err := parser.Parse(T.fset, name, content, 0)
 	if err != nil {
 		return err
@@ -58,6 +94,7 @@ func (T *serverHandlerDynamicGoPlus) ParseText(name, content string) error {
 	}
 	return nil
 }
+
 func (T *serverHandlerDynamicGoPlus) ParseFile(path string) error {
 	T.init()
 	src, err := parser.ParseFile(T.fset, path, nil, 0)
@@ -74,8 +111,12 @@ func (T *serverHandlerDynamicGoPlus) ParseFile(path string) error {
 		T.pkgs[name] = pkg
 	}
 	pkg.Files[path] = src
+	if T.name == "" {
+		T.name = filepath.Base(path)
+	}
 	return nil
 }
+
 func (T *serverHandlerDynamicGoPlus) ParseDir(dir string) error {
 	T.init()
 	pkgs, err := parser.ParseDir(T.fset, dir, nil, 0)
@@ -87,17 +128,16 @@ func (T *serverHandlerDynamicGoPlus) ParseDir(dir string) error {
 	}
 	return nil
 }
+
 func (T *serverHandlerDynamicGoPlus) SetPath(root, page string){
 	T.rootPath = root
 	T.pagePath = page
-    if T.fileName == "" {
-    	T.fileName = filepath.Base(T.pagePath)
-    }
-
+    T.name = filepath.Base(T.pagePath)
 }
+
 func (T *serverHandlerDynamicGoPlus) Parse(r *bufio.Reader) (err error) {
 	T.init()
-	pkgs, err := parser.Parse(T.fset, T.fileName, r, 0)
+	pkgs, err := parser.Parse(T.fset, T.name, r, 0)
 	if err != nil {
 		return err
 	}
@@ -106,12 +146,11 @@ func (T *serverHandlerDynamicGoPlus) Parse(r *bufio.Reader) (err error) {
 	}
 	return nil
 }
+
 func (T *serverHandlerDynamicGoPlus) Execute(out *bytes.Buffer, in interface{}) (err error) {
 	if !T.inited {
 		return errors.New("The template has not been parsed and is not available!")
 	}
-	
-
 	
 	//第一次
 	if T.ctx == nil {
