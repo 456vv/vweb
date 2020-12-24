@@ -23,6 +23,7 @@ func GenerateRandomId(rnd []byte) error                                         
 func GenerateRandomString(length int) (string, error)                                                               // 生成标识符(字符)
 func InDirect(v reflect.Value) reflect.Value                                                                        // 指针到内存
 func PagePath(root, p string, index []string) (os.FileInfo, string, error)                                          // 页路径
+func ExecFunc(f interface{}, args ...interface{}) ([]interface{}, error)                                            // 执行函数
 type Cookie struct {                                                                                            // cookie
     R *http.Request                                                                                                 //请求
     W http.ResponseWriter                                                                                           //响应

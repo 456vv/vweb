@@ -7,6 +7,7 @@ import (
     "flag"
     "log"
     "time"
+    "reflect"
 	"github.com/456vv/vcipher"
 	"github.com/456vv/verifycode"
     "github.com/456vv/vforward"
@@ -18,10 +19,11 @@ import (
 	"github.com/mattn/anko/core"
 	"github.com/mattn/anko/env"
 	"github.com/mattn/anko/parser"
-	_ "github.com/mattn/anko/packages" //加入默认包
+	"github.com/goplus/gop"
+	"github.com/goplus/gop/exec/bytecode"
 )
 
-const version = "App/v2.4.0"
+const version = "App/v2.5.0"
 
 var _ *fsnotify.Op
 var _ = builtin.GoTypeTo
@@ -30,6 +32,65 @@ var _ *verifycode.Color
 var _ *vforward.Addr
 var _ *vbody.Reader
 
+var anko_env *env.Env
+func init(){
+		
+	//给template模板增加模块包
+	for name, pkg := range templatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+	for name, pkg := range luteTemplatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+	for name, pkg := range yamlTemplatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+	for name, pkg := range tomlTemplatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+	for name, pkg := range reflectxTemplatePackage() {
+		vweb.ExtendTemplatePackage(name, pkg)
+	}
+
+	//增加gop 模块包
+	//导入 builtin 包已经创建，现在只需要查找
+	//"github.com/goplus/gop/lib/builtin"
+	gopI := bytecode.FindGoPackage("").(*bytecode.GoPackage)
+	if gopI == nil {
+		gopI = bytecode.NewGoPackage("")
+	}
+	
+	//增加anko 模块包
+	parser.EnableErrorVerbose()	//解析错误详细信息
+	anko_env = env.NewEnv()
+	core.Import(anko_env) 		//加载内置的一些函数
+	
+	//增加内置函数
+	for name, fn := range vweb.TemplateFunc {
+		//anko
+		anko_env.Define(name, fn)
+		
+		//gop
+		tfn := reflect.TypeOf(fn)
+		switch tfn.Kind() {
+		case reflect.Func:
+			fnc := func(fn interface{}) func(arity int, p *gop.Context) {
+				return func(arity int, p *gop.Context){
+					args := p.GetArgs(arity)
+					retn, err := vweb.ExecFunc(fn, args...)
+					if err != nil {
+						panic(err)
+					}
+					p.Ret(arity, retn...)
+				}
+			}(fn)
+			gopI.RegisterFuncvs(gopI.Funcv(name, fn, fnc))
+		default:
+			log.Printf("导入内置函数，无法识别 %s 类型\n", tfn.Kind().String())
+		}
+	}
+
+}
 
 var (
 	fRootDir			= flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
@@ -72,47 +133,14 @@ func main(){
 	}
 	defer logFile.Close()
 	
-	//给template模板增加模块包
-	for name, pkg := range templatePackage() {
-		vweb.ExtendTemplatePackage(name, pkg)
-	}
-	for name, pkg := range luteTemplatePackage() {
-		vweb.ExtendTemplatePackage(name, pkg)
-	}
-	for name, pkg := range yamlTemplatePackage() {
-		vweb.ExtendTemplatePackage(name, pkg)
-	}
-	for name, pkg := range tomlTemplatePackage() {
-		vweb.ExtendTemplatePackage(name, pkg)
-	}
-	for name, pkg := range reflectxTemplatePackage() {
-		vweb.ExtendTemplatePackage(name, pkg)
-	}
-	
-	
-	//增加anko 模块包
-	parser.EnableErrorVerbose()	//解析错误详细信息
-	e := env.NewEnv()
-	core.Import(e) 			//加载内置的一些函数
-	for name, fn := range vweb.TemplateFunc {
-		e.Define(name, fn)
-	}
-	//for name, pkg := range templatePackage {
-	//	fns, ok := env.Packages[name]
-	//	if !ok {
-	//		fns = make(map[string]reflect.Value)
-	//		env.Packages[name] = fns
-	//	}
-	//	for n, f := range pkg {
-	//		fns[n] = reflect.ValueOf(f)
-	//	}
-	//}
-	
 	//服务器
 	serverGroup := server.NewServerGroup()
 	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplateFunc{
 		"ank": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
-			return &serverHandlerDynamicAnko{env: e}
+			return &serverHandlerDynamicAnko{Env: anko_env}
+		}),
+		"gop": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
+			return &serverHandlerDynamicGoPlus{Env: vweb.TemplateFunc}
 		}),
 	}
 	defer serverGroup.Close()

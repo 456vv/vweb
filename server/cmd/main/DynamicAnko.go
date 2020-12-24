@@ -12,17 +12,18 @@ import (
 	"github.com/mattn/anko/parser"
 	"github.com/mattn/anko/vm"
 	"github.com/mattn/anko/ast"
+	_ "github.com/mattn/anko/packages" //加入默认包
 	"github.com/456vv/vweb/v2"
 )
 
 type serverHandlerDynamicAnko struct{
 	rootPath			string																// 文件目录
 	pagePath			string																// 文件名称
-	env					*env.Env
+	Env					*env.Env
  	fileName			string
  	stmt				ast.Stmt
 }
-func (T *serverHandlerDynamicAnko) ParseText(content, name string) error {
+func (T *serverHandlerDynamicAnko) ParseText(name, content string) error {
 	T.fileName = name
 	r := bufio.NewReader(strings.NewReader(content))
 	return T.Parse(r)
@@ -73,10 +74,10 @@ func (T *serverHandlerDynamicAnko) Execute(out *bytes.Buffer, in interface{}) (e
 		return errors.New("The template has not been parsed and is not available!")
 	}
 	
-	if T.env == nil {
-		T.env = env.NewEnv()
+	if T.Env == nil {
+		T.Env = env.NewEnv()
 	}
-	env := T.env.NewEnv()
+	env := T.Env.NewEnv()
 	env.Define("T", in)
 
 	var retn interface{}

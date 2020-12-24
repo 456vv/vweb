@@ -141,7 +141,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 //ParseText 解析模板
 //	content, name string	模板内容，模板名称
 //	error					错误
-func (T *ServerHandlerDynamic) ParseText(content, name string) error {
+func (T *ServerHandlerDynamic) ParseText(name, content string) error {
 	T.PagePath = name
 	r := bytes.NewBufferString(content)
 	return T.Parse(r)

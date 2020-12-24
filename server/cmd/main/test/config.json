@@ -110,6 +110,7 @@
                         ".html": "text/html; charset=utf-8",
                         ".ank": "text/html; charset=utf-8",
                         ".bw": "text/html; charset=utf-8",
+                        ".gop": "text/html; charset=utf-8",
                         ".txt": "text/plain; charset=utf-8",
                         ".json": "application/json; charset=utf-8",
                         ".js": "application/javascript; charset=utf-8",
@@ -182,7 +183,7 @@
             },
             "Dynamic":{
                 "A":{
-                    "Ext":[".bw", ".ank"],
+                    "Ext":[".bw", ".ank", ".gop"],
                     "Cache":true,
                     "CacheParseTimeout":60,
                     "CacheStaticFileDir":"public",

@@ -194,3 +194,12 @@ func delay(wait, maxDelay time.Duration) time.Duration {
 	time.Sleep(wait)
     return wait
 }
+
+//ExecFunc 执行函数调用
+//	call interface{}            函数
+//	args ... interface{}        参数或更多个函数是函数的参数
+//	[]interface{}				返回直
+//	error                       错误
+func ExecFunc(f interface{}, args ...interface{}) ([]interface{}, error) {
+	return call(f, args...)
+}
