@@ -74,16 +74,22 @@ func init(){
 		tfn := reflect.TypeOf(fn)
 		switch tfn.Kind() {
 		case reflect.Func:
-			fnc := func(fn interface{}) func(arity int, p *gop.Context) {
+			fnc := func(name string, tfn reflect.Type, fn interface{}) func(arity int, p *gop.Context) {
+				isVariadic := tfn.IsVariadic()
+				numIn := tfn.NumIn()
 				return func(arity int, p *gop.Context){
 					args := p.GetArgs(arity)
+					if isVariadic && len(args) != numIn {
+						args = append(args, []interface{}{})
+					}
+					log.Printf("calling %s(%v)\n", name, args)
 					retn, err := vweb.ExecFunc(fn, args...)
 					if err != nil {
-						panic(err)
+						log.Printf("callied %s(%v) error: %s\n", name, args, err)
 					}
 					p.Ret(arity, retn...)
 				}
-			}(fn)
+			}(name, tfn, fn)
 			gopI.RegisterFuncvs(gopI.Funcv(name, fn, fnc))
 		default:
 			log.Printf("导入内置函数，无法识别 %s 类型\n", tfn.Kind().String())

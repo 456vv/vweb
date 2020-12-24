@@ -29,6 +29,7 @@ type serverHandlerDynamicGoPlus struct{
  	pkgs				map[string]*ast.Package //存放每个文件的代码
  	mainFn				exec.FuncInfo
  	inited				bool
+ 	i					*bytecode.GoPackage
 }
 func (T *serverHandlerDynamicGoPlus) init(){
 	if cl.CallBuiltinOp == nil {
@@ -39,6 +40,10 @@ func (T *serverHandlerDynamicGoPlus) init(){
 	}
 	if T.pkgs == nil {
 		T.pkgs = make(map[string]*ast.Package)
+	}
+	T.i = bytecode.FindGoPackage("").(*bytecode.GoPackage)
+	if T.i == nil {
+		T.i = bytecode.NewGoPackage("")
 	}
 	T.inited = true
 }
@@ -106,8 +111,11 @@ func (T *serverHandlerDynamicGoPlus) Execute(out *bytes.Buffer, in interface{}) 
 		return errors.New("The template has not been parsed and is not available!")
 	}
 	
+
+	
 	//第一次
 	if T.ctx == nil {
+		
 		//设置入口标识
 		tpkg := getPkg(T.pkgs)
 		pkgAct := cl.PkgActClAll
@@ -139,39 +147,19 @@ func (T *serverHandlerDynamicGoPlus) Execute(out *bytes.Buffer, in interface{}) 
 	ch := make(chan bool)
 	T.ctx.Go(0, func(goctx *bytecode.Context){
 		defer close(ch)
+		
 		if T.mainFn.NumIn() == 1 {
 			//非可变参数
-			T.mainFn.Args(reflect.TypeOf(&in).Elem())
+			T.mainFn.Args(reflect.TypeOf(in))
 			goctx.Push(in)
 		}
-		
-		//var s string
-		//if T.mainFn.NumOut() == 1 {
-		//	xt := reflect.TypeOf(&s).Elem()
-		//	x := bytecode.NewVar(xt, "t")
-		//	T.mainFn.Return(x)
-		//}
 		goctx.Call(T.mainFn)
-		//fmt.Println("Return:", s)
 		
 		if T.mainFn.NumOut() == 1 {
 			if v,ok := goctx.Get(-1).(string); ok {
 				out.WriteString(v)
-				//fmt.Println("Get:", v, out.Len())
 			}
 		}
-		
-		//goctx.Run()
-		
-		//暂时不接收返回值
-		//size := goctx.Len()
-		//if out != nil {
-			//for i := 0; i < size; i++ {
-			//	if sv, ok := goctx.Get(i-size).(string); ok {
-			//		out.WriteString(sv)
-			//	}
-			//}
-		//}
 	})
 	
 	<-ch
