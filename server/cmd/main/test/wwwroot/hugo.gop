@@ -5,7 +5,9 @@ package main
 import(
 	vweb "github.com/456vv/vweb/v2"
 )
-func main(a *vweb.TemplateDot) string {
-	println(a)
+func main(T vweb.TemplateDoter) string {
+	response := T.Response()
+	println(T)
+	println(response)
 	return "aa"
 }

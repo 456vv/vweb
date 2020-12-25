@@ -61,9 +61,9 @@ func main(){
 		"ank": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
 			return &serverHandlerDynamicAnko{}
 		}),
-		//"gop": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
-		//	return &serverHandlerDynamicGoPlus{}
-		//}),
+		"gop": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
+			return &serverHandlerDynamicGoPlus{}
+		}),
 	}
 	defer serverGroup.Close()
 	
