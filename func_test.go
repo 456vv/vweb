@@ -4,7 +4,50 @@ import (
 	"testing"
 )
 
+func testExecFunc(a *testing.T, b ...interface{}) *testing.T{
+	return a
+}
 
+func Test_ExecFunc1(t *testing.T){
+	args := []interface{}{t, t, t}
+	rets, err := ExecFunc(testExecFunc, t, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt, ok := rets[0].(*testing.T)
+	if !ok {
+		t.Fatal("error")
+	}
+	if tt != t {
+		t.Fatal("error")
+	}
+}
+func Test_ExecFunc2(t *testing.T){
+	rets, err := ExecFunc(testExecFunc, t, t,t,t,t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt, ok := rets[0].(*testing.T)
+	if !ok {
+		t.Fatal("error")
+	}
+	if tt != t {
+		t.Fatal("error")
+	}
+}
+func Test_ExecFunc3(t *testing.T){
+	rets, err := ExecFunc(testExecFunc, t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt, ok := rets[0].(*testing.T)
+	if !ok {
+		t.Fatal("error")
+	}
+	if tt != t {
+		t.Fatal("error")
+	}
+}
 
 func Test_GenerateRandomString(t *testing.T){
 	code, err := GenerateRandomString(40)

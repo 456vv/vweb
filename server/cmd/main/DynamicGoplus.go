@@ -21,6 +21,11 @@ import (
     _ "github.com/456vv/goplus_lib"
 )
 
+func execmerrorError(_ int, p *gop.Context) {
+	args := p.GetArgs(1)
+	ret0 := args[0].(error).Error()
+	p.Ret(1, ret0)
+}
 var gopulusOnce sync.Once
 type serverHandlerDynamicGoPlus struct{
 	rootPath			string																// 文件目录
@@ -51,20 +56,17 @@ func (T *serverHandlerDynamicGoPlus) init(){
 		if gopI == nil {
 			gopI = bytecode.NewGoPackage("")
 		}
+		gopI.RegisterFuncs(gopI.Func("(error).Error", (error).Error, execmerrorError))
+		
 		for name, fn := range vweb.TemplateFunc {
 			tfn := reflect.TypeOf(fn)
 			switch tfn.Kind() {
 			case reflect.Func:
 				fnc := func(name string, tfn reflect.Type, fn interface{}) func(arity int, p *gop.Context) {
-					//isVariadic := tfn.IsVariadic()
-					//numIn := tfn.NumIn()
 					return func(arity int, p *gop.Context){
 						args := p.GetArgs(arity)
-						//if isVariadic && len(args) != numIn {
-						//	args = append(args, []interface{}{})
-						//}
 						log.Printf("calling %s(%v)\n", name, args)
-						retn, err := vweb.ExecFunc(fn, args...)
+						retn, err := vweb.ExecFunc(log.Println, args...)
 						if err != nil {
 							log.Printf("callied %s(%v) error: %s\n", name, args, err)
 						}
