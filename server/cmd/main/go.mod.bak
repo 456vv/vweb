@@ -3,7 +3,28 @@ module main
 go 1.15
 
 require (
+	github.com/456vv/goplus_lib v0.0.0-00010101000000-000000000000
+	github.com/456vv/vbody v1.2.3 // indirect
+	github.com/456vv/vcipher v1.0.0 // indirect
+	github.com/456vv/vconn v1.0.6 // indirect
+	github.com/456vv/vconnpool/v2 v2.1.2 // indirect
+	github.com/456vv/verifycode v1.0.3 // indirect
+	github.com/456vv/verror v1.1.0 // indirect
+	github.com/456vv/vforward v1.0.7 // indirect
+	github.com/456vv/vmap/v2 v2.2.9 // indirect
 	github.com/456vv/vweb/v2 v2.0.0-00010101000000-000000000000
+	github.com/88250/lute v1.7.0
+	github.com/fsnotify/fsnotify v1.4.9
+	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
+	github.com/goplus/gop v0.7.15
+	github.com/goplusjs/reflectx v0.2.1
+	github.com/mattn/anko v0.1.8
+	github.com/pelletier/go-toml v1.8.1
+	golang.org/x/image v0.0.0-20201208152932-35266b937fa6 // indirect
+	golang.org/x/net v0.0.0-20201224014010-6772e930b67b // indirect
+	gopkg.in/yaml.v2 v2.4.0
 )
+
+replace github.com/456vv/goplus_lib => ../../../../goplus_lib
 
 replace github.com/456vv/vweb/v2 => ../../../../vweb
