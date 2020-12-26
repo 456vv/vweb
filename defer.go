@@ -13,14 +13,12 @@ type execFunc struct {
 }
 func (T *execFunc) add(call interface{}, args ... interface{}) error {
     var (
-        dfarg       reflect.Value
 		
         fn          reflect.Value
         ft          reflect.Type
 		
         fnInLen     int
         argLen      int = len(args)
-        argIndex    reflect.Type
         variadic    bool
     )
     if f, ok := call.(reflect.Value); ok {
@@ -28,6 +26,7 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
     }else{
     	fn = reflect.ValueOf(call)
     }
+    
     fvdirect := inDirect(fn)
     if fvdirect.Kind() != reflect.Func {
         return verror.TrackErrorf("vweb: 第一个参数不是有效的func，错误的func类型为 %s。", fvdirect.Kind())
@@ -41,54 +40,68 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
     variadic 	= ft.IsVariadic()
     fnargLen 	:= fnInLen - argLen
     if (!variadic && fnInLen != argLen) ||
-        variadic && fnInLen > argLen && fnargLen != 1 {
+        variadic && fnargLen != 1 && fnInLen > argLen {
     	return verror.TrackErrorf("vweb: 传入的参数长度与调用函数参数不符合。调用函数参数长度为（%d）,传入参数长度为（%d）。", fnInLen, argLen)
     }
 	
-    fil := fnInLen-1
-    for index, arg := range  args {
-    	argv := reflect.ValueOf(arg)
-		
-        var typeErr bool
-        if index <= fil {
-            argIndex =  ft.In(index)
-            if argIndex.Kind() == reflect.Interface || argIndex.Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex) {
-                if index == fil && argLen != fnInLen {
-                	return verror.TrackErrorf("vweb: 传入的参数数量超过了调用函数支持的数量。调用函数参数数量为（%d），传入参数数量为（%d）",  fnInLen, argLen)
-                }
-            	T.arg = append(T.arg, argv)
-                continue
-            }else{
-                // 在类型不配置情况下，可能是可变参数。只是可能！如何处理？
-                // 1，当前位置 != 调用参数最后一位置 = 错误
-                // 2，当前位置也是调用参数最后一位置 != reflect.Slice = 错误
-                // 3，上面都匹配，可是这个函数不带有可变参数 = 错误
-                if index != fil || argIndex.Kind() != reflect.Slice || !variadic {
-                	typeErr = true
-                }else{
-                	dfarg = reflect.MakeSlice(argIndex, 0, 0)
-                }
-            }
+	fnInLen = fnInLen-1			//函数参数-长度
+    var argIndex reflect.Type 	//函数参数-类型
+    var dfarg reflect.Value		//创建一上存放可变参数slice
+    var typeErr bool
+    for index, arg := range args {
+    	argv := reflect.ValueOf(&arg).Elem().Elem()
+    	
+        //限制参数数量
+        if index <= fnInLen {
+        	argIndex =  ft.In(index)
+        	//防止无类型nil参数
+        	if argv.Kind() == reflect.Invalid {
+        		argv = reflect.New(argIndex).Elem()
+        	}
+
+        	
+			//1，函数参数是接口
+			//2，类型相等
+			//3，类型可以转换
+    		if argIndex.Kind() == reflect.Interface || argIndex.Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex) {
+				//适用func(a interface{}, b ...interface{}) => call(interface{}, []interface{})
+        		T.arg = append(T.arg, argv)//argv.Elem() 是将参数 interface{} 转为 原类型
+            	continue
+    		}
+    		
+			//最后一个是切片
+			if index == fnInLen && variadic && (argIndex.Elem().Kind() == reflect.Interface || argv.Type().ConvertibleTo(argIndex.Elem())) {
+				//适用func(a interface{}, b ...interface{}) => call(interface{}, interface{})
+				dfarg = reflect.MakeSlice(argIndex, 0, 0)
+				dfarg = reflect.Append(dfarg, argv)
+        		T.arg = append(T.arg, dfarg)
+				continue
+    		}
+    		
+    		//参数类型不匹配
+    		typeErr = true
         }
-		
-        aik := argIndex.Kind()
-        avk := argv.Kind()
-		
+        
+        //可变参数+1...
         if !typeErr {
-            aik = argIndex.Elem().Kind()
-            if aik == avk || aik == reflect.Interface {
-                dfarg = reflect.Append(dfarg, argv)
-            }else{
-            	typeErr = true
-            }
+        	if dfarg.Kind() != reflect.Invalid {
+	        	if argIndex.Elem().Kind() == reflect.Interface || (argIndex.Elem().Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex.Elem())) {
+		        		//适用func(a interface{}, b ...interface{}) => call(interface{}, interface{}, interface{})
+		         		dfarg = reflect.Append(dfarg, argv)
+	         			continue
+	        	}
+        	}
+        	typeErr = true
         }
-        if typeErr {
-        	return verror.TrackErrorf("vweb: 传入参数类型与调用函数参数类型不符，第(%d)个参数，调用函数参数类型为（%s），传入参数类型为（%s）。", index+1, aik, avk)
-        }
+	    if typeErr {
+	    	return verror.TrackErrorf("vweb: 传入参数类型与调用函数参数类型不符，第(%d)个参数，函数参数类型为（%s），传入类型为（%s）。", index+1, argIndex.Kind(), argv.Kind())
+	    }
     }
-	
-    if dfarg.Kind() != reflect.Invalid {
-        T.arg = append(T.arg, dfarg)
+    
+    //调用没有传入可变参数
+    if variadic && (ft.NumIn()-argLen) == 1 && dfarg.Kind() == reflect.Invalid {
+    	dfarg = reflect.MakeSlice(ft.In(fnInLen), 0, 0)
+    	T.arg = append(T.arg, dfarg)
     }
 	
     T.fun = fn

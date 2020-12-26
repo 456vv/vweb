@@ -110,6 +110,7 @@
                         ".html": "text/html; charset=utf-8",
                         ".ank": "text/html; charset=utf-8",
                         ".bw": "text/html; charset=utf-8",
+                        ".gop": "text/html; charset=utf-8",
                         ".txt": "text/plain; charset=utf-8",
                         ".json": "application/json; charset=utf-8",
                         ".js": "application/javascript; charset=utf-8",
@@ -182,9 +183,11 @@
             },
             "Dynamic":{
                 "A":{
-                    "Ext":[".bw", ".ank"],
+                    "Ext":[".bw", ".ank", ".gop"],
                     "Cache":true,
-                    "CacheTimout": 120
+                    "CacheParseTimeout":60,
+                    "CacheStaticFileDir":"public",
+                    "CacheStaticAllowPath":["/b/"]
                 }
             },
             "Property":{
@@ -203,8 +206,9 @@
 				"127.0.0.1":{
                     "PublicName":"A",
                     "List":[{
-    					"Path":["/abc/"],
-    					"RePath":"/abc.bw",
+                        "Status":true,
+    					"Path":["/b/","/b/.*\\.html"],
+    					"RePath":"/a/index.ank",
     					"End":true
     				}]
                 }
@@ -241,7 +245,8 @@
 				"Virtual":[]
 			},
             "IndexFile": [
-                "index.html"
+                "index.html",
+                "index.ank"
             ],
             "Dynamic": {
                 "PublicName": "A"

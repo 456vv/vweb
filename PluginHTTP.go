@@ -80,6 +80,9 @@ func (T *pluginHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     //写入header标头
     rh := resp.Header
     wh := w.Header()
+	//删除服务器默认增加的标头
+	wh.Del("Content-Type")
+	wh.Del("Server")
 	for key, values := range rh {
 		for _, value := range values {
 			wh.Add(key, value)

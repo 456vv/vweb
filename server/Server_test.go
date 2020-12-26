@@ -67,9 +67,6 @@ func Test_NewServerGroup_1(t *testing.T){
 	    if(err != nil){
 	        t.Fatalf("挂载文件失败：%s", err)
 	    }
-	    for pkg, funcs := range templatePackage {
-			vweb.ExtendTemplatePackage(pkg, funcs)
-	    }
 	}()
     err := sg.Start()
     if(err != nil){

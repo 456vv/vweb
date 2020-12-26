@@ -151,30 +151,35 @@ func AddSalt(rnd []byte, salt string) string {
 //	error				错误，如果文件不存在
 func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
     var (
-        fi  os.FileInfo
-        err error
+    	isDir	= strings.HasSuffix(p, "/")
+        fi		os.FileInfo
+        errStr	= "Access (%s) page document does not exist!"
+        err		error
         //为了防止跨目录，这里清除 /../ok/index.html 路径为 \ok\index.html，保证安全。
-        pc	= path.Clean(p)
-        pi	string	//path+fileName
+        pc		= path.Clean(p)
+        pi		string	//path+fileName
     )
-
-    if strings.HasSuffix(p, "/") {
-        //是目录，查找默认索引文件
-        for _, v := range index {
-        	pi	= path.Join(pc, v)
-            fi, err = os.Stat(path.Join(root, pi))
-            if err == nil && !fi.IsDir() {
-				return fi, pi, nil
-            }
-        }
-	}else{
-        //是文件
+    if !isDir {
 	    fi, err = os.Stat(path.Join(root, pc))
-		if err == nil && !fi.IsDir() {
+    	if err != nil {
+			return nil, "", fmt.Errorf(errStr, p)
+    	}
+    	isDir = fi.IsDir()
+    	if !isDir {
+	        //是文件
 			return fi, pc, nil
-		}
-	}
-	return nil, "", fmt.Errorf("Access (%s) page document does not exist!", p)
+    	}
+    }
+
+    //是目录，查找默认索引文件
+    for _, v := range index {
+    	pi	= path.Join(pc, v)
+        fi, err = os.Stat(path.Join(root, pi))
+        if err == nil && !fi.IsDir() {
+			return fi, pi, nil
+        }
+    }
+	return nil, "", fmt.Errorf(errStr, p)
 }
 
 func delay(wait, maxDelay time.Duration) time.Duration {
@@ -188,4 +193,13 @@ func delay(wait, maxDelay time.Duration) time.Duration {
 	}
 	time.Sleep(wait)
     return wait
+}
+
+//ExecFunc 执行函数调用
+//	call interface{}            函数
+//	args ... interface{}        参数或更多个函数是函数的参数
+//	[]interface{}				返回直
+//	error                       错误
+func ExecFunc(f interface{}, args ...interface{}) ([]interface{}, error) {
+	return call(f, args...)
 }

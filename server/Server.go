@@ -5,6 +5,7 @@ import (
     "reflect"
     "net"
     "net/http"
+    "net/url"
     "crypto/tls"
     "log"
     "time"
@@ -14,6 +15,7 @@ import (
     "path"
     "path/filepath"
     "os"
+    "io"
     "strconv"
     "mime"
     "github.com/456vv/vmap/v2"
@@ -21,11 +23,11 @@ import (
     "github.com/456vv/vweb/v2"
     "context"
 	"sync/atomic"
+	"regexp"
 )
 
 //默认4K
 var defaultDataBufioSize int64 = 4096
-
 var Version	string = "Server/2.0.x"
 
 //响应完成设置
@@ -314,65 +316,81 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
     }
     config := se.config
     
-    //** 转发URL
-    forward := config.Forward
-    urlPath	:= r.URL.Path
-    if  len(forward) != 0 {
-        var forwardC ConfigSiteForward
-        derogatoryDomain(r.Host, func(h string) (ok bool){
-        	forwardC, ok = forward[h]
-            return
-        })
-
-        for _, fc := range forwardC.List {
-        	if !fc.Status {
-        		//跳过禁止的
-        		continue
-        	}
-        	rpath, rewried, err := fc.Rewrite(urlPath)
-        	if err != nil {
-        		T.ErrorLog.Printf("server: host(%s) 进行重写URL规则发发生错误：%s\n", r.Host, err.Error())
-        		continue
-        	}
-        	if rewried {
-            	if fc.RedirectCode != 0 {
-            		//重定向,并退出
-            		http.Redirect(rw, r, rpath, fc.RedirectCode)
-            		return
-            	}
-            	
-				urlPath = rpath
-				
-            	if fc.End {
-            		break
-            	}
-			}
-        }
-    }
-    //** 文件存在
+    //** 静态文件
     var(
-        rootPath    string = "."
-        pagePath    string = urlPath
-        err			error
+        rootPath    			string = "."
+        pagePath    			string
+        cacheStaticFileDir		string = config.Dynamic.CacheStaticFileDir
+        err						error
     )
-    
     if site.RootDir != nil {
     	rootPath = site.RootDir(pagePath)
     }
-    
     if rootPath == "." {
     	//404 无法找到指定位置的资源。这也是一个常用的应答。
         http.Error(rw, "Web root directory is not set?", http.StatusNotFound)
         return
     }
-    
-    _, pagePath, err = vweb.PagePath(rootPath, pagePath, config.IndexFile)
-    if err != nil {
-    	//404 无法找到指定位置的资源。这也是一个常用的应答。
-        httpError(rw, rootPath, config.ErrorPage, err.Error(), http.StatusNotFound)
-        return
-    }
 
+    if config.Dynamic.Cache && cacheStaticFileDir != "" {
+    	if !filepath.IsAbs(cacheStaticFileDir) {
+    		cacheStaticFileDir = filepath.Join(rootPath, cacheStaticFileDir)
+    	}
+    	_, pagePath, err = vweb.PagePath(cacheStaticFileDir, r.URL.Path, config.IndexFile)
+    	if err == nil {
+    		//替换根目录
+    		rootPath = cacheStaticFileDir
+    	}
+    }
+    
+    //表示【不】存在静态文件
+    if pagePath == "" {
+	    
+	    //** 转发URL
+	    forward := config.Forward
+	   	urlPath := r.URL.Path
+	    if  len(forward) != 0 {
+	        var forwardC ConfigSiteForward
+	        derogatoryDomain(r.Host, func(h string) (ok bool){
+	        	forwardC, ok = forward[h]
+	            return
+	        })
+
+	        for _, fc := range forwardC.List {
+	        	if !fc.Status {
+	        		//跳过禁止的
+	        		continue
+	        	}
+	        	rpath, rewried, err := fc.Rewrite(urlPath)
+	        	if err != nil {
+	        		T.ErrorLog.Printf("server: host(%s) 进行重写URL规则发发生错误：%s\n", r.Host, err.Error())
+	        		continue
+	        	}
+	        	if rewried {
+	            	if fc.RedirectCode != 0 {
+	            		//重定向,并退出
+	            		http.Redirect(rw, r, rpath, fc.RedirectCode)
+	            		return
+	            	}
+	            	
+					urlPath = rpath
+					
+	            	if fc.End {
+	            		break
+	            	}
+				}
+	        }
+	    }
+	    
+	    //** 文件存在
+	    _, pagePath, err = vweb.PagePath(rootPath, urlPath, config.IndexFile)
+	    if err != nil {
+	    	//404 无法找到指定位置的资源。这也是一个常用的应答。
+	        httpError(rw, rootPath, config.ErrorPage, err.Error(), http.StatusNotFound)
+	        return
+	    }
+    }
+    
     //** 文件后缀支持
     var(
         fileExt         = path.Ext(pagePath)
@@ -421,27 +439,113 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
         
 		//处理动态格式
         var handlerDynamic *vweb.ServerHandlerDynamic
-        if inf, ok := se.dynamicCache.GetHas(pagePath); ok && config.Dynamic.Cache {
+        inf, ok := se.dynamicCache.GetHas(pagePath)
+        if ok && config.Dynamic.Cache {
         	handlerDynamic = inf.(*vweb.ServerHandlerDynamic)
-    		if config.Dynamic.CacheTimeout != 0 {
-    			se.dynamicCache.SetExpired(pagePath, time.Duration(config.Dynamic.CacheTimeout))
+    		if config.Dynamic.CacheParseTimeout != 0 {
+    			se.dynamicCache.SetExpired(pagePath, time.Duration(config.Dynamic.CacheParseTimeout))
     		}
         }else{
+        	if ok {
+        		//释放缓存
+        		se.dynamicCache.Del(pagePath)
+        	}
         	handlerDynamic = &vweb.ServerHandlerDynamic{
         		PagePath: pagePath,
         		Plus: T.DynamicTemplate,
         	}
         	if config.Dynamic.Cache {
+        		//时效
         		se.dynamicCache.Set(pagePath, handlerDynamic)
-        		if config.Dynamic.CacheTimeout != 0 {
-        			se.dynamicCache.SetExpired(pagePath, time.Duration(config.Dynamic.CacheTimeout))
+        		if config.Dynamic.CacheParseTimeout != 0 {
+        			se.dynamicCache.SetExpired(pagePath, time.Duration(config.Dynamic.CacheParseTimeout))
         		}
+        		//转存静态
+        		handlerDynamic.StaticAt = func(dynamic ConfigSiteDynamic) func(u *url.URL, r io.Reader, l int) (int, error) {
+        			return func(u *url.URL, r io.Reader, l int) (int, error) {
+	        			cacheStaticFileDir := dynamic.CacheStaticFileDir
+	        			//没有开启静态缓存目录
+			        	if cacheStaticFileDir == "" {
+			        		return 0, nil
+			        	}
+			        	
+		        		//存储路径
+		        		var (
+		        		 	filePath = u.Path
+		        		 	fileDir = u.Path
+			        		fileName = "index.html"
+			        		fileExt = path.Ext(u.Path)
+						)
+	        			if fileExt != "" {
+	        				//这是文件
+	        				
+	        				//后缀名称是动态扩展名称，不支持保存
+	        				for _, ext := range dynamic.Ext {
+	        					if ext == fileExt {
+	        						return 0, nil
+	        					}
+	        				}
+	        				
+	        				fileDir	= path.Dir(u.Path)
+	        			}else{
+	        				//这是目录
+	        				filePath = path.Join(fileDir, fileName)
+	        			}
+	        			
+			        	//判断有没有符合的路径
+			        	var (
+			        	 	matched bool
+			        	 	err error
+			        	 ) 
+			        	for _, spath := range dynamic.CacheStaticAllowPath {
+			        		matched, err = regexp.MatchString(spath, filePath)
+			        		if err != nil {
+			        			T.ErrorLog.Printf("server: Dynamic.CacheStaticPaths 正则格式不正确：%s, %s\n", spath, err.Error())
+			        			continue
+			        		}
+			        		if matched {
+			        			break
+			        		}
+			        	}
+			        	if !matched {
+			        		return 0, nil
+			        	}
+			        	
+			        	//静态目录
+				    	if !filepath.IsAbs(cacheStaticFileDir) {
+				    		cacheStaticFileDir = filepath.Join(handlerDynamic.RootPath, cacheStaticFileDir)
+				    	}
+	        			
+	        			//目录创建
+				    	fileDir = filepath.Join(cacheStaticFileDir, fileDir)
+	        			err = os.MkdirAll(fileDir, 0777)
+	        			if err != nil {
+			        		T.ErrorLog.Printf("server: 创建静态文件目录失败，路径：%s, 错误：%s\n", fileDir, err.Error())
+	        				return 0, nil
+	        			}
+		        		
+		        		//文件保存
+		        		filePath = filepath.Join(cacheStaticFileDir, filePath)
+			        	osFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0777)
+			        	if err != nil {
+			        		T.ErrorLog.Printf("server: 静态文件保存发生错误，路径：%s, 错误：%s\n", filePath, err.Error())
+			        		return 0, nil
+			        	}
+			        	defer osFile.Close()
+			        	n, err := io.Copy(osFile, r)
+			        	if err != nil {
+			        		T.ErrorLog.Printf("server: 静态文件保存发生错误，路径：%s, 预期长度：%d, 结果长度：%d, 错误：%s\n", filePath, l, n, err.Error())
+			        	}
+			        	return 0, nil
+			        }
+        		}(config.Dynamic)
         	}
         }
         handlerDynamic.RootPath = rootPath
         handlerDynamic.BuffSize = buffSize
        	handlerDynamic.Site 	= site
         handlerDynamic.Context 	= context.WithValue(r.Context(), "Plugin", (Pluginer)(se.plugin))
+
         handlerDynamic.ServeHTTP(rw, r)
    }else{
     	//静态页面
@@ -698,8 +802,8 @@ func (T *ServerGroup) updateConfigSites(conf *ConfigSites) error {
             if cSite.Dynamic.PublicName != "" && !conf.Public.ConfigSiteDynamic(&cSite.Dynamic, merge) {
             	T.ErrorLog.Printf("server: %s 站点的私有Dynamic与公共Dynamic合并失败\n", cSite.Identity)
             }
-			if cSite.Dynamic.CacheTimeout != 0 {
-				cSite.Dynamic.CacheTimeout *= int64(time.Second)
+			if cSite.Dynamic.CacheParseTimeout != 0 {
+				cSite.Dynamic.CacheParseTimeout *= int64(time.Second)
 			}
 			
             //预选分配池，初始化站点

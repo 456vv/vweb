@@ -16,7 +16,8 @@ func Value(v interface{}) reflect.Value {
 
 //Type(v)
 func Type(v interface{}) reflect.Type {
-	return builtinType(v)
+	t := builtinType(v)
+	return reflect.PtrTo(t)
 }
 
 //Panic(v)
@@ -27,30 +28,11 @@ func Panic(v interface{}) {
 //Make([]T, length, cap)
 //Make([T]T, length)
 //Make(Chan, length)
-func Make(typ interface{}, args ...int) interface{} {
+func Make(typ interface{}, args ...interface{}) interface{} {
 	t := builtinType(typ)
-	switch t.Kind() {
-	case reflect.Slice:
-		l, c := 0, 0
-		if len(args) == 1 {
-			l = args[0]
-			c = l
-		} else if len(args) > 1 {
-			l, c = args[0], args[1]
-		}
-		return reflect.MakeSlice(t, l, c).Interface()
-	case reflect.Map:
-		if len(args) == 1 {
-			return reflect.MakeMapWithSize(t, args[0]).Interface()
-		}
-		return reflect.MakeMap(t).Interface()
-	//case reflect.Func:
-	//	return reflect.MakeFunc(t, fn)
-	case reflect.Chan:
-		return MakeChan(t, args...)
-	}
-	
-	panic(fmt.Sprintf("cannot make type `%v`", typ))
+	v := Value(t)
+	GoTypeTo(v, args...)()
+	return v.Elem().Interface()
 }
 
 //MapFrom(M, T1, V1, T2, V2, ...)
@@ -206,6 +188,7 @@ func Set(m interface{}, args ...interface{}) {
 		panic("call with invalid argument count: please use `Set(obj, member1, val1, ...)")
 	}
 	o := reflect.ValueOf(m)
+	o = reflect.Indirect(o)
 	switch o.Kind() {
 	case reflect.Slice, reflect.Array:
 		telem := reflect.TypeOf(m).Elem()
@@ -227,6 +210,7 @@ func Set(m interface{}, args ...interface{}) {
 //Get(number, index)
 func Get(m interface{}, key interface{}) interface{} {
 	o := reflect.ValueOf(m)
+	o = reflect.Indirect(o)
 	var s string
 	switch o.Kind() {
 	case reflect.Map:
@@ -346,18 +330,12 @@ func Copy(a, b interface{}) int {
 //Append([]T, value...)
 func Append(a interface{}, vals ...interface{}) interface{} {
 	switch arr := a.(type) {
-	case []int:
-		return appendInts(arr, vals...)
-	case []interface{}:
-		return append(arr, vals...)
-	case []string:
-		return appendStrings(arr, vals...)
-	case []byte:
-		return appendBytes(arr, vals...)
-	case []rune:
-		return appendRunes(arr, vals...)
-	case []float64:
-		return appendFloats(arr, vals...)
+	case []int:return appendInts(arr, vals...)
+	case []interface{}:return append(arr, vals...)
+	case []string:return appendStrings(arr, vals...)
+	case []byte:return appendBytes(arr, vals...)
+	case []rune:return appendRunes(arr, vals...)
+	case []float64:return appendFloats(arr, vals...)
 	}
 	return appendInterface(a, vals ...)
 }
@@ -365,352 +343,333 @@ func Append(a interface{}, vals ...interface{}) interface{} {
 //Float64 returns float64(a)
 func Float64(a interface{}) float64 {
 	switch a1 := a.(type) {
-	case int:
-		return float64(a1)
-	case int64:
-		return float64(a1)
-	case float32:
-		return float64(a1)
-	case float64:
-		return a1
-	case unsafe.Pointer:
-		return *(*float64)(unsafe.Pointer(a1))
-	default:
-		return autoConvert(reflect.TypeOf(float64(0)), a).Float()
+	case float32:return float64(a1)
+	case float64:return float64(a1)
+	case int:return float64(a1)
+	case int8:return float64(a1)
+	case int16:return float64(a1)
+	case int64:return float64(a1)
+	case uint:return float64(a1)
+	case uint8:return float64(a1)
+	case uint16:return float64(a1)
+	case uint64:return float64(a1)
+	case rune:return float64(a1)
+	case unsafe.Pointer:return *(*float64)(unsafe.Pointer(a1))
 	}
-	//panicUnsupportedFn("float", a)
-	//return 0
+	return autoConvert(builtinType(float64(0)), a).Float()
 }
 
 // Float32 returns float32(a)
 func Float32(a interface{}) float32 {
 	switch a1 := a.(type) {
-	case int:
-		return float32(a1)
-	case int64:
-		return float32(a1)
-	case float64:
-		return float32(a1)
-	case float32:
-		return a1
-	case unsafe.Pointer:
-		return *(*float32)(unsafe.Pointer(a1))
+	case float32:return float32(a1)
+	case float64:return float32(a1)
+	case int:return float32(a1)
+	case int8:return float32(a1)
+	case int16:return float32(a1)
+	case int64:return float32(a1)
+	case uint:return float32(a1)
+	case uint8:return float32(a1)
+	case uint16:return float32(a1)
+	case uint64:return float32(a1)
+	case rune:return float32(a1)
+	case unsafe.Pointer:return *(*float32)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("float32", a)
-	return 0
+	return float32(autoConvert(builtinType(float32(0)), a).Float())
 }
 
 // Int returns int(a)
 func Int(a interface{}) int {
 	switch a1 := a.(type) {
-	case float64:
-		return int(a1)
-	case int64:
-		return int(a1)
-	case uint:
-		return int(a1)
-	case uint64:
-		return int(a1)
-	case int:
-		return a1
-	case unsafe.Pointer:
-		return *(*int)(unsafe.Pointer(a1))
+	case float32:return int(a1)
+	case float64:return int(a1)
+	case int:return int(a1)
+	case int8:return int(a1)
+	case int16:return int(a1)
+	case int64:return int(a1)
+	case uint:return int(a1)
+	case uint8:return int(a1)
+	case uint16:return int(a1)
+	case uint64:return int(a1)
+	case rune:return int(a1)
+	case unsafe.Pointer:return *(*int)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int", a)
-	return 0
+	return int(autoConvert(builtinType(int(0)), a).Int())
 }
 
 // Int8 returns int8(a)
 func Int8(a interface{}) int8 {
 	switch a1 := a.(type) {
-	case float64:
-		return int8(a1)
-	case int:
-		return int8(a1)
-	case int64:
-		return int8(a1)
-	case int8:
-		return a1
-	case unsafe.Pointer:
-		return *(*int8)(unsafe.Pointer(a1))
+	case float32:return int8(a1)
+	case float64:return int8(a1)
+	case int:return int8(a1)
+	case int8:return int8(a1)
+	case int16:return int8(a1)
+	case int64:return int8(a1)
+	case uint:return int8(a1)
+	case uint8:return int8(a1)
+	case uint16:return int8(a1)
+	case uint64:return int8(a1)
+	case rune:return int8(a1)
+	case unsafe.Pointer:return *(*int8)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int8", a)
-	return 0
+	return int8(autoConvert(builtinType(int8(0)), a).Int())
 }
 
 // Int16 returns int16(a)
 func Int16(a interface{}) int16 {
 	switch a1 := a.(type) {
-	case float64:
-		return int16(a1)
-	case int:
-		return int16(a1)
-	case int64:
-		return int16(a1)
-	case int16:
-		return a1
-	case unsafe.Pointer:
-		return *(*int16)(unsafe.Pointer(a1))
+	case float32:return int16(a1)
+	case float64:return int16(a1)
+	case int:return int16(a1)
+	case int8:return int16(a1)
+	case int16:return int16(a1)
+	case int64:return int16(a1)
+	case uint:return int16(a1)
+	case uint8:return int16(a1)
+	case uint16:return int16(a1)
+	case uint64:return int16(a1)
+	case rune:return int16(a1)
+	case unsafe.Pointer:return *(*int16)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int16", a)
-	return 0
+	return int16(autoConvert(builtinType(int16(0)), a).Int())
 }
 
 // Int32 returns int32(a)
 func Int32(a interface{}) int32 {
 	switch a1 := a.(type) {
-	case float64:
-		return int32(a1)
-	case int:
-		return int32(a1)
-	case int64:
-		return int32(a1)
-	case int32:
-		return a1
-	case unsafe.Pointer:
-		return *(*int32)(unsafe.Pointer(a1))
+	case float32:return int32(a1)
+	case float64:return int32(a1)
+	case int:return int32(a1)
+	case int8:return int32(a1)
+	case int16:return int32(a1)
+	case int64:return int32(a1)
+	case uint:return int32(a1)
+	case uint8:return int32(a1)
+	case uint16:return int32(a1)
+	case uint64:return int32(a1)
+	case rune:return int32(a1)
+	case unsafe.Pointer:return *(*int32)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int32", a)
-	return 0
+	return int32(autoConvert(builtinType(int32(0)), a).Int())
 }
 
 // rune returns rune(a)
 func Rune(a interface{}) rune {
 	switch a1 := a.(type) {
-	case float64:
-		return rune(a1)
-	case int:
-		return rune(a1)
-	case int64:
-		return rune(a1)
-	case rune:
-		return a1
-	case unsafe.Pointer:
-		return *(*rune)(unsafe.Pointer(a1))
+	case float32:return rune(a1)
+	case float64:return rune(a1)
+	case int:return rune(a1)
+	case int8:return rune(a1)
+	case int16:return rune(a1)
+	case int64:return rune(a1)
+	case uint:return rune(a1)
+	case uint8:return rune(a1)
+	case uint16:return rune(a1)
+	case uint64:return rune(a1)
+	case rune:return rune(a1)
+	case unsafe.Pointer:return *(*rune)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("rune", a)
+	panicUnsupportedOp1("rune", a)
 	return 0
 }
 
 // Int64 returns int64(a)
 func Int64(a interface{}) int64 {
 	switch a1 := a.(type) {
-	case float64:
-		return int64(a1)
-	case int:
-		return int64(a1)
-	case int64:
-		return a1
-	case unsafe.Pointer:
-		return *(*int64)(unsafe.Pointer(a1))
+	case float32:return int64(a1)
+	case float64:return int64(a1)
+	case int:return int64(a1)
+	case int8:return int64(a1)
+	case int16:return int64(a1)
+	case int64:return int64(a1)
+	case uint:return int64(a1)
+	case uint8:return int64(a1)
+	case uint16:return int64(a1)
+	case uint64:return int64(a1)
+	case rune:return int64(a1)
+	case unsafe.Pointer:return *(*int64)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("int64", a)
-	return 0
+	return autoConvert(builtinType(int64(0)), a).Int()
 }
 
 // Uint returns uint(a)
 func Uint(a interface{}) uint {
 	switch a1 := a.(type) {
-	case float64:
-		return uint(a1)
-	case int:
-		return uint(a1)
-	case int64:
-		return uint(a1)
-	case uint64:
-		return uint(a1)
-	case uint:
-		return a1
-	case unsafe.Pointer:
-		return *(*uint)(unsafe.Pointer(a1))
+	case float32:return uint(a1)
+	case float64:return uint(a1)
+	case int:return uint(a1)
+	case int8:return uint(a1)
+	case int16:return uint(a1)
+	case int64:return uint(a1)
+	case uint:return uint(a1)
+	case uint8:return uint(a1)
+	case uint16:return uint(a1)
+	case uint64:return uint(a1)
+	case rune:return uint(a1)
+	case unsafe.Pointer:return *(*uint)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint", a)
-	return 0
+	return uint(autoConvert(builtinType(uint(0)), a).Uint())
 }
 
 // Uint8 returns uint8(a)
 func Uint8(a interface{}) uint8 {
 	switch a1 := a.(type) {
-	case float64:
-		return uint8(a1)
-	case int:
-		return uint8(a1)
-	case int64:
-		return uint8(a1)
-	case uint64:
-		return uint8(a1)
-	case uint8:
-		return a1
-	case unsafe.Pointer:
-		return *(*uint8)(unsafe.Pointer(a1))
+	case float32:return uint8(a1)
+	case float64:return uint8(a1)
+	case int:return uint8(a1)
+	case int8:return uint8(a1)
+	case int16:return uint8(a1)
+	case int64:return uint8(a1)
+	case uint:return uint8(a1)
+	case uint8:return uint8(a1)
+	case uint16:return uint8(a1)
+	case uint64:return uint8(a1)
+	case rune:return uint8(a1)
+	case unsafe.Pointer:return *(*uint8)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint8", a)
-	return 0
+	return uint8(autoConvert(builtinType(uint8(0)), a).Uint())
 }
 
 // Byte returns byte(a)
 func Byte(a interface{}) byte {
 	switch a1 := a.(type) {
-	case float64:
-		return byte(a1)
-	case int:
-		return byte(a1)
-	case int64:
-		return byte(a1)
-	case uint64:
-		return byte(a1)
-	case byte:
-		return a1
-	case unsafe.Pointer:
-		return *(*byte)(unsafe.Pointer(a1))
+	case float32:return byte(a1)
+	case float64:return byte(a1)
+	case int:return byte(a1)
+	case int8:return byte(a1)
+	case int16:return byte(a1)
+	case int64:return byte(a1)
+	case uint:return byte(a1)
+	case uint8:return byte(a1)
+	case uint16:return byte(a1)
+	case uint64:return byte(a1)
+	case rune:return byte(a1)
+	case unsafe.Pointer:return *(*byte)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("byte", a)
+	panicUnsupportedOp1("byte", a)
 	return 0
 }
 
 // Uint16 returns uint16(a)
 func Uint16(a interface{}) uint16 {
 	switch a1 := a.(type) {
-	case float64:
-		return uint16(a1)
-	case int:
-		return uint16(a1)
-	case int64:
-		return uint16(a1)
-	case uint:
-		return uint16(a1)
-	case uint64:
-		return uint16(a1)
-	case uint16:
-		return a1
-	case unsafe.Pointer:
-		return *(*uint16)(unsafe.Pointer(a1))
+	case float32:return uint16(a1)
+	case float64:return uint16(a1)
+	case int:return uint16(a1)
+	case int8:return uint16(a1)
+	case int16:return uint16(a1)
+	case int64:return uint16(a1)
+	case uint:return uint16(a1)
+	case uint8:return uint16(a1)
+	case uint16:return uint16(a1)
+	case uint64:return uint16(a1)
+	case rune:return uint16(a1)
+	case unsafe.Pointer:return *(*uint16)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint16", a)
-	return 0
+	return uint16(autoConvert(builtinType(uint16(0)), a).Uint())
 }
 
 // Uint32 returns uint32(a)
 func Uint32(a interface{}) uint32 {
 	switch a1 := a.(type) {
-	case float64:
-		return uint32(a1)
-	case int:
-		return uint32(a1)
-	case int64:
-		return uint32(a1)
-	case uint:
-		return uint32(a1)
-	case uint64:
-		return uint32(a1)
-	case uint32:
-		return a1
-	case unsafe.Pointer:
-		return *(*uint32)(unsafe.Pointer(a1))
+	case float32:return uint32(a1)
+	case float64:return uint32(a1)
+	case int:return uint32(a1)
+	case int8:return uint32(a1)
+	case int16:return uint32(a1)
+	case int64:return uint32(a1)
+	case uint:return uint32(a1)
+	case uint8:return uint32(a1)
+	case uint16:return uint32(a1)
+	case uint64:return uint32(a1)
+	case rune:return uint32(a1)
+	case unsafe.Pointer:return *(*uint32)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint32", a)
-	return 0
+	return uint32(autoConvert(builtinType(uint32(0)), a).Uint())
 }
 
 // Uint64 returns uint64(a)
 func Uint64(a interface{}) uint64 {
 	switch a1 := a.(type) {
-	case float64:
-		return uint64(a1)
-	case int:
-		return uint64(a1)
-	case int64:
-		return uint64(a1)
-	case uint:
-		return uint64(a1)
-	case uint64:
-		return a1
-	case unsafe.Pointer:
-		return *(*uint64)(unsafe.Pointer(a1))
+	case float32:return uint64(a1)
+	case float64:return uint64(a1)
+	case int:return uint64(a1)
+	case int8:return uint64(a1)
+	case int16:return uint64(a1)
+	case int64:return uint64(a1)
+	case uint:return uint64(a1)
+	case uint8:return uint64(a1)
+	case uint16:return uint64(a1)
+	case uint64:return uint64(a1)
+	case rune:return uint64(a1)
+	case unsafe.Pointer:return *(*uint64)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("uint64", a)
-	return 0
+	return autoConvert(builtinType(uint64(0)), a).Uint()
 }
 
 // Complex64 returns complex64(a)
 func Complex64(a interface{}) complex64 {
 	switch a1 := a.(type) {
-	case complex64:
-		return a1
-	case unsafe.Pointer:
-		return *(*complex64)(unsafe.Pointer(a1))
+	case complex64:return a1
+	case complex128:return complex64(a1)
+	case unsafe.Pointer:return *(*complex64)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("complex64", a)
-	return 0
+	return complex64(autoConvert(builtinType(complex64(0)), a).Complex())
 }
 
 // Complex128 returns complex128(a)
 func Complex128(a interface{}) complex128 {
 	switch a1 := a.(type) {
-	case complex128:
-		return a1
-	case unsafe.Pointer:
-		return *(*complex128)(unsafe.Pointer(a1))
+	case complex64:return complex128(a1)
+	case complex128:return a1
+	case unsafe.Pointer:return *(*complex128)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("complex128", a)
-	return 0
+	return autoConvert(builtinType(complex128(0)), a).Complex()
 }
 
 // Uintptr returns uintptr(a)
 func Uintptr(a interface{}) uintptr {
 	switch a1 := a.(type) {
-	case uintptr:
-		return a1
-	default:
-		return reflect.ValueOf(a).Pointer()
+	case uintptr:return a1
 	}
+	return reflect.ValueOf(a).Pointer()
 }
 
 // Uintptr returns uintptr(a)
 func Pointer(a interface{}) unsafe.Pointer {
 	switch a1 := a.(type) {
-	case unsafe.Pointer:
-		return a1
-	case uintptr:
-		return unsafe.Pointer(a1)
-	default:
-		return unsafe.Pointer(reflect.ValueOf(a).Pointer())
+	case unsafe.Pointer:return a1
+	case uintptr:return unsafe.Pointer(a1)
 	}
+	return unsafe.Pointer(reflect.ValueOf(a).Pointer())
 }
 
 // String returns string(a)
 func String(a interface{}) string {
 	switch a1 := a.(type) {
-	case []byte:
-		return string(a1)
-	case []rune:
-		return string(a1)
-	case int:
-		return strconv.Itoa(a1)
-	case string:
-		return a1
-	case unsafe.Pointer:
-		return *(*string)(unsafe.Pointer(a1))
+	case []byte:return string(a1)
+	case []rune:return string(a1)
+	case int:return strconv.Itoa(a1)
+	case string:return a1
+	case unsafe.Pointer:return *(*string)(unsafe.Pointer(a1))
 	}
-	panicUnsupportedFn("string", a)
-	return ""
+	return autoConvert(builtinType("string"), a).String()
 }
 
 // Bool returns bool(a)
 func Bool(a interface{}) bool {
 	switch a1 := a.(type) {
-	case bool:
-		return a1
-	default:
-		return isTrue(inDirect(reflect.ValueOf(a1)))
+	case bool:return a1
 	}
+	return isTrue(inDirect(reflect.ValueOf(a)))
 }
 
 
 //该函数暂时测试，可能会改动。
 //	v reflect.Value		一个还没初始化变量，可能是接口类型
 //	typ ...interface{}	要把v初始化成 typ 类型，如果留空则初始化成nil
-func GoTypeTo(v reflect.Value) func(typ ...interface{}) {
+func GoTypeTo(v reflect.Value, val ...interface{}) func(typ ...interface{}) {
 	vv := reflect.Indirect(v)
 	return func (a ...interface{}){
 		if len(a) >= 1 {
@@ -743,9 +702,46 @@ func GoTypeTo(v reflect.Value) func(typ ...interface{}) {
 			}
 			vv = vv.Elem() 
 		}
-		if !vv.IsValid() && vv.CanSet() {
-			vv.Set(reflect.Zero(vv.Type()))
+		
+		//fmt.Println(vv.Kind())
+		//fmt.Println(vv.Addr())
+		//fmt.Println(vv.CanSet())
+		//fmt.Println(vv.IsValid())
+		//fmt.Println(vv.IsZero())
+		//fmt.Println(vv.IsNil())
+		if vv.CanSet() {
+			switch vv.Kind() {
+			case reflect.Map:
+				l := 0
+				if len(val) > 0 {
+					l = val[0].(int)
+				}
+				vv.Set(reflect.MakeMapWithSize(vv.Type(), l))
+			case reflect.Slice:
+				l, c := 0,0
+				if len(val) > 0 {
+					l = val[0].(int)
+				}
+				if len(val) > 1 {
+					c = val[1].(int)
+				}
+				vv.Set(reflect.MakeSlice(vv.Type(), l, c))
+			case reflect.Func:
+				if len(val) > 0 {
+					f := val[0].(func([]reflect.Value) []reflect.Value)
+					vv.Set(reflect.MakeFunc(vv.Type(), f))
+				}
+			case reflect.Chan:
+				l := 0
+				if len(val) == 1 {
+					l = val[0].(int)
+				}
+				vv.Set(reflect.MakeChan(vv.Type(), l))
+			default:
+				vv.Set(reflect.Zero(vv.Type()))
+			}
 		}
+	
 	}
 }
 

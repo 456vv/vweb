@@ -12,6 +12,8 @@ import(
     "strconv"
     "encoding/asn1"
     "encoding/json"
+    "encoding/hex"
+    "encoding/base64"
     "github.com/456vv/vmap/v2"
     "github.com/456vv/vconnpool/v2"
     "github.com/456vv/vforward"
@@ -21,6 +23,7 @@ import(
     "github.com/456vv/vweb/v2"
     "github.com/456vv/verifycode"
     "github.com/456vv/vweb/v2/builtin"
+    "github.com/456vv/vweb/v2/server"
     "regexp"
     "unicode"
     "unicode/utf8"
@@ -53,10 +56,11 @@ import(
    	"sync/atomic"
    	"errors"
    	"log"
+   	"text/template"
 )
 
-
-var templatePackage = map[string]map[string]interface{}{
+func templatePackage() map[string]template.FuncMap {
+return  map[string]template.FuncMap{
 	"vweb":{
 		"AddSalt":vweb.AddSalt,
 		"CopyStruct":vweb.CopyStruct,
@@ -83,6 +87,9 @@ var templatePackage = map[string]map[string]interface{}{
 		"SitePool":func(a ...interface{}) (retn *vweb.SitePool) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
 		"NewSitePool":vweb.NewSitePool,
 		"TemplateDot":func(a ...interface{}) (retn *vweb.TemplateDot) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
+	},
+	"vweb/server":{
+		"ConfigSitePlugin":func(a ...interface{}) (retn *server.ConfigSitePlugin) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
 	},
 	"vconnpool":{
 		"ConnPool":func(a ...interface{}) (retn *vconnpool.ConnPool) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
@@ -459,6 +466,8 @@ var templatePackage = map[string]map[string]interface{}{
 	"crypto/ecdsa":{
 		"Sign":ecdsa.Sign,
 		"Verify":ecdsa.Verify,
+		"SignASN1":ecdsa.SignASN1,
+		"VerifyASN1":ecdsa.VerifyASN1,
 		"GenerateKey":ecdsa.GenerateKey,
 		"PrivateKey":func(a ...interface{}) (retn *ecdsa.PrivateKey) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
 		"PublicKey":func(a ...interface{}) (retn *ecdsa.PublicKey) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
@@ -508,6 +517,7 @@ var templatePackage = map[string]map[string]interface{}{
 		"Config":func(a ...interface{}) (retn *tls.Config) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
 		"Conn":func(a ...interface{}) (retn *tls.Conn) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
 		"Client":tls.Client,
+		"Dialer":func(a ...interface{}) (retn *tls.Dialer) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
 		"Dial":tls.Dial,
 		"DialWithDialer":tls.DialWithDialer,
 		"ConnectionState":func(a ...interface{}) (retn *tls.ConnectionState) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
@@ -521,6 +531,7 @@ var templatePackage = map[string]map[string]interface{}{
    	"crypto/x509":{
 		"CreateCertificate":x509.CreateCertificate,
 		"CreateCertificateRequest":x509.CreateCertificateRequest,
+		"CreateRevocationList":x509.CreateRevocationList,
 		"DecryptPEMBlock":x509.DecryptPEMBlock,
 		"EncryptPEMBlock":x509.EncryptPEMBlock,
 		"IsEncryptedPEMBlock":x509.IsEncryptedPEMBlock,
@@ -787,6 +798,30 @@ var templatePackage = map[string]map[string]interface{}{
 		"NewDecoder":json.NewDecoder,
 		"Valid":json.Valid,
 	},
+	"encoding/hex":{
+		"Encode":hex.Encode,
+		"EncodeToString":hex.EncodeToString,
+		"EncodedLen":hex.EncodedLen,
+		"NewEncoder":hex.NewEncoder,
+		"Decode":hex.Decode,
+		"DecodeString":hex.DecodeString,
+		"DecodedLen":hex.DecodedLen,
+		"NewDecoder":hex.NewDecoder,
+		"Dump":hex.Dump,
+		"Dumper":hex.Dumper,
+	},
+	"encoding/base64":{
+		"StdPadding":base64.StdPadding,
+		"NoPadding":base64.NoPadding,
+		"StdEncoding":base64.StdEncoding,
+		"URLEncoding":base64.URLEncoding,
+		"RawStdEncoding":base64.RawStdEncoding,
+		"RawURLEncoding":base64.RawURLEncoding,
+		"NewDecoder":base64.NewDecoder,
+		"NewEncoder":base64.NewEncoder,
+		"Encoding":func(a ...interface{}) (retn *base64.Encoding) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
+		"NewEncoding":base64.NewEncoding,
+	},
     "regexp":{
         "Match":regexp.Match,
         "MatchReader":regexp.MatchReader,
@@ -836,7 +871,6 @@ var templatePackage = map[string]map[string]interface{}{
     },
     "io":{
 		"EOF":io.EOF,
-		
 		"Copy":io.Copy,
 		"CopyBuffer":io.CopyBuffer,
 		"CopyN":io.CopyN,
@@ -912,4 +946,4 @@ var templatePackage = map[string]map[string]interface{}{
 		"New":log.New,
     },
 }
-
+}

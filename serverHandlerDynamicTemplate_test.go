@@ -179,7 +179,7 @@ func Test_serverHandlerDynamicTemplateExtend_NewFunc(t *testing.T) {
 	//仅支持本地测试,需要替换text/template 中的文件，在本目录下的patch目录可以找到有关文件
 	return
     shdt := serverHandlerDynamicTemplate{}
-	err := shdt.ParseText("\r\n{{define \"func\"}}123456{{end}}{{$t := .Context.Value \"Template\"}}{{$f := $t.NewFunc \"func\"}}{{print (NotError $f)}}","test")
+	err := shdt.ParseText("test","\r\n{{define \"func\"}}123456{{end}}{{$t := .Context.Value \"Template\"}}{{$f := $t.NewFunc \"func\"}}{{print (NotError $f)}}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func Test_serverHandlerDynamicTemplateExtend_Call(t *testing.T) {
 {{print $rets}}
 `
     shdt := serverHandlerDynamicTemplate{}
-	err := shdt.ParseText(text, "test")
+	err := shdt.ParseText("test", text)
 	if err != nil {
 		t.Fatal(err)
 	}

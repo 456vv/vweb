@@ -224,7 +224,9 @@ type ConfigSiteDynamic struct {
 	
     Ext          	[]string                                            	// 动态文件后缀
     Cache			bool													// 动态文件缓存解析，非缓存执行
-    CacheTimeout	int64													// 动态文件缓存解析超时，（秒为单位）
+    CacheParseTimeout	int64												// 动态文件缓存解析超时，（秒为单位）
+    CacheStaticFileDir	string												// 缓存静态文件目录，仅适于markdown转HTML
+    CacheStaticAllowPath	[]string										// 缓存静态路径，仅适于markdown转HTML
 }
 
 //ConfigSite 配置-站点

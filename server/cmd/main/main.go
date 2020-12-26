@@ -2,34 +2,17 @@ package main
 	
 import (
     "github.com/fsnotify/fsnotify"
+	"github.com/456vv/vweb/v2"
+    "github.com/456vv/vweb/v2/server"
+    "github.com/456vv/vweb/v2/server/watch"
     "path/filepath"
     "os"
     "flag"
     "log"
     "time"
-	"github.com/456vv/vcipher"
-	"github.com/456vv/verifycode"
-    "github.com/456vv/vforward"
-    "github.com/456vv/vbody"
-    "github.com/456vv/vweb/v2"
-    "github.com/456vv/vweb/v2/builtin"
-    "github.com/456vv/vweb/v2/server"
-    "github.com/456vv/vweb/v2/server/watch"
-	"github.com/mattn/anko/core"
-	"github.com/mattn/anko/env"
-	"github.com/mattn/anko/parser"
-	_ "github.com/mattn/anko/packages" //加入默认包
 )
 
-const version = "App/v2.0.3"
-
-var _ *fsnotify.Op
-var _ = builtin.GoTypeTo
-var _ = vcipher.AES
-var _ *verifycode.Color
-var _ *vforward.Addr
-var _ *vbody.Reader
-
+const version = "App/v2.5.0"
 
 var (
 	fRootDir			= flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
@@ -72,34 +55,14 @@ func main(){
 	}
 	defer logFile.Close()
 	
-	//给template模板增加模块包
-	for name, pkg := range templatePackage {
-		vweb.ExtendTemplatePackage(name, pkg)
-	}
-	
-	//增加anko 模块包
-	parser.EnableErrorVerbose()	//解析错误详细信息
-	e := env.NewEnv()
-	core.Import(e) 			//加载内置的一些函数
-	for name, fn := range vweb.TemplateFunc {
-		e.Define(name, fn)
-	}
-	//for name, pkg := range templatePackage {
-	//	fns, ok := env.Packages[name]
-	//	if !ok {
-	//		fns = make(map[string]reflect.Value)
-	//		env.Packages[name] = fns
-	//	}
-	//	for n, f := range pkg {
-	//		fns[n] = reflect.ValueOf(f)
-	//	}
-	//}
-	
 	//服务器
 	serverGroup := server.NewServerGroup()
 	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplateFunc{
 		"ank": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
-			return &serverHandlerDynamicAnko{env: e}
+			return &serverHandlerDynamicAnko{}
+		}),
+		"gop": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
+			return &serverHandlerDynamicGoPlus{}
 		}),
 	}
 	defer serverGroup.Close()

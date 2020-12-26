@@ -61,7 +61,7 @@ type serverHandlerDynamicTemplate struct {
  	fileName			string
 	t 					*template.Template
 }
-func (T *serverHandlerDynamicTemplate) ParseText(content, name string) error {
+func (T *serverHandlerDynamicTemplate) ParseText(name, content string) error {
 	T.fileName = name
 	r := bufio.NewReader(strings.NewReader(content))
 	return T.Parse(r)

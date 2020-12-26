@@ -80,16 +80,16 @@ func Close(a interface{}) {
 }
 
 //ChanOf(T)
-func ChanOf(typ interface{}) interface{} {
+func ChanOf(typ interface{}) reflect.Type {
 	return reflect.ChanOf(reflect.BothDir, builtinType(typ))
 }
 
 //MakeChan(T, size)
-func MakeChan(typ interface{}, buffer ...int) *Chan {
+func MakeChan(typ interface{}, buffer ...interface{}) *Chan {
 	n := 0
 	if len(buffer) > 0 {
-		n = buffer[0]
+		n = buffer[0].(int)
 	}
-	t := reflect.ChanOf(reflect.BothDir, builtinType(typ))
+	t := ChanOf(typ)
 	return &Chan{Data: reflect.MakeChan(t, n)}
 }
