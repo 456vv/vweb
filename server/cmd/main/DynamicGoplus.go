@@ -65,11 +65,8 @@ func (T *serverHandlerDynamicGoPlus) init(){
 				fnc := func(name string, tfn reflect.Type, fn interface{}) func(arity int, p *gop.Context) {
 					return func(arity int, p *gop.Context){
 						args := p.GetArgs(arity)
-						log.Printf("calling %s(%v)\n", name, args)
-						retn, err := vweb.ExecFunc(log.Println, args...)
-						if err != nil {
-							log.Printf("callied %s(%v) error: %s\n", name, args, err)
-						}
+						retn, err := vweb.ExecFunc(fn, args...)
+						log.Printf("callied %s(%v) (%v, %v)\n", name, args, retn, err)
 						p.Ret(arity, retn...)
 					}
 				}(name, tfn, fn)

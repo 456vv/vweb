@@ -50,9 +50,15 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
     var typeErr bool
     for index, arg := range args {
     	argv := reflect.ValueOf(&arg).Elem().Elem()
+    	
         //限制参数数量
         if index <= fnInLen {
         	argIndex =  ft.In(index)
+        	//防止无类型nil参数
+        	if argv.Kind() == reflect.Invalid {
+        		argv = reflect.New(argIndex).Elem()
+        	}
+
         	
 			//1，函数参数是接口
 			//2，类型相等
@@ -78,12 +84,12 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
         
         //可变参数+1...
         if !typeErr {
-        	if argIndex.Elem().Kind() == reflect.Interface || (argIndex.Elem().Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex.Elem())) {
-        		if dfarg.Kind() != reflect.Invalid {
-	        		//适用func(a interface{}, b ...interface{}) => call(interface{}, interface{}, interface{})
-	         		dfarg = reflect.Append(dfarg, argv)
-         			continue
-        		}
+        	if dfarg.Kind() != reflect.Invalid {
+	        	if argIndex.Elem().Kind() == reflect.Interface || (argIndex.Elem().Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex.Elem())) {
+		        		//适用func(a interface{}, b ...interface{}) => call(interface{}, interface{}, interface{})
+		         		dfarg = reflect.Append(dfarg, argv)
+	         			continue
+	        	}
         	}
         	typeErr = true
         }

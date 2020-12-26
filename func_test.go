@@ -2,6 +2,7 @@ package vweb
 
 import (
 	"testing"
+	"errors"
 )
 
 func testExecFunc(a *testing.T, b ...interface{}) *testing.T{
@@ -49,13 +50,30 @@ func Test_ExecFunc3(t *testing.T){
 	}
 }
 
-func Test_GenerateRandomString(t *testing.T){
-	code, err := GenerateRandomString(40)
+func testExecFuncError(v error) error {
+	return v
+}
+func Test_ExecFunc4(t *testing.T){
+	rets, err := ExecFunc(testExecFuncError, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l := len(code); l != 40 {
-		t.Fatalf("生成长度错误，预定 40，结果 %d", l)
+	if rets[0] != nil {
+		t.Fatal("error")
+	}
+}
+func Test_ExecFunc5(t *testing.T){
+	err := errors.New("error")
+	rets, e := ExecFunc(testExecFuncError, err)
+	if e != nil {
+		t.Fatal(e)
+	}
+	rt, ok := rets[0].(error)
+	if !ok {
+		t.Fatal("error")
+	}
+	if rt != err {
+		t.Fatal("error")
 	}
 }
 

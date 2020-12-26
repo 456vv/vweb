@@ -85,10 +85,10 @@ func ChanOf(typ interface{}) reflect.Type {
 }
 
 //MakeChan(T, size)
-func MakeChan(typ interface{}, buffer ...int) *Chan {
+func MakeChan(typ interface{}, buffer ...interface{}) *Chan {
 	n := 0
 	if len(buffer) > 0 {
-		n = buffer[0]
+		n = buffer[0].(int)
 	}
 	t := ChanOf(typ)
 	return &Chan{Data: reflect.MakeChan(t, n)}

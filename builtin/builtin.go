@@ -28,10 +28,10 @@ func Panic(v interface{}) {
 //Make([]T, length, cap)
 //Make([T]T, length)
 //Make(Chan, length)
-func Make(typ interface{}, args ...int) interface{} {
+func Make(typ interface{}, args ...interface{}) interface{} {
 	t := builtinType(typ)
 	v := Value(t)
-	GoTypeTo(v)()
+	GoTypeTo(v, args...)()
 	return v.Elem().Interface()
 }
 
