@@ -683,8 +683,12 @@ func Bool(a interface{}) bool {
 //该函数暂时测试，可能会改动。
 //	v reflect.Value		一个还没初始化变量，可能是接口类型
 //	typ ...interface{}	要把v初始化成 typ 类型，如果留空则初始化成nil
-func GoTypeTo(v reflect.Value, val ...interface{}) func(typ ...interface{}) {
-	vv := reflect.Indirect(v)
+func GoTypeTo(v interface{}, val ...interface{}) func(typ ...interface{}) {
+	vv, ok := v.(reflect.Value)
+	if !ok {
+		vv = reflect.ValueOf(v)
+	}
+	vv = reflect.Indirect(vv)
 	return func (a ...interface{}){
 		if len(a) >= 1 {
 			if a[0] == nil {
