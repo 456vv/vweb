@@ -79,6 +79,7 @@ var TemplateFunc = template.FuncMap{
     "InDirect": InDirect,
     "DepthField": DepthField,
     "GoTypeTo":builtin.GoTypeTo,
+    "GoTypeInit":builtin.GoTypeInit,
     "Value":builtin.Value,						//Value(v) reflect.Value
 	"_Value_":func(s []reflect.Value, v ...reflect.Value) []reflect.Value {return append(s, v...)},
 	"Call":call,
