@@ -96,7 +96,6 @@ var TemplateFunc = template.FuncMap{
 	"IsNil":func(inf interface{}) bool {return inf == nil},
     "Bytes": builtin.Bytes,
     "Runes": builtin.Runs,
-    "String": builtin.Strings,+
     "Append": builtin.Append,			//Append([]T, value...)
     "Pointer":builtin.Pointer,
     "Uintptr":builtin.Uintptr,

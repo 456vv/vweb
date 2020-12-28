@@ -693,14 +693,6 @@ func Runs(inf interface{}) []rune {
 	}
 	return []rune(fmt.Sprintf("%s", inf))
 }
-func Strings(inf interface{}) string {
-	switch s := inf.(type){
-	case []byte:return string(s)
-	case []rune:return string(s)
-	case string:return s
-	}
-	return fmt.Sprintf("%s", inf)
-}
 
 
 //该函数暂时测试，可能会改动。
