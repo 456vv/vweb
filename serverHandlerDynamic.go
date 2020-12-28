@@ -31,23 +31,6 @@ func webError(rw http.ResponseWriter, v ...interface{}) {
     http.Error(rw, fmt.Sprint(v...), http.StatusInternalServerError)
 }
 
-type serverHandlerDynamicParseReplace struct{
-	io.Reader
-	name string
-	replaceParse func(name string, p []byte) []byte
-}
-func (T *serverHandlerDynamicParseReplace) Read(p []byte)(n int, err error){
-	b := make([]byte, len(p))
-	n, err = T.Reader.Read(b)
-	if n > 0 {
-		if T.replaceParse != nil {
-			b =T.replaceParse(T.name, b[:n])
-		}
-		copy(p[:], b[:n])
-	}
-	return
-}
-
 //ServerHandlerDynamic 处理动态页面文件
 type ServerHandlerDynamic struct {
 	//必须的
@@ -211,9 +194,20 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
     	return verror.TrackError("vweb: ServerHandlerDynamic.PagePath is not a valid path")
 	}
 	
-	bufr := bytes.NewBuffer(nil)
-	bufr.Grow(T.BuffSize)
-	bufr.ReadFrom(&serverHandlerDynamicParseReplace{Reader:r, name:T.PagePath, replaceParse:T.ReplaceParse})
+	
+	bufr, ok := r.(*bytes.Buffer)
+	if T.ReplaceParse != nil {
+		allb, err := ioutil.ReadAll(r)
+		if err != nil {
+			return  verror.TrackErrorf("vweb: ServerHandlerDynamic.ReplaceParse failed to read data: %s", err.Error())
+		}
+		allb = T.ReplaceParse(T.PagePath, allb)
+		bufr = bytes.NewBuffer(allb)
+	}else if !ok {
+		bufr = bytes.NewBuffer(nil)
+		bufr.Grow(T.BuffSize)
+		bufr.ReadFrom(r)
+	}
 	
     //文件首行
     firstLine, err := bufr.ReadBytes('\n')
