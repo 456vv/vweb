@@ -18,6 +18,7 @@ var errTemplateNotParse =  errors.New("vweb: The template has not been parsed ye
 
 //标头-模本-处理动态页面文件
 type shdtHeader struct{
+	P						*ServerHandlerDynamic
     filePath        		[]string                              			                // 文件路径, map[文件名或别名]文件路径
     delimLeft,delimRight    string                                                          // 语法识别符
 }
@@ -48,6 +49,9 @@ func (h *shdtHeader) openIncludeFile(rootPath, pagePath string) (map[string]stri
 			return nil, fmt.Errorf("vweb: Dynamically embedded template file read failed(%s)", err.Error())
 		}
 		fileBase = filepath.Base(filePath)
+		if h.P.ReplaceParse != nil {
+			c = h.P.ReplaceParse(filePath, c)
+		}
 		fileContent[fileBase] = string(c)
 	}
 	return fileContent, nil
@@ -56,6 +60,7 @@ func (h *shdtHeader) openIncludeFile(rootPath, pagePath string) (map[string]stri
 
 //serverHandlerDynamicTemplate 模本-处理动态页面文件
 type serverHandlerDynamicTemplate struct {
+	P					*ServerHandlerDynamic
 	rootPath			string																// 文件目录
 	pagePath			string																// 文件名称
  	
@@ -150,6 +155,7 @@ func (T *serverHandlerDynamicTemplate) separation(buf *bufio.Reader) (shdtHeader
     var (
         line	[]byte
 		h		= shdtHeader{
+			P			: T.P,
             delimLeft   : "{{",
             delimRight  : "}}",
         }
@@ -192,6 +198,7 @@ func (T *serverHandlerDynamicTemplate) separation(buf *bufio.Reader) (shdtHeader
     if err != nil {
     	return shdtHeader{}, "", fmt.Errorf("vweb: Error reading file body data(%s)", err.Error())
     }
+    
     return h, string(b), nil
 }
 

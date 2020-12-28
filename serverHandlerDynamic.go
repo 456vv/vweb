@@ -232,7 +232,7 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 	dynmicType := string(firstLine)
     switch dynmicType {
     case "//template":
-        var shdt = &serverHandlerDynamicTemplate{}
+        var shdt = &serverHandlerDynamicTemplate{P:T}
 		shdt.SetPath(T.RootPath, T.PagePath)
         err = shdt.Parse(bufr)
         if err != nil {
