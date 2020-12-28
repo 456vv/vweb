@@ -3,6 +3,7 @@ import (
     "reflect"
     "fmt"
     "github.com/456vv/verror"
+    "github.com/456vv/vweb/v2/builtin"
     //"unsafe"
 )
 
@@ -186,7 +187,7 @@ func depthField(s interface{}, index interface{}) (interface{}, error) {
 
 //CopyStruct 结构字段从src 复制 dsc，不需要相同的结构。他只复制相同类型的字段。
 //	dsc, src interface{}									目标，源结构
-//	handle func(name string, dsc, src reflect.Value) bool	排除处理函数
+//	handle func(name string, dsc, src reflect.Value) bool	排除处理函数，返回true跳过
 //	error	错误
 func CopyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool) error {
 	return copyStruct(dsc, src, handle, false)
@@ -243,17 +244,8 @@ func copyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.
 		avfi := inDirect(avf)
 		bvfi := inDirect(bvf)
 		if !avfi.IsValid() && bvfi.IsValid() {
-			avfe := avf
-			for ;avfe.Kind() == reflect.Ptr;{
-				if avfe.IsNil() {
-					//Chan，Func，Interface，Map，Ptr，或Slice
-					avfe.Set(reflect.New(avfe.Type().Elem()))
-				}
-				avfe = avfe.Elem() 
-			}
-			if !avfe.IsValid() {
-				avfe.Set(reflect.Zero(avfe.Type()))
-			}
+			builtin.GoTypeInit(avf)
+			avfi = inDirect(avf)
 		}
 		
 		afk := avfi.Kind()

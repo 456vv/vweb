@@ -78,6 +78,8 @@ var TemplateFunc = template.FuncMap{
     "ForType": ForType,
     "InDirect": InDirect,
     "DepthField": DepthField,
+    "CopyStruct": CopyStruct,
+    "CopyStructDeep": CopyStructDeep,
     "GoTypeTo":builtin.GoTypeTo,
     "GoTypeInit":builtin.GoTypeInit,
     "Value":builtin.Value,						//Value(v) reflect.Value
@@ -92,10 +94,9 @@ var TemplateFunc = template.FuncMap{
 	"Nil":func() interface{} {return nil},
 	"NotNil":func(inf interface{}) bool {return inf != nil},
 	"IsNil":func(inf interface{}) bool {return inf == nil},
-    "StringToByte": func(s string) []byte {return []byte(s)},
-    "StringToRune": func(s string) []rune {return []rune(s)},
-    "RuneToString": func(r []rune) string {return string(r)},
-    "ByteToString": func(b []byte) string {return string(b)},
+    "Bytes": builtin.Bytes,
+    "Runes": builtin.Runs,
+    "String": builtin.Strings,+
     "Append": builtin.Append,			//Append([]T, value...)
     "Pointer":builtin.Pointer,
     "Uintptr":builtin.Uintptr,

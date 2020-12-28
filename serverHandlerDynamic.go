@@ -19,9 +19,9 @@ import (
 
 
 type DynamicTemplater interface{
-    SetPath(rootPath, pagePath string)																				// 设置路径
-    Parse(r *bufio.Reader) (err error)																				// 解析
-    Execute(out *bytes.Buffer, dot interface{}) error																// 执行
+    SetPath(rootPath, pagePath string)																			// 设置路径
+    Parse(r io.Reader) (err error)																				// 解析
+    Execute(out io.Writer, dot interface{}) error																// 执行
 }
 type DynamicTemplateFunc func() DynamicTemplater
 
@@ -191,11 +191,17 @@ func (T *ServerHandlerDynamic) ParseFile(path string) error {
 //Parse 解析模板
 //	bufr *bytes.Reader	模板内容
 //	error				错误
-func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error) {
+func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 	if T.PagePath == "" {
     	return verror.TrackError("vweb: ServerHandlerDynamic.PagePath is not a valid path")
 	}
-
+	
+	var bufr, ok = r.(*bytes.Buffer)
+	if !ok {
+		bufr = bytes.NewBuffer(nil)
+		bufr.Grow(1024)
+		bufr.ReadFrom(r)
+	}
     //文件首行
     firstLine, err := bufr.ReadBytes('\n')
     if err != nil || len(firstLine) == 0 {
@@ -241,7 +247,7 @@ func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error) {
 //	bufw *bytes.Buffer	模板返回数据
 //	dock interface{}	与模板对接接口
 //	error				错误
-func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) (err error) {
+func (T *ServerHandlerDynamic) Execute(bufw io.Writer, dock interface{}) (err error) {
 	if T.exec == nil {
 		return errors.New("vweb: Parse the template content first and then call the Execute")
 	}

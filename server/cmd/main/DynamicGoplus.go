@@ -3,8 +3,7 @@ package main
 import (
 	"sync"
 	"log"
-	"bufio"
-	"bytes"
+	"io"
 	"path/filepath"
 	"fmt"
 	"errors"
@@ -134,7 +133,7 @@ func (T *serverHandlerDynamicGoPlus) SetPath(root, page string){
     T.name = filepath.Base(T.pagePath)
 }
 
-func (T *serverHandlerDynamicGoPlus) Parse(r *bufio.Reader) (err error) {
+func (T *serverHandlerDynamicGoPlus) Parse(r io.Reader) (err error) {
 	T.init()
 	pkgs, err := parser.Parse(T.fset, T.name, r, 0)
 	if err != nil {
@@ -146,7 +145,7 @@ func (T *serverHandlerDynamicGoPlus) Parse(r *bufio.Reader) (err error) {
 	return nil
 }
 
-func (T *serverHandlerDynamicGoPlus) Execute(out *bytes.Buffer, in interface{}) (err error) {
+func (T *serverHandlerDynamicGoPlus) Execute(out io.Writer, in interface{}) (err error) {
 	if !T.inited {
 		return errors.New("The template has not been parsed and is not available!")
 	}
@@ -194,8 +193,8 @@ func (T *serverHandlerDynamicGoPlus) Execute(out *bytes.Buffer, in interface{}) 
 		goctx.Call(T.mainFn)
 		
 		if T.mainFn.NumOut() == 1 {
-			if v,ok := goctx.Get(-1).(string); ok {
-				out.WriteString(v)
+			if sv,ok := goctx.Get(-1).(string); ok {
+				io.WriteString(out, sv)
 			}
 		}
 	})

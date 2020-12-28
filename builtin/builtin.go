@@ -679,6 +679,29 @@ func Bool(a interface{}) bool {
 	return isTrue(inDirect(reflect.ValueOf(a)))
 }
 
+func Bytes(inf interface{}) []byte {
+	switch s := inf.(type){
+	case string:return []byte(s)
+	case []byte:return s
+	}
+	return []byte(fmt.Sprintf("%s", inf))
+}
+func Runs(inf interface{}) []rune {
+	switch s := inf.(type){
+	case string:return []rune(s)
+	case []rune:return s
+	}
+	return []rune(fmt.Sprintf("%s", inf))
+}
+func Strings(inf interface{}) string {
+	switch s := inf.(type){
+	case []byte:return string(s)
+	case []rune:return string(s)
+	case string:return s
+	}
+	return fmt.Sprintf("%s", inf)
+}
+
 
 //该函数暂时测试，可能会改动。
 //	v interface{}		一个还没初始化变量，可能是接口类型

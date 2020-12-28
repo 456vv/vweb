@@ -1,6 +1,6 @@
 ﻿Constants
 const (
-    Version string = "VWEB/v2.3.x"                                                                                  // 版本号
+    Version string = "VWEB/v2.4.x"                                                                                  // 版本号
 )
 Variables
 var DefaultSitePool = NewSitePool()                                                                                 // 网站池（默认）
@@ -42,8 +42,8 @@ type DynamicTemplater interface {                                               
     ParseFile(path string) error                                                                                    // 解析文件
     ParseText(content, name string) error                                                                           // 解析文本
     SetPath(rootPath, pagePath string)                                                                              // 设置路径
-    Parse(r *bufio.Reader) (err error)                                                                              // 解析
-    Execute(out *bytes.Buffer, dot interface{}) error                                                               // 执行
+    Parse(r io.Reader) (err error)                                                                                  // 解析
+    Execute(out io.Writer, dot interface{}) error                                                                   // 执行
 }
 type DynamicTemplateFunc func() DynamicTemplater                                                                // 动态模板方法
 type Forward struct {                                                                                           // 转发
@@ -124,8 +124,8 @@ type ServerHandlerDynamic struct {                                              
     StaticAt func(u *url.URL, r io.Reader, l int) (int, error)                                                      // 静态结果。仅在 .ServeHTTP 方法中使用
     ReadFile func(u *url.URL, filePath string) (io.Reader, time.Time, error)                                        // 读取文件。仅在 .ServeHTTP 方法中使用
 }
-    func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) (err error)                        // 执行模板
-    func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error)                                            // 解析模板
+    func (T *ServerHandlerDynamic) Execute(bufw io.Writer, dock interface{}) (err error)                            // 执行模板
+    func (T *ServerHandlerDynamic) Parse(bufr io.Reader) (err error)                                                // 解析模板
     func (T *ServerHandlerDynamic) ParseFile(path string) error                                                     // 解析模板文件
     func (T *ServerHandlerDynamic) ParseText(content, name string) error                                            // 解析模板文本
     func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request)                             // 服务HTTP
@@ -223,3 +223,9 @@ type TemplateDoter interface {                                                  
     Defer(call interface{}, args ...interface{}) error                                                              // 退回调用
     DotContexter
 }
+type ServerHandlerDynamicTemplateExtend struct{                                                                 // 模板扩展
+    *template.Template                                                                                              // 模板对象
+}
+func (T *ServerHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)          // 创建新函数
+func (T *ServerHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{}   // 执行新函数
+func (T *ServerHandlerDynamicTemplateExtend) ExecuteTemplate(out io.Writer, name string, in interface{}) error                  // 执行新模板
