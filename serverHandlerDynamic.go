@@ -43,6 +43,7 @@ type ServerHandlerDynamic struct {
 	Context				context.Context														// 上下文
 	Plus				map[string]DynamicTemplateFunc										// 支持更动态文件类型
 	StaticAt			func(u *url.URL, r io.Reader, l int) (int, error)					// 静态结果。仅在 .ServeHTTP 方法中使用
+	ReadFile			func(u *url.URL, filePath string) (io.Reader, error)				// 读取文件。仅在 .ServeHTTP 方法中使用
    	exec				DynamicTemplater
    	modeTime			time.Time
 }
@@ -57,34 +58,45 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	}
 	var filePath = filepath.Join(T.RootPath, T.PagePath)
 
-	osFile, err := os.Open(filePath)
-	if err != nil {
-	    webError(rw, fmt.Sprintf("Failed to read the file! Error: %s", err.Error()))
-	    return
-	}
-	defer osFile.Close()
-
-	//记录文件修改时间，用于缓存文件
-	osFileInfo, err := osFile.Stat()
-	if err != nil {
-		T.exec = nil
-	}else{
-		modeTime := osFileInfo.ModTime()
-		if !modeTime.Equal(T.modeTime) {
-			T.exec = nil
+	var (
+		tmplread io.Reader
+		err error
+	 )
+	if T.ReadFile != nil {
+		tmplread, err = T.ReadFile(req.URL, filePath)
+		if err != nil {
+		    webError(rw, fmt.Sprintf("Failed to read the ReadFile! Error: %s", err.Error()))
+		    return
 		}
-		T.modeTime = modeTime
-	}
-	
-	if T.exec == nil {
-	    var content, err = ioutil.ReadAll(osFile)
-	    if err != nil {
-	    	webError(rw, fmt.Sprintf("Failed to read the file! Error: %s", err.Error()))
-	        return
-	    }
+	}else{
+		osFile, err := os.Open(filePath)
+		if err != nil {
+		    webError(rw, fmt.Sprintf("Failed to read the Open! Error: %s", err.Error()))
+		    return
+		}
+		defer osFile.Close()
+		tmplread = osFile
 
+		//记录文件修改时间，用于缓存文件
+		osFileInfo, err := osFile.Stat()
+		if err != nil {
+			T.exec = nil
+		}else{
+			modeTime := osFileInfo.ModTime()
+			if !modeTime.Equal(T.modeTime) {
+				T.exec = nil
+			}
+			T.modeTime = modeTime
+		}
+		
+
+	}
+	if T.exec == nil {
 	    //解析模板内容
-		err = T.Parse(bytes.NewBuffer(content))
+	    buf := bytes.NewBuffer(nil)
+	    buf.Grow(1024)
+	    buf.ReadFrom(tmplread)
+		err = T.Parse(buf)
 	    if err != nil {
 	    	webError(rw, err.Error())
 	        return
