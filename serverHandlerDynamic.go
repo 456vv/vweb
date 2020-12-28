@@ -43,7 +43,7 @@ type ServerHandlerDynamic struct {
 	Context				context.Context														// 上下文
 	Plus				map[string]DynamicTemplateFunc										// 支持更动态文件类型
 	StaticAt			func(u *url.URL, r io.Reader, l int) (int, error)					// 静态结果。仅在 .ServeHTTP 方法中使用
-	ReadFile			func(u *url.URL, filePath string) (io.Reader, error)				// 读取文件。仅在 .ServeHTTP 方法中使用
+	ReadFile			func(u *url.URL, filePath string) (io.Reader, time.Time, error)				// 读取文件。仅在 .ServeHTTP 方法中使用
    	exec				DynamicTemplater
    	modeTime			time.Time
 }
@@ -60,14 +60,19 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 
 	var (
 		tmplread io.Reader
+		modeTime time.Time
 		err error
 	 )
 	if T.ReadFile != nil {
-		tmplread, err = T.ReadFile(req.URL, filePath)
+		tmplread, modeTime, err = T.ReadFile(req.URL, filePath)
 		if err != nil {
 		    webError(rw, fmt.Sprintf("Failed to read the ReadFile! Error: %s", err.Error()))
 		    return
 		}
+		if !modeTime.Equal(T.modeTime) {
+			T.exec = nil
+		}
+		T.modeTime = modeTime
 	}else{
 		osFile, err := os.Open(filePath)
 		if err != nil {
@@ -82,7 +87,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		if err != nil {
 			T.exec = nil
 		}else{
-			modeTime := osFileInfo.ModTime()
+			modeTime = osFileInfo.ModTime()
 			if !modeTime.Equal(T.modeTime) {
 				T.exec = nil
 			}
