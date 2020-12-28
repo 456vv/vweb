@@ -122,7 +122,7 @@ type ServerHandlerDynamic struct {                                              
     Context  context.Context                                                                                        // 上下文。仅在 .ServeHTTP 方法中使用
     Plus     map[string]DynamicTemplateFunc                                                                         // 支持更动态文件类型
     StaticAt func(u *url.URL, r io.Reader, l int) (int, error)                                                      // 静态结果。仅在 .ServeHTTP 方法中使用
-    ReadFile func(u *url.URL, filePath string) (io.Reader, error)                                                   // 读取文件。仅在 .ServeHTTP 方法中使用
+    ReadFile func(u *url.URL, filePath string) (io.Reader, time.Time, error)                                        // 读取文件。仅在 .ServeHTTP 方法中使用
 }
     func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) (err error)                        // 执行模板
     func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error)                                            // 解析模板
