@@ -58,10 +58,10 @@ func main(){
 	//服务器
 	serverGroup := server.NewServerGroup()
 	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplateFunc{
-		"ank": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
+		"ank": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {
 			return &serverHandlerDynamicAnko{}
 		}),
-		"gop": vweb.DynamicTemplateFunc(func() vweb.DynamicTemplater {
+		"gop": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {
 			return &serverHandlerDynamicGoPlus{}
 		}),
 	}

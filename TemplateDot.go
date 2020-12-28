@@ -30,7 +30,7 @@ type TemplateDoter interface{
 type TemplateDot struct {
     R     				*http.Request                                                               // 请求
     W    				http.ResponseWriter                                                         // 响应
-    BuffSize			int64																		// 缓冲块大小
+    BuffSize			int																			// 缓冲块大小
     Site       		 	*Site                                                                       // 网站配置
     Writed      		bool                                                                        // 表示已经调用写入到客户端。这个是只读的
     exchange       		vmap.Map                                                                    // 缓存映射

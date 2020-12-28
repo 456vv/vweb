@@ -21,7 +21,7 @@ type Responser interface{
 
 //response 模本点的响应写入
 type response struct {
-	buffSize	int64							// 写入的缓冲大小
+	buffSize	int								// 写入的缓冲大小
     r   		*http.Request                 	// 请求
     w   		http.ResponseWriter            	// 响应
     td			*TemplateDot                    // 模板点

@@ -65,7 +65,7 @@ type serverHandlerDynamicTemplate struct {
 
 func (T *serverHandlerDynamicTemplate) ParseText(name, content string) error {
 	T.fileName = name
-	r := bufio.NewReader(strings.NewReader(content))
+	r := strings.NewReader(content)
 	return T.Parse(r)
 }
 
@@ -81,8 +81,8 @@ func (T *serverHandlerDynamicTemplate) ParseFile(path string) error {
 	if err != nil {
 		return err
 	}
-	r := bufio.NewReader(bytes.NewBuffer(b))
 	T.fileName = filepath.Base(path)
+	r := bytes.NewReader(b)
 	return T.Parse(r)
 }
 

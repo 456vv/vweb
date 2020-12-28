@@ -215,7 +215,7 @@ type ConfigSiteProperty struct {
 	
     ConnMaxNumber       int64                                               // 连接最大数量
     ConnSpeed           int64                                               // 连接宽带速度
-    BuffSize       		int64                                             	// 缓冲区大小
+    BuffSize       		int                                             	// 缓冲区大小
 }
 
 type ConfigSiteDynamic struct {

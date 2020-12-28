@@ -117,7 +117,7 @@ type ServerHandlerDynamic struct {                                              
     PagePath string                                                                                                 // 主模板文件路径
 
     //可选的
-    BuffSize int64                                                                                                  // 缓冲块大小
+    BuffSize int                                                                                                    // 缓冲块大小
     Site     *Site                                                                                                  // 网站配置
     Context  context.Context                                                                                        // 上下文。仅在 .ServeHTTP 方法中使用
     Plus     map[string]DynamicTemplateFunc                                                                         // 支持更动态文件类型
@@ -132,7 +132,7 @@ type ServerHandlerDynamic struct {                                              
 type ServerHandlerStatic struct {                                                                               // 静态
     RootPath, PagePath string                                                                                       // 根目录, 页路径
     PageExpired        int64                                                                                        // 页面过期时间（秒为单位）
-    BuffSize           int64                                                                                        // 缓冲块大小
+    BuffSize           int                                                                                          // 缓冲块大小
 }
     func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Request)                              // 服务HTTP
 type Session struct {                                                                                           // 会话
@@ -191,7 +191,7 @@ type SitePool struct {}                                                         
 type TemplateDot struct {                                                                                       // 模板点
     R        *http.Request                                                                                          // 请求
     W        http.ResponseWriter                                                                                    // 响应
-    BuffSize int64                                                                                                  // 缓冲块大小
+    BuffSize int                                                                                                    // 缓冲块大小
     Site     *Site                                                                                                  // 网站配置
     Writed   bool                                                                                                   // 表示已经调用写入到客户端。这个是只读的
 }

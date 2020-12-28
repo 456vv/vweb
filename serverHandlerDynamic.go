@@ -5,8 +5,8 @@ import (
     "net/http"
     "net/url"
     "bytes"
+    "strings"
     "fmt"
-    "bufio"
     "time"
     "os"
     "errors"
@@ -23,12 +23,29 @@ type DynamicTemplater interface{
     Parse(r io.Reader) (err error)																				// 解析
     Execute(out io.Writer, dot interface{}) error																// 执行
 }
-type DynamicTemplateFunc func() DynamicTemplater
+type DynamicTemplateFunc func(*ServerHandlerDynamic) DynamicTemplater
 
 //web错误调用
 func webError(rw http.ResponseWriter, v ...interface{}) {
    	//500 服务器遇到了意料不到的情况，不能完成客户的请求。
     http.Error(rw, fmt.Sprint(v...), http.StatusInternalServerError)
+}
+
+type serverHandlerDynamicParseReplace struct{
+	io.Reader
+	name string
+	replaceParse func(name string, p []byte) []byte
+}
+func (T *serverHandlerDynamicParseReplace) Read(p []byte)(n int, err error){
+	b := make([]byte, len(p))
+	n, err = T.Reader.Read(b)
+	if n > 0 {
+		if T.replaceParse != nil {
+			b =T.replaceParse(T.name, b[:n])
+		}
+		copy(p[:], b[:n])
+	}
+	return
 }
 
 //ServerHandlerDynamic 处理动态页面文件
@@ -38,12 +55,13 @@ type ServerHandlerDynamic struct {
     PagePath  			string																// 主模板文件路径
 
     //可选的
-    BuffSize			int64																// 缓冲块大小
+    BuffSize			int																	// 缓冲块大小
     Site        		*Site																// 网站配置
 	Context				context.Context														// 上下文
 	Plus				map[string]DynamicTemplateFunc										// 支持更动态文件类型
 	StaticAt			func(u *url.URL, r io.Reader, l int) (int, error)					// 静态结果。仅在 .ServeHTTP 方法中使用
 	ReadFile			func(u *url.URL, filePath string) (io.Reader, time.Time, error)				// 读取文件。仅在 .ServeHTTP 方法中使用
+	ReplaceParse		func(name string, p []byte) []byte
    	exec				DynamicTemplater
    	modeTime			time.Time
 }
@@ -98,10 +116,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	}
 	if T.exec == nil {
 	    //解析模板内容
-	    buf := bytes.NewBuffer(nil)
-	    buf.Grow(1024)
-	    buf.ReadFrom(tmplread)
-		err = T.Parse(buf)
+		err = T.Parse(tmplread)
 	    if err != nil {
 	    	webError(rw, err.Error())
 	        return
@@ -160,7 +175,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 //	error					错误
 func (T *ServerHandlerDynamic) ParseText(name, content string) error {
 	T.PagePath = name
-	r := bytes.NewBufferString(content)
+	r := strings.NewReader(content)
 	return T.Parse(r)
 }
 
@@ -168,7 +183,6 @@ func (T *ServerHandlerDynamic) ParseText(name, content string) error {
 //	path string			模板文件路径，如果为空，默认使用RootPath,PagePath字段
 //	error				错误
 func (T *ServerHandlerDynamic) ParseFile(path string) error {
-
 	if path == "" {
 		path = filepath.Join(T.RootPath, T.PagePath)
 	}else if !filepath.IsAbs(path) {
@@ -184,24 +198,23 @@ func (T *ServerHandlerDynamic) ParseFile(path string) error {
 	if err != nil {
 		return err
 	}
+
 	r := bytes.NewBuffer(b)
 	return T.Parse(r)
 }
 
 //Parse 解析模板
-//	bufr *bytes.Reader	模板内容
+//	r io.Reader			模板内容
 //	error				错误
 func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 	if T.PagePath == "" {
     	return verror.TrackError("vweb: ServerHandlerDynamic.PagePath is not a valid path")
 	}
 	
-	var bufr, ok = r.(*bytes.Buffer)
-	if !ok {
-		bufr = bytes.NewBuffer(nil)
-		bufr.Grow(1024)
-		bufr.ReadFrom(r)
-	}
+	bufr := bytes.NewBuffer(nil)
+	bufr.Grow(T.BuffSize)
+	bufr.ReadFrom(&serverHandlerDynamicParseReplace{Reader:r, name:T.PagePath, replaceParse:T.ReplaceParse})
+	
     //文件首行
     firstLine, err := bufr.ReadBytes('\n')
     if err != nil || len(firstLine) == 0 {
@@ -221,7 +234,7 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
     case "//template":
         var shdt = &serverHandlerDynamicTemplate{}
 		shdt.SetPath(T.RootPath, T.PagePath)
-        err = shdt.Parse(bufio.NewReader(bufr))
+        err = shdt.Parse(bufr)
         if err != nil {
         	return
         }
@@ -231,9 +244,9 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
     		return errors.New("vweb: The file type of the first line of the file is not recognized")
     	}
 		if plus, ok := T.Plus[dynmicType[2:]]; ok {
-			shdt := plus()
+			shdt := plus(T)
 			shdt.SetPath(T.RootPath, T.PagePath)
-			err = shdt.Parse(bufio.NewReader(bufr))
+			err = shdt.Parse(bufr)
 	        if err != nil {
 	        	return
 	        }
