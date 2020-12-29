@@ -76,10 +76,45 @@ func Test_DepthField(t *testing.T) {
     }
 }
 
+func Test_CopyStruct(t *testing.T){
+	a := A{
+		B:B{
+			F:map[string]string{"2":"2"},
+		},
+	}
+	b := A{
+		B:B{
+			C:&C{D:1},
+			F:map[string]string{"1":"1"},
+		},
+	}
+	if err := CopyStruct(&a, &b, nil); err != nil {
+		t.Fatal(err)
+	}
+	
+	if !reflect.DeepEqual(&a, &b) {
+		t.Fatal("复制失败")
+	}
+	delete(b.B.F, "1")
+	
+	if a.B.C != b.B.C {
+		t.Fatal("复制失败")
+	}
+	
+	if !reflect.DeepEqual(&a, &b) {
+		t.Fatal("复制失败")
+	}
+	
+	delete(a.B.F, "1")
+	a.B.C.D=2
+	if !reflect.DeepEqual(&a, &b) {
+		t.Fatal("复制失败")
+	}
+}
+
 func Test_CopyStructDeep(t *testing.T){
 	a := A{
 		B:B{
-			C:&C{},
 			F:map[string]string{"2":"2"},
 		},
 	}
@@ -94,25 +129,24 @@ func Test_CopyStructDeep(t *testing.T){
 	}
 	
 	if len(a.B.F) != 2 {
-		t.Fatal("复制失败-0")
+		t.Fatal("复制失败")
 	}
 	delete(a.B.F, "2")
 	
 	if !reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败-1")
+		t.Fatal("复制失败")
 	}
 	delete(b.B.F, "1")
+	
 	if reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败-2")
+		t.Fatal("复制失败")
 	}
+	
 	delete(a.B.F, "1")
 	a.B.C.D=2
 	if reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败-3")
+		t.Fatal("复制失败")
 	}
-	
-	
-	
 }
 
 

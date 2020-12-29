@@ -27,7 +27,7 @@ import (
 )
 
 //默认4K
-var defaultDataBufioSize int64 = 4096
+var defaultDataBufioSize int = 4096
 var Version	string = "Server/2.0.x"
 
 //响应完成设置

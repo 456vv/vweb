@@ -2,9 +2,8 @@ package main
 
 import (
 	"sync"
-	"bufio"
+	"io"
 	"io/ioutil"
-	"bytes"
 	"path/filepath"
 	"errors"
 	"github.com/mattn/anko/env"
@@ -66,7 +65,7 @@ func (T *serverHandlerDynamicAnko) SetPath(root, page string){
     T.name = filepath.Base(page)
 }
 
-func (T *serverHandlerDynamicAnko) Parse(r *bufio.Reader) (err error) {
+func (T *serverHandlerDynamicAnko) Parse(r io.Reader) (err error) {
 	contact, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
@@ -89,7 +88,7 @@ func (T *serverHandlerDynamicAnko) parse(script string) error {
 	return nil
 }
 
-func (T *serverHandlerDynamicAnko) Execute(out *bytes.Buffer, in interface{}) (err error) {
+func (T *serverHandlerDynamicAnko) Execute(out io.Writer, in interface{}) (err error) {
 	if T.stmt == nil {
 		return errors.New("The template has not been parsed and is not available!")
 	}
@@ -113,7 +112,7 @@ func (T *serverHandlerDynamicAnko) Execute(out *bytes.Buffer, in interface{}) (e
 	}
 	if out != nil && retn != nil {
 		if sv, ok := retn.(string); ok {
-			out.WriteString(sv)
+			io.WriteString(out, sv)
 		}
 	}
 	return nil

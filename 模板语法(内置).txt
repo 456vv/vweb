@@ -16,7 +16,10 @@ ForMethod(x interface{}) string
 ForType(x interface{}, all bool) string
 InDirect(v reflect.Value) reflect.Value
 DepthField(v ...interface{})
-GoTypeTo(v reflect.Value) func(typ ...interface{})
+CopyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool) error
+CopyStructDeep(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool) error
+GoTypeTo(v interface{}, args...interface{}) func(typ ...interface{})
+GoTypeInit(v interface{}, args...interface{})
 Value(v) reflect.Value
 _Value_(s []reflect.Value, v ...reflect.Value) []reflect.Value
 Call(f interface{}, args ...interface{}) ([]interface{}, error)

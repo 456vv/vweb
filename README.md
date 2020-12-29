@@ -6,7 +6,7 @@ golang vweb, 简单的web服务器。
 ```go
 Constants
 const (
-    Version string = "VWEB/v2.3.x"                                                                                  // 版本号
+    Version string = "VWEB/v2.4.x"                                                                                  // 版本号
 )
 Variables
 var DefaultSitePool = NewSitePool()                                                                                 // 网站池（默认）
@@ -48,8 +48,8 @@ type DynamicTemplater interface {                                               
     ParseFile(path string) error                                                                                    // 解析文件
     ParseText(content, name string) error                                                                           // 解析文本
     SetPath(rootPath, pagePath string)                                                                              // 设置路径
-    Parse(r *bufio.Reader) (err error)                                                                              // 解析
-    Execute(out *bytes.Buffer, dot interface{}) error                                                               // 执行
+    Parse(r io.Reader) (err error)                                                                                  // 解析
+    Execute(out io.Writer, dot interface{}) error                                                                   // 执行
 }
 type DynamicTemplateFunc func() DynamicTemplater                                                                // 动态模板方法
 type Forward struct {                                                                                           // 转发
@@ -123,21 +123,22 @@ type ServerHandlerDynamic struct {                                              
     PagePath string                                                                                                 // 主模板文件路径
 
     //可选的
-    BuffSize int64                                                                                                  // 缓冲块大小
+    BuffSize int                                                                                                    // 缓冲块大小
     Site     *Site                                                                                                  // 网站配置
     Context  context.Context                                                                                        // 上下文。仅在 .ServeHTTP 方法中使用
     Plus     map[string]DynamicTemplateFunc                                                                         // 支持更动态文件类型
     StaticAt func(u *url.URL, r io.Reader, l int) (int, error)                                                      // 静态结果。仅在 .ServeHTTP 方法中使用
+    ReadFile func(u *url.URL, filePath string) (io.Reader, time.Time, error)                                        // 读取文件。仅在 .ServeHTTP 方法中使用
 }
-    func (T *ServerHandlerDynamic) Execute(bufw *bytes.Buffer, dock interface{}) (err error)                        // 执行模板
-    func (T *ServerHandlerDynamic) Parse(bufr *bytes.Buffer) (err error)                                            // 解析模板
+    func (T *ServerHandlerDynamic) Execute(bufw io.Writer, dock interface{}) (err error)                            // 执行模板
+    func (T *ServerHandlerDynamic) Parse(bufr io.Reader) (err error)                                                // 解析模板
     func (T *ServerHandlerDynamic) ParseFile(path string) error                                                     // 解析模板文件
     func (T *ServerHandlerDynamic) ParseText(content, name string) error                                            // 解析模板文本
     func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request)                             // 服务HTTP
 type ServerHandlerStatic struct {                                                                               // 静态
     RootPath, PagePath string                                                                                       // 根目录, 页路径
     PageExpired        int64                                                                                        // 页面过期时间（秒为单位）
-    BuffSize           int64                                                                                        // 缓冲块大小
+    BuffSize           int                                                                                          // 缓冲块大小
 }
     func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Request)                              // 服务HTTP
 type Session struct {                                                                                           // 会话
@@ -196,7 +197,7 @@ type SitePool struct {}                                                         
 type TemplateDot struct {                                                                                       // 模板点
     R        *http.Request                                                                                          // 请求
     W        http.ResponseWriter                                                                                    // 响应
-    BuffSize int64                                                                                                  // 缓冲块大小
+    BuffSize int                                                                                                    // 缓冲块大小
     Site     *Site                                                                                                  // 网站配置
     Writed   bool                                                                                                   // 表示已经调用写入到客户端。这个是只读的
 }
@@ -228,4 +229,11 @@ type TemplateDoter interface {                                                  
     Defer(call interface{}, args ...interface{}) error                                                              // 退回调用
     DotContexter
 }
+type ServerHandlerDynamicTemplateExtend struct{                                                                 // 模板扩展
+    *template.Template                                                                                              // 模板对象
+}
+func (T *ServerHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)          // 创建新函数
+func (T *ServerHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{}   // 执行新函数
+func (T *ServerHandlerDynamicTemplateExtend) ExecuteTemplate(out io.Writer, name string, in interface{}) error                  // 执行新模板
+
 ```

@@ -9,6 +9,7 @@ import(
     "strings"
     "errors"
     "os"
+    "io"
     "reflect"
     "context"
 )
@@ -17,6 +18,7 @@ var errTemplateNotParse =  errors.New("vweb: The template has not been parsed ye
 
 //标头-模本-处理动态页面文件
 type shdtHeader struct{
+	P						*ServerHandlerDynamic
     filePath        		[]string                              			                // 文件路径, map[文件名或别名]文件路径
     delimLeft,delimRight    string                                                          // 语法识别符
 }
@@ -47,6 +49,9 @@ func (h *shdtHeader) openIncludeFile(rootPath, pagePath string) (map[string]stri
 			return nil, fmt.Errorf("vweb: Dynamically embedded template file read failed(%s)", err.Error())
 		}
 		fileBase = filepath.Base(filePath)
+		if h.P.ReplaceParse != nil {
+			c = h.P.ReplaceParse(filePath, c)
+		}
 		fileContent[fileBase] = string(c)
 	}
 	return fileContent, nil
@@ -55,17 +60,20 @@ func (h *shdtHeader) openIncludeFile(rootPath, pagePath string) (map[string]stri
 
 //serverHandlerDynamicTemplate 模本-处理动态页面文件
 type serverHandlerDynamicTemplate struct {
+	P					*ServerHandlerDynamic
 	rootPath			string																// 文件目录
 	pagePath			string																// 文件名称
  	
  	fileName			string
 	t 					*template.Template
 }
+
 func (T *serverHandlerDynamicTemplate) ParseText(name, content string) error {
 	T.fileName = name
-	r := bufio.NewReader(strings.NewReader(content))
+	r := strings.NewReader(content)
 	return T.Parse(r)
 }
+
 func (T *serverHandlerDynamicTemplate) ParseFile(path string) error {
 	//文件名
 	file, err := os.Open(path)
@@ -78,10 +86,11 @@ func (T *serverHandlerDynamicTemplate) ParseFile(path string) error {
 	if err != nil {
 		return err
 	}
-	r := bufio.NewReader(bytes.NewBuffer(b))
 	T.fileName = filepath.Base(path)
+	r := bytes.NewReader(b)
 	return T.Parse(r)
 }
+
 func (T *serverHandlerDynamicTemplate) SetPath(root, page string) {
 	T.rootPath = root
 	T.pagePath = page
@@ -89,7 +98,8 @@ func (T *serverHandlerDynamicTemplate) SetPath(root, page string) {
     	T.fileName = filepath.Base(T.pagePath)
     }
 }
-func (T *serverHandlerDynamicTemplate) Parse(r *bufio.Reader) (err error) {
+
+func (T *serverHandlerDynamicTemplate) Parse(rd io.Reader) (err error) {
 	var(
 		h			shdtHeader                          //文件头
 		c			string                              //内容
@@ -98,6 +108,7 @@ func (T *serverHandlerDynamicTemplate) Parse(r *bufio.Reader) (err error) {
 	)
 	
 	//解析文件头和主体数据
+	r := bufio.NewReader(rd)
     h, c, err = T.separation(r)
     if err != nil {
         return
@@ -124,13 +135,14 @@ func (T *serverHandlerDynamicTemplate) Parse(r *bufio.Reader) (err error) {
     T.t, err = T.loadTmpl(h.delimLeft, h.delimRight, t, libs)
     return
 }
-func (T *serverHandlerDynamicTemplate) Execute(out *bytes.Buffer, in interface{}) error {
+
+func (T *serverHandlerDynamicTemplate) Execute(out io.Writer, in interface{}) error {
 	if T.t == nil {
 		return errTemplateNotParse
 	}
     //执行模板
     if tdot, ok := in.(DotContexter); ok {
-    	tdot.WithContext(context.WithValue(tdot.Context(), "Template", &serverHandlerDynamicTemplateExtend{t:T.t}))
+    	tdot.WithContext(context.WithValue(tdot.Context(), "Template", &ServerHandlerDynamicTemplateExtend{Template:T.t}))
     }
 	return T.t.ExecuteTemplate(out, T.fileName, in)
 }
@@ -143,6 +155,7 @@ func (T *serverHandlerDynamicTemplate) separation(buf *bufio.Reader) (shdtHeader
     var (
         line	[]byte
 		h		= shdtHeader{
+			P			: T.P,
             delimLeft   : "{{",
             delimRight  : "}}",
         }
@@ -185,6 +198,7 @@ func (T *serverHandlerDynamicTemplate) separation(buf *bufio.Reader) (shdtHeader
     if err != nil {
     	return shdtHeader{}, "", fmt.Errorf("vweb: Error reading file body data(%s)", err.Error())
     }
+    
     return h, string(b), nil
 }
 
@@ -301,22 +315,23 @@ func (T *part) Result(out ...interface{}){
 
 //这是个额外扩展，由于模板不能实现函数创建，只能在这里构造一个支持创建函数。
 //在创建的函数内部，需要使用 Args 方法读取参数，使用 Result 方法返回结果。
-type serverHandlerDynamicTemplateExtend struct{
-	t *template.Template
+//仅限用于template模板，自定义模板不支持
+type ServerHandlerDynamicTemplateExtend struct{
+	*template.Template
 }
 
 //NewFunc 构建一个新的函数，仅限在template中使用
 //	func([]reflect.Value) []reflect.Value)	新的函数
-func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error) {
-	if T.t == nil {
+func (T *ServerHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error) {
+	if T.Template == nil {
 		return nil, errTemplateNotParse
 	}
-	if T.t.Lookup(name) == nil {
+	if T.Template.Lookup(name) == nil {
 		return nil, fmt.Errorf("vweb: Template content not found {{define \"%s\"}} ... {{end}} , Calling this method does not support", name)
 	}
 	return func(in []reflect.Value) []reflect.Value {
 		p := &part{input: in,}
-		err := T.t.ExecuteTemplate(ioutil.Discard, name, p)
+		err := T.Template.ExecuteTemplate(ioutil.Discard, name, p)
 		if err != nil {
 			panic(err)
 		}
@@ -328,7 +343,7 @@ func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]refl
 //	f func([]reflect.Value) []reflect.Value	由NewFunc创建的函数
 //	args ...interface{}						可变参数
 //	[]interface{}							返回结果
-func (T *serverHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{} {
+func (T *ServerHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{} {
 	var(
 		inv []reflect.Value
 		ret	[]interface{}
@@ -350,4 +365,23 @@ func (T *serverHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []refl
 		}
 	}
 	return ret
+}
+
+//ExecuteTemplate 调用模板
+//	out io.Writer	模板内容返回内容写入到out
+//	name string		模板名称
+//	in interface{}	模板点，带外模板的内容
+//	error			执行语法错误
+func (T *ServerHandlerDynamicTemplateExtend) ExecuteTemplate(out io.Writer, name string, in interface{}) error {
+	if T.Template == nil {
+		return errTemplateNotParse
+	}
+ 	if T.Template.Lookup(name) == nil {
+		return fmt.Errorf("vweb: Template content not found {{define \"%s\"}} ... {{end}} , Calling this method does not support", name)
+	}
+   //执行模板
+    if tdot, ok := in.(DotContexter); ok {
+    	tdot.WithContext(context.WithValue(tdot.Context(), "Template", &ServerHandlerDynamicTemplateExtend{Template:T.Template}))
+    }
+	return T.Template.ExecuteTemplate(out, name, in)
 }

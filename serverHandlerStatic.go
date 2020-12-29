@@ -143,7 +143,7 @@ func (T *serverHandlerStaticHeader) setPageExpired(pageExpired int64) {
 type ServerHandlerStatic struct{
     RootPath, PagePath  string          			// 根目录, 页路径
 	PageExpired			int64						// 页面过期时间（秒为单位）
-	BuffSize			int64						// 缓冲块大小
+	BuffSize			int							// 缓冲块大小
     fileInfo        	os.FileInfo         		// 文件基本信息
 }
 

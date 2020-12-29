@@ -1,7 +1,7 @@
 package builtin
 
 // &&
-func And(arg0 interface{}, args ...interface{}) interface{} {
+func And(arg0 interface{}, args ...interface{}) bool {
 	ok := Bool(arg0)
 	if !ok {
 		return ok
@@ -16,7 +16,7 @@ func And(arg0 interface{}, args ...interface{}) interface{} {
 }
 
 // ||
-func Or(arg0 interface{}, args ...interface{}) interface{} {
+func Or(arg0 interface{}, args ...interface{}) bool {
 	ok := Bool(arg0)
 	if ok {
 		return ok
@@ -31,18 +31,19 @@ func Or(arg0 interface{}, args ...interface{}) interface{} {
 }
 
 // !1
-func Not(a interface{}) interface{} {
+func Not(a interface{}) bool {
 	switch  a1 := a.(type) {
 	case bool:
 		return !a1
 	case int:
 		return a1 == 0
 	}
-	return panicUnsupportedOp1("!", a)
+	panicUnsupportedOp1("!", a)
+	return false
 }
 
 // a < b
-func LT(a, b interface{}) interface{} {
+func LT(a, b interface{}) bool {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -63,11 +64,12 @@ func LT(a, b interface{}) interface{} {
 			return a1 < b1
 		}
 	}
-	return panicUnsupportedOp2("<", a, b)
+	panicUnsupportedOp2("<", a, b)
+	return false
 }
 
 // a > b
-func GT(a, b interface{}) interface{} {
+func GT(a, b interface{}) bool {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -88,11 +90,12 @@ func GT(a, b interface{}) interface{} {
 			return a1 > b1
 		}
 	}
-	return panicUnsupportedOp2(">", a, b)
+	panicUnsupportedOp2(">", a, b)
+	return false
 }
 
 // a <= b
-func LE(a, b interface{}) interface{} {
+func LE(a, b interface{}) bool {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -113,11 +116,12 @@ func LE(a, b interface{}) interface{} {
 			return a1 <= b1
 		}
 	}
-	return panicUnsupportedOp2("<=", a, b)
+	panicUnsupportedOp2("<=", a, b)
+	return false
 }
 
 // a >= b
-func GE(a, b interface{}) interface{} {
+func GE(a, b interface{}) bool {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -138,15 +142,16 @@ func GE(a, b interface{}) interface{} {
 			return a1 >= b1
 		}
 	}
-	return panicUnsupportedOp2(">=", a, b)
+	panicUnsupportedOp2(">=", a, b)
+	return false
 }
 
 // a == b
-func EQ(a, b interface{}) interface{} {
+func EQ(a, b interface{}) bool {
 	return a == b
 }
 
 // a != b
-func NE(a, b interface{}) interface{} {
+func NE(a, b interface{}) bool {
 	return a != b
 }
