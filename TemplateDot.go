@@ -34,7 +34,7 @@ type TemplateDot struct {
     Site       		 	*Site                                                                       // 网站配置
     Writed      		bool                                                                        // 表示已经调用写入到客户端。这个是只读的
     exchange       		vmap.Map                                                                    // 缓存映射
-    ec					exitCall																	// 退回调用函数
+    ec					ExitCall																	// 退回调用函数
     ctx					context.Context																// 上下文
 }
 

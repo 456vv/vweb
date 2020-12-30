@@ -24,7 +24,7 @@ type Sessioner interface {
 type Session struct{
     vmap.Map                                                                                // 数据，用户存储的数据
 	id			string																		// id，给Sessions使用的
-    exitCall	exitCall																	// 退回调用函数
+    ExitCall	ExitCall																	// 退回调用函数
 }
 
 
@@ -43,12 +43,12 @@ func (T *Session) Token() string {
 //	.Defer(fmt.Println, "1", "2")
 //	.Defer(fmt.Printf, "%s", "汉字")
 func (T *Session) Defer(call interface{}, args ... interface{}) error {
-	return T.exitCall.Defer(call, args...)
+	return T.ExitCall.Defer(call, args...)
 }
 
 
 //Free 执行结束Defer和键值有效期
 func (T *Session) Free() {
 	//执行退出函数
-	T.exitCall.Free()
+	T.ExitCall.Free()
 }

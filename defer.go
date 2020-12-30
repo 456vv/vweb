@@ -124,8 +124,8 @@ func (T *execFunc) exec() (ret []interface{}) {
  	return
 }
 
-//exitCall 过期函数
-type exitCall struct {
+//ExitCall 过期函数
+type ExitCall struct {
     // 记录每个用户的函数，会话超时后关闭打开的对象
     efs     []*execFunc
 }
@@ -137,7 +137,7 @@ type exitCall struct {
 //  例：
 //	.Defer(fmt.Println, "1", "2")
 //	.Defer(fmt.Printf, "%s", "汉字")
-func (T *exitCall) Defer(call interface{}, args ... interface{}) error {
+func (T *ExitCall) Defer(call interface{}, args ... interface{}) error {
 	df := new(execFunc)
 	if err := df.add(call, args...); err != nil {
 		return err
@@ -148,7 +148,7 @@ func (T *exitCall) Defer(call interface{}, args ... interface{}) error {
 
 
 //Free 执行结束Defer
-func (T *exitCall) Free() {
+func (T *ExitCall) Free() {
 	for _, ef := range T.efs {
 	 	ef.exec()
 	}
