@@ -1,7 +1,6 @@
 package main
 
 import (
-	"reflect"
 	"text/template"
     "github.com/456vv/vweb/v2/builtin"
     "github.com/pelletier/go-toml"
@@ -14,13 +13,13 @@ return map[string]template.FuncMap{
 		"OrderPreserve":toml.OrderPreserve,
 		"Marshal":toml.Marshal,
 		"Unmarshal":toml.Unmarshal,
-		"Decoder":func(a ...interface{}) (retn *toml.Decoder) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
+		"Decoder":func(a ...interface{}) (retn *toml.Decoder) {builtin.GoTypeTo(&retn)(a...);return retn},
 		"NewDecoder":toml.NewDecoder,
-		"Encoder":func(a ...interface{}) (retn *toml.Encoder) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
+		"Encoder":func(a ...interface{}) (retn *toml.Encoder) {builtin.GoTypeTo(&retn)(a...);return retn},
 		"NewEncoder":toml.NewEncoder,
-		"Position":func(a ...interface{}) (retn *toml.Position) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
-		"SetOptions":func(a ...interface{}) (retn *toml.SetOptions) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
-		"Tree":func(a ...interface{}) (retn *toml.Tree) {builtin.GoTypeTo(reflect.ValueOf(&retn))(a...);return retn},
+		"Position":func(a ...interface{}) (retn *toml.Position) {builtin.GoTypeTo(&retn)(a...);return retn},
+		"SetOptions":func(a ...interface{}) (retn *toml.SetOptions) {builtin.GoTypeTo(&retn)(a...);return retn},
+		"Tree":func(a ...interface{}) (retn *toml.Tree) {builtin.GoTypeTo(&retn)(a...);return retn},
 		"Load":toml.Load,
 		"LoadBytes":toml.LoadBytes,
 		"LoadFile":toml.LoadFile,

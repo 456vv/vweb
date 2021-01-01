@@ -14,7 +14,7 @@ func Test_exitCall_Defer(t *testing.T){
     var test3 = func(a, b string, c []string) bool {return a == "1"}
     var test4 = func() bool {return true}
 
-	ns := exitCall{}
+	ns := ExitCall{}
 	err := ns.Defer(test1, "1", "2", "3")
     if err != nil {t.Fatal(err) }
 
@@ -50,7 +50,7 @@ func Test_exitCall_executeDefer(t *testing.T){
     	ok =true
     	return a == "1"
     }
-	ns := exitCall{}
+	ns := ExitCall{}
 	err := ns.Defer(test1, "1", "2", "3")
     if err != nil {t.Fatal(err) }
 	ns.Free()

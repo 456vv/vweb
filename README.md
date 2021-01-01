@@ -235,5 +235,7 @@ type ServerHandlerDynamicTemplateExtend struct{                                 
 func (T *ServerHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)          // 创建新函数
 func (T *ServerHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{}   // 执行新函数
 func (T *ServerHandlerDynamicTemplateExtend) ExecuteTemplate(out io.Writer, name string, in interface{}) error                  // 执行新模板
-
+type ExitCall struct{}                                                                                                      // 退出函数
+func (T *ExitCall) Defer(call interface{}, args ... interface{}) error                                                          // 装入函数
+func (T *ExitCall) Free()                                                                                                       // 释放函数
 ```

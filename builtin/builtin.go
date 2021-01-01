@@ -29,9 +29,8 @@ func Panic(v interface{}) {
 //Make([T]T, length)
 //Make(Chan, length)
 func Make(typ interface{}, args ...interface{}) interface{} {
-	t := builtinType(typ)
-	v := Value(t)
-	GoTypeTo(v, args...)()
+	v := Value(typ)
+	goTypeInit(v, true, args...)
 	return v.Elem().Interface()
 }
 

@@ -49,7 +49,7 @@ func (h *shdtHeader) openIncludeFile(rootPath, pagePath string) (map[string]stri
 			return nil, fmt.Errorf("vweb: Dynamically embedded template file read failed(%s)", err.Error())
 		}
 		fileBase = filepath.Base(filePath)
-		if h.P.ReplaceParse != nil {
+		if h.P != nil && h.P.ReplaceParse != nil {
 			c = h.P.ReplaceParse(filePath, c)
 		}
 		fileContent[fileBase] = string(c)
