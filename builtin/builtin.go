@@ -809,6 +809,7 @@ func goTypeInit(vv reflect.Value, isZero bool, args ...interface{}) {
 			l, c := 0,0
 			if len(args) > 0 {
 				l = args[0].(int)
+				c = l
 			}
 			if len(args) > 1 {
 				c = args[1].(int)
