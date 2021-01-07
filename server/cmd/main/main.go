@@ -1,10 +1,12 @@
 package main
-	
+
 import (
     "github.com/fsnotify/fsnotify"
 	"github.com/456vv/vweb/v2"
     "github.com/456vv/vweb/v2/server"
     "github.com/456vv/vweb/v2/server/watch"
+    "github.com/456vv/x/vweb_dynamic"
+    _ "github.com/456vv/x/vweb_lib"
     "path/filepath"
     "os"
     "flag"
@@ -12,7 +14,7 @@ import (
     "time"
 )
 
-const version = "App/v2.6.0"
+const version = "App/v2.6.1"
 
 var (
 	fRootDir			= flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
@@ -58,12 +60,8 @@ func main(){
 	//服务器
 	serverGroup := server.NewServerGroup()
 	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplateFunc{
-		"ank": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {
-			return &serverHandlerDynamicAnko{}
-		}),
-		"gop": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {
-			return &serverHandlerDynamicGoPlus{}
-		}),
+		"ank": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Anko{}}),
+		"gop": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.GoPlus{}}),
 	}
 	defer serverGroup.Close()
 	

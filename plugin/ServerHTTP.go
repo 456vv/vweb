@@ -40,8 +40,7 @@ func NewServerHTTP() *ServerHTTP {
 //	config *tls.Config          证书配置
 //	files []ServerTLSFile       证书文件
 func (T *ServerHTTP) LoadTLS(config *tls.Config, files []ServerTLSFile) error {
-
-	T.l.tlsconf = config
+	
     for _, file := range files {
 	    cert, err := tls.LoadX509KeyPair(file.CertFile, file.KeyFile)
         if err != nil {
@@ -52,6 +51,7 @@ func (T *ServerHTTP) LoadTLS(config *tls.Config, files []ServerTLSFile) error {
     }
     //多证书
     config.BuildNameToCertificate()
+	T.l.tlsconf = config
     return nil
 }
 
