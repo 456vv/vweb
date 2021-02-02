@@ -735,9 +735,11 @@ func GoTypeTo(v interface{}, args ...interface{}) func(typ ...interface{}) {
 			
 			//将 type 转换到 v
 			av := reflect.ValueOf(a[0])
-			if av.Type().ConvertibleTo(vv.Type()) {
+			avt := av.Type()
+			vvt := vv.Type()
+			if avt.ConvertibleTo(vvt) {
 				//*{} to *{}
-				av = av.Convert(vv.Type())
+				av = av.Convert(vvt)
 				vv.Set(av)
 				return
 			}else if av.Kind() == reflect.Struct {
