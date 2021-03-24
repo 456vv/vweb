@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"time"
+	"bytes"
 )
 
 func main(T vweb.TemplateDoter) string {
@@ -22,6 +23,8 @@ func main(T vweb.TemplateDoter) string {
 	ipb := query.Get("Baddr")
 	porta := query.Get("Aport")
 	portb := query.Get("Bport")
+	verifya := query.Get("Averify")
+	verifyb := query.Get("Bverify")
 	status := query.Get("Status")
 	if network == "" {
 		network = "tcp"
@@ -74,6 +77,25 @@ func main(T vweb.TemplateDoter) string {
 		d2dSwap, d2dSwape := d2d.Transport(addra, addrb)
 		if Error(d2dSwape) {
 			return "准备失败"
+		}
+		d2dSwap.Verify = func(a, b net.Conn) (net.Conn, net.Conn, error){
+			if verifya != ""  {
+				_, ne := a.Write([]byte(verifya))
+				if Error(ne) {
+					a.Close()
+					b.Close()
+					return nil, nil, ne
+				}
+			}
+			if verifyb != ""  {
+				_, ie := b.Write([]byte(verifyb))
+				if Error(ie) {
+					a.Close()
+					b.Close()
+					return nil, nil, ie
+				}
+			}
+			return a, b, nil
 		}
 		G.Set(key+"d2d", d2d)
 		G.Set(key+"d2dSwap", d2dSwap)
