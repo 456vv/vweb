@@ -46,7 +46,7 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
 	
 	fnInLen = fnInLen-1			//函数参数-长度
     var argIndex reflect.Type 	//函数参数-类型
-    var dfarg reflect.Value		//创建一上存放可变参数slice
+    var varArgs reflect.Value		//创建一上存放可变参数slice
     var typeErr bool
     for index, arg := range args {
     	argv := reflect.ValueOf(&arg).Elem().Elem()
@@ -72,9 +72,8 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
 			//最后一个是切片
 			if index == fnInLen && variadic && (argIndex.Elem().Kind() == reflect.Interface || argv.Type().ConvertibleTo(argIndex.Elem())) {
 				//适用func(a interface{}, b ...interface{}) => call(interface{}, interface{})
-				dfarg = reflect.MakeSlice(argIndex, 0, 0)
-				dfarg = reflect.Append(dfarg, argv)
-        		T.arg = append(T.arg, dfarg)
+				varArgs = reflect.MakeSlice(argIndex, 0, 0)
+				varArgs = reflect.Append(varArgs, argv)
 				continue
     		}
     		
@@ -84,10 +83,10 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
         
         //可变参数+1...
         if !typeErr {
-        	if dfarg.Kind() != reflect.Invalid {
+        	if varArgs.Kind() != reflect.Invalid {
 	        	if argIndex.Elem().Kind() == reflect.Interface || (argIndex.Elem().Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex.Elem())) {
 		        		//适用func(a interface{}, b ...interface{}) => call(interface{}, interface{}, interface{})
-		         		dfarg = reflect.Append(dfarg, argv)
+		         		varArgs = reflect.Append(varArgs, argv)
 	         			continue
 	        	}
         	}
@@ -99,11 +98,13 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
     }
     
     //调用没有传入可变参数
-    if variadic && (ft.NumIn()-argLen) == 1 && dfarg.Kind() == reflect.Invalid {
-    	dfarg = reflect.MakeSlice(ft.In(fnInLen), 0, 0)
-    	T.arg = append(T.arg, dfarg)
+    if variadic {
+    	if (ft.NumIn()-argLen) == 1 && varArgs.Kind() == reflect.Invalid {
+    		varArgs = reflect.MakeSlice(ft.In(fnInLen), 0, 0)
+    	}
+   		T.arg = append(T.arg, varArgs)
     }
-	
+    
     T.fun = fn
     T.argVariadic = variadic
     return nil
