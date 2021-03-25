@@ -1,3 +1,5 @@
+go mod tidy
+
 set GOOS=windows
 set GOARCH=amd64
 go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w" ./

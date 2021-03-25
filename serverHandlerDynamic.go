@@ -43,7 +43,7 @@ type ServerHandlerDynamic struct {
 	Context				context.Context														// 上下文
 	Plus				map[string]DynamicTemplateFunc										// 支持更动态文件类型
 	StaticAt			func(u *url.URL, r io.Reader, l int) (int, error)					// 静态结果。仅在 .ServeHTTP 方法中使用
-	ReadFile			func(u *url.URL, filePath string) (io.Reader, time.Time, error)				// 读取文件。仅在 .ServeHTTP 方法中使用
+	ReadFile			func(u *url.URL, filePath string) (io.Reader, time.Time, error)		// 读取文件。仅在 .ServeHTTP 方法中使用
 	ReplaceParse		func(name string, p []byte) []byte
    	exec				DynamicTemplater
    	modeTime			time.Time

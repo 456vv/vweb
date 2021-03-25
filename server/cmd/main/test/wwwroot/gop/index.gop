@@ -1,0 +1,14 @@
+//gop
+//file=a.gop
+//file=b.gop
+
+import(
+	vweb "github.com/456vv/vweb/v2"
+	"fmt"
+)
+
+func main(T vweb.TemplateDoter) string {
+    var i *int
+	fmt.Println(B(&i))
+	return A()
+}

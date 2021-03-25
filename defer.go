@@ -96,15 +96,19 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
 	    	return verror.TrackErrorf("vweb: 传入参数类型与调用函数参数类型不符，第(%d)个参数，函数参数类型为（%s），传入类型为（%s）。", index+1, argIndex.Kind(), argv.Kind())
 	    }
     }
-    
     //调用没有传入可变参数
     if variadic {
+    	//1，函数参数-输入参数=1，表示没有设置可变参数
+    	//2，判断 varArgs 上面没有初始化，否则创建一个空的可变参数
     	if (ft.NumIn()-argLen) == 1 && varArgs.Kind() == reflect.Invalid {
     		varArgs = reflect.MakeSlice(ft.In(fnInLen), 0, 0)
     	}
-   		T.arg = append(T.arg, varArgs)
+    	//1，仅对有效 varArgs 追加
+    	if varArgs.Kind() != reflect.Invalid {
+   			T.arg = append(T.arg, varArgs)
+    	}
     }
-    
+
     T.fun = fn
     T.argVariadic = variadic
     return nil

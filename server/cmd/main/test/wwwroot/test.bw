@@ -1,0 +1,48 @@
+//template
+
+//    Import(pkg string) map[string]interface{}                                                  // 调用包函数
+//    Request() *http.Request                                                                 // 用户的请求信息
+//    RequestLimitSize(l int64) *http.Request                                                 // 请求限制大小
+//    Header() http.Header                                                                    // 标头
+//    Response() Responser                                                                    // 数据写入响应
+//    ResponseWriter() http.ResponseWriter                                                    // 数据写入响应
+//    Session() Sessioner                                                                     // 用户的会话缓存
+//    Global() Globaler                                                                       // 全站缓存
+//    Cookie() Cookier                                                                        // 用户的Cookie
+
+{{
+	$os := Import "os"
+	$osPipe := call $os.Pipe
+	println $osPipe
+	$writer := index $osPipe 0
+	$reader := index $osPipe 1
+	$error := index $osPipe 2
+	println $error
+	println $reader.Name
+	println $writer.Name
+}}
+<br/>
+{{
+	$reflect := Import "reflect"
+	$reflectValue := call $reflect.ValueOf .Request
+	println	$reflectValue
+	$reflectValue = $reflectValue.Elem
+	$method := $reflectValue.FieldByName "Method"
+	$method.SetString "POST"
+	println $method
+}}
+<br/>
+{{.Request}}
+<br/>
+{{.Header}}
+<br/>
+{{.Response}}
+<br/>
+{{.Session}}
+<br/>
+{{.Global}}
+<br/>
+{{.Cookie}}
+<br/>
+{{.Swap}}
+<br/>

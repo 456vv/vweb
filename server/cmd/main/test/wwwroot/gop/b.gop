@@ -1,0 +1,3 @@
+func B(v interface{}) interface{} {
+	return v
+}
