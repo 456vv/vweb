@@ -10,6 +10,7 @@ import (
     "os"
     "path/filepath"
 	"github.com/456vv/vweb/v2"
+	"github.com/456vv/vweb/v2/server/config"
 )
 
 
@@ -62,7 +63,7 @@ func Test_NewServerGroup_1(t *testing.T){
 		time.AfterFunc(time.Second, func(){
 	        sg.Close()
 	    })
-	    file := "./test/config.json"
+	    file := "./config/test/config.json"
 	    _, _, err := sg.LoadConfigFile(file)
 	    if(err != nil){
 	        t.Fatalf("挂载文件失败：%s", err)
@@ -77,7 +78,7 @@ func Test_NewServerGroup_1(t *testing.T){
 func Test_NewServerGroup_2(t *testing.T){
 
     sg := NewServerGroup()
-    osFile, err := os.Open("./test/config.json")
+    osFile, err := os.Open("./config/test/config.json")
     if err != nil {
     	t.Fatal(err)
     }
@@ -86,8 +87,8 @@ func Test_NewServerGroup_2(t *testing.T){
     	t.Fatal(err)
     }
     buf := bytes.NewBuffer(b)
-    conf    := &Config{}
-    err = ConfigDataParse(conf, buf)
+    conf    := &config.Config{}
+    err = config.ConfigDataParse(conf, buf)
     if(err != nil){
         t.Fatal(err)
     }
@@ -117,9 +118,9 @@ func Test_NewServerGroup_3(t *testing.T){
 	serv := sg.newServer("127.0.0.1:0")
 	serv.init()
 	
-	var forward = map[string]ConfigSiteForward{
-		"127.0.0.1:1234":ConfigSiteForward{
-			List:[]ConfigSiteForwards{
+	var forward = map[string]config.ConfigSiteForward{
+		"127.0.0.1:1234":config.ConfigSiteForward{
+			List:[]config.ConfigSiteForwards{
 				{
 				Status: true,
 				Path:[]string{".*"},
@@ -130,8 +131,8 @@ func Test_NewServerGroup_3(t *testing.T){
 				},
 			},
 		},
-		"11.0.0.1:11":ConfigSiteForward{
-			List:[]ConfigSiteForwards{
+		"11.0.0.1:11":config.ConfigSiteForward{
+			List:[]config.ConfigSiteForwards{
 				{
 				Status: true,
 				Path:[]string{".*"},
@@ -149,7 +150,7 @@ func Test_NewServerGroup_3(t *testing.T){
 		
 	    urlPath	:= r.URL.Path
 	    if  len(forward) != 0 {
-	        var forwardC ConfigSiteForward
+	        var forwardC config.ConfigSiteForward
 	        derogatoryDomain(r.Host, func(h string) (ok bool){
 	        	forwardC, ok = forward[h]
 	            return
@@ -188,7 +189,7 @@ func Test_NewServerGroup_3(t *testing.T){
 func Test_ServerGroup_LoadConfigFile(t *testing.T){
 	sg := NewServerGroup()
     defer sg.Close()
-    file := "./test/config.json"
+    file := "./config/test/config.json"
     conf, _, err := sg.LoadConfigFile(file)
     if err == nil && sg.config == nil {
         t.Fatalf("加载配置文件错误：%s", file)
@@ -266,61 +267,61 @@ func Test_ServerGroup_httpTypeByExtension1(t *testing.T){
 func Test_ConfigSiteDirectory_RootDir(t *testing.T){
     tests := []struct {
         r       *http.Request
-    	conf    *ConfigSiteDirectory
+    	conf    *config.ConfigSiteDirectory
         root    string
     }{
         {
             r:&http.Request{URL:&url.URL{Path:"/A/B/C"}},
-            conf:&ConfigSiteDirectory{
+            conf:&config.ConfigSiteDirectory{
             	Root:"G:/123/456/789",
                 Virtual:[]string{"D:/123/456/A","G:/abc", "C:/abc"},
             },
             root:"D:/123/456",
         },{
             r:&http.Request{URL:&url.URL{Path:"/abc"}},
-            conf:&ConfigSiteDirectory{
+            conf:&config.ConfigSiteDirectory{
             	Root:"/123/456/789",
                 Virtual:[]string{"/abc"},
             },
             root:"/",
         },{
             r:&http.Request{URL:&url.URL{Path:"/abc"}},
-            conf:&ConfigSiteDirectory{
+            conf:&config.ConfigSiteDirectory{
             	Root:"/123/456/789",
                 Virtual:[]string{"aaa/bbbb/abc"},
             },
             root:"aaa/bbbb",
         },{
             r:&http.Request{URL:&url.URL{Path:"/"}},
-            conf:&ConfigSiteDirectory{
+            conf:&config.ConfigSiteDirectory{
             	Root:"G:/123/456/789",
                 Virtual:[]string{"G:/abc", "C:/abc"},
             },
             root:"G:/123/456/789",
         },{
             r:&http.Request{URL:&url.URL{Path:"/A/B/C"}},
-            conf:&ConfigSiteDirectory{
+            conf:&config.ConfigSiteDirectory{
             	Root:"G:/123/456/789",
                 Virtual:[]string{"G:/abc", "C:/abc", "D:/123/456/A"},
             },
             root:"D:/123/456",
         },{
             r:&http.Request{URL:&url.URL{Path:"/A/B/C/"}},
-            conf:&ConfigSiteDirectory{
+            conf:&config.ConfigSiteDirectory{
             	Root:"G:/123/456/789",
                 Virtual:[]string{"G:/abc", "C:/abc", "D:/123/456/A"},
             },
             root:"D:/123/456",
         },{
             r:&http.Request{URL:&url.URL{Path:"/B/C/"}},
-            conf:&ConfigSiteDirectory{
+            conf:&config.ConfigSiteDirectory{
             	Root:"G:/123/456/789",
                 Virtual:[]string{":/abc", "C:/abc", "D:/123/---/B"},
             },
             root:"D:/123/---",
         },{
             r:&http.Request{URL:&url.URL{Path:"/B/C/"}},
-            conf:&ConfigSiteDirectory{
+            conf:&config.ConfigSiteDirectory{
             	Root:"",
                 Virtual:[]string{},
             },
@@ -333,41 +334,41 @@ func Test_ConfigSiteDirectory_RootDir(t *testing.T){
         	t.Fatalf("%d,返回根目录和预先设定的不匹配。返回（%s），预先（%s）", i, root,filepath.FromSlash(test.root))
         }
     }
-
 }
 
 func Test_Server_ConfigServer(t *testing.T){
     tempDir := os.TempDir()
     fileCert := filepath.Join(tempDir, "fileCert.pem")
-    os.Remove(fileCert)
+    
     filec, err := os.OpenFile(fileCert, os.O_CREATE|os.O_RDWR, 0777)
     if err != nil {
     	t.Fatal(err)
     }
     filec.Write([]byte(testCert))
     filec.Close()
+    defer os.RemoveAll(fileCert)
 
     fileKey := filepath.Join(tempDir, "fileCert.key")
-    os.Remove(fileKey)
     filec, err = os.OpenFile(fileKey, os.O_CREATE|os.O_RDWR, 0777)
     if err != nil {
     	t.Fatal(err)
     }
     filec.Write([]byte(testKey))
     filec.Close()
+    defer os.RemoveAll(fileKey)
 
 	var srv = new(Server)
-    cstlsf1 := ConfigServerTLSFile{
+    cstlsf1 := config.ConfigServerTLSFile{
         CertFile    : fileCert,
         KeyFile     : fileKey,
     }
-    cstlsf2 := ConfigServerTLSFile{
+    cstlsf2 := config.ConfigServerTLSFile{
         CertFile    : fileCert,
         KeyFile     : fileKey,
     }
-	CS := &ConfigServer{
-        TLS:&ConfigServerTLS{
-            RootCAs:[]ConfigServerTLSFile{cstlsf1,cstlsf2},
+	CS := &config.ConfigServer{
+        TLS:&config.ConfigServerTLS{
+            RootCAs:[]config.ConfigServerTLSFile{cstlsf1,cstlsf2},
          },
     }
     err = srv.ConfigServer(CS)
@@ -375,13 +376,13 @@ func Test_Server_ConfigServer(t *testing.T){
     	t.Fatal(err)
     }
 	defer srv.Close()
-    if d := len(srv.l.tlsconf.NameToCertificate); d != 4 {
-    	t.Fatalf("证书绑定host 失败，预定4个数量，不正确数量：%d",  d)
+    if d := len(srv.l.tlsconf.NameToCertificate); d != 3 {
+    	t.Fatalf("证书绑定host 失败，预定3个数量，不正确数量：%d",  d)
     }
     
-	CS = &ConfigServer{
-        TLS:&ConfigServerTLS{
-            RootCAs:[]ConfigServerTLSFile{},
+	CS = &config.ConfigServer{
+        TLS:&config.ConfigServerTLS{
+            RootCAs:[]config.ConfigServerTLSFile{},
          },
 	}
     err = srv.ConfigServer(CS)
@@ -396,9 +397,9 @@ func Test_Server_ConfigServer(t *testing.T){
 func Test_Server_updateSitePoolAdd(t *testing.T){
 	var sg = NewServerGroup()
 	sg.sitePool = vweb.DefaultSitePool
-    conf := ConfigSite{
+    conf := config.ConfigSite{
         Identity:"A",
-        Session:ConfigSiteSession{
+        Session:config.ConfigSiteSession{
             Name         : "BB",
             Expired      : 0,
             Size         : 128,
