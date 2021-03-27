@@ -545,7 +545,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
         handlerDynamic.RootPath = rootPath
         handlerDynamic.BuffSize = buffSize
        	handlerDynamic.Site 	= site
-        handlerDynamic.Context 	= context.WithValue(r.Context(), "Plugin", (Pluginer)(se.plugin))
+        handlerDynamic.Context 	= context.WithValue(r.Context(), "Plugin", (config.Pluginer)(se.plugin))
 
         handlerDynamic.ServeHTTP(rw, r)
    }else{
