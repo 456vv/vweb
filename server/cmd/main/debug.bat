@@ -1,5 +1,7 @@
 taskkill /T /F /IM V-WEB-Server-win-amd64.exe
 
+go mod tidy
+
 set GOOS=windows
 set GOARCH=amd64
 go build -gcflags "-N -l" -o bin/V-WEB-Server-win-amd64.exe

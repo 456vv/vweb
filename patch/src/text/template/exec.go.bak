@@ -264,6 +264,7 @@ func (s *state) walk(dot reflect.Value, node parse.Node) {
 		if len(node.Pipe.Decl) == 0 {
 			s.printValue(node, val)
 		}
+	case *parse.CommentNode:
 	case *parse.IfNode:
 		s.walkIfOrWith(parse.NodeIf, dot, node.Pipe, node.List, node.ElseList)
 	case *parse.ListNode:
@@ -378,6 +379,10 @@ func (s *state) walkRange(dot reflect.Value, r *parse.RangeNode) {
 		return
 	case reflect.Chan:
 		if val.IsNil() {
+			break
+		}
+		if val.Type().ChanDir() == reflect.SendDir {
+			s.errorf("range over send-only channel %v", val)
 			break
 		}
 		i := 0
@@ -673,9 +678,9 @@ var (
 	reflectValueType = reflect.TypeOf((*reflect.Value)(nil)).Elem()
 )
 
-// evalCall executes a function or method call. If it's a method, fun already has the receiver bound, so
-// it looks just like a function call. The arg list, if non-nil, includes (in the manner of the shell), arg[0]
-// as the function itself.
+// evalcall执行函数或方法调用。如果它是一种方法，有趣已经有接收者绑定，所以
+// 它看起来就像一个函数调用。 arg列表（如果非Nil）包括（以壳体的方式）, arg[0]
+// 作为功​​能本身。
 func (s *state) evalCall(dot, fun reflect.Value, node parse.Node, name string, args []parse.Node, final reflect.Value) reflect.Value {
 	if args != nil {
 		args = args[1:] // Zeroth arg is function name/node; not passed to function.
@@ -788,7 +793,7 @@ func safeEvalCall(fun reflect.Value, args []reflect.Value, name string) (val ref
         fallthrough
 	default:
 		//多个返回值
-		var cv []reflect.Value
+		var cv []interface{}
 		var results = reflect.ValueOf(&cv).Elem()
 		return reflect.Append(results, ret...), nil
 	}

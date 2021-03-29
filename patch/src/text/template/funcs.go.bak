@@ -309,8 +309,8 @@ func length(item reflect.Value) (int, error) {
 
 // Function invocation
 
-// call returns the result of evaluating the first argument as a function.
-// The function must return 1 result, or 2 results, the second of which is an error.
+// 调用返回将第一个参数作为函数评估的结果。
+// 该函数必须返回1个结果或2个结果，其中第二个是错误。
 func call(fn reflect.Value, args ...reflect.Value) (reflect.Value, error) {
 	fn = indirectInterface(fn)
 	if !fn.IsValid() {
@@ -355,7 +355,7 @@ func call(fn reflect.Value, args ...reflect.Value) (reflect.Value, error) {
 // safeCall runs fun.Call(args), and returns the resulting value and error, if
 // any. If the call panics, the panic value is returned as an error.
 func safeCall(fun reflect.Value, args []reflect.Value) (val reflect.Value, err error) {
-//这里被注释，内部错误和函数返回错误不能混在一起，函数错误可能会打印到页面中去，内部错误不能打印出去。
+//这里被注释，内部错误和函数返回错误不能混在一起，函数错误可能会打印到页面中去，内部z错误不能打印出去。
 //内部错误只能在程序窗口中显示
 //	defer func() {
 //		if r := recover(); r != nil {
@@ -395,7 +395,7 @@ func safeCall(fun reflect.Value, args []reflect.Value) (val reflect.Value, err e
         fallthrough
 	default:
 		//多个返回值
-		var cv []reflect.Value
+		var cv []interface{}
 		var results = reflect.ValueOf(&cv).Elem()
 		return reflect.Append(results, ret...), nil
 	}

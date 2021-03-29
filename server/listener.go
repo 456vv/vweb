@@ -3,11 +3,12 @@ import (
 	"net"
     "time"
     "crypto/tls"
+	"github.com/456vv/vweb/v2/server/config"
 )
 //listener tcp连接保持
 type listener struct {
     *net.TCPListener                	// TCP监听
-    cc		*ConfigConn					// 连接配置
+    cc		*config.ConfigConn			// 连接配置
     tlsconf	*tls.Config
     closed	bool
 }

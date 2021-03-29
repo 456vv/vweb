@@ -32,7 +32,6 @@ func templateFuncMapError(v interface{}) error {
 }
 
 func callMethod(f interface{}, name string, args ...interface{}) ([]interface{}, error) {
-	
 	var isMethodFunc bool
 	vfn := reflect.ValueOf(f)
 	if vfn.Kind() == reflect.Ptr {

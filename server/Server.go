@@ -6,24 +6,25 @@ import (
     "net"
     "net/http"
     "net/url"
-    "crypto/tls"
     "log"
     "time"
+    "io"
     "io/ioutil"
     "bytes"
     "crypto/x509"
+    "crypto/tls"
     "path"
     "path/filepath"
     "os"
-    "io"
     "strconv"
     "mime"
-    "github.com/456vv/vmap/v2"
-    "github.com/456vv/verror"
-    "github.com/456vv/vweb/v2"
     "context"
 	"sync/atomic"
 	"regexp"
+    "github.com/456vv/vmap/v2"
+    "github.com/456vv/verror"
+    "github.com/456vv/vweb/v2"
+    "github.com/456vv/vweb/v2/server/config"
 )
 
 //默认4K
@@ -38,7 +39,7 @@ func (T *atomicBool) setTrue() bool	{ return !atomic.CompareAndSwapInt32((*int32
 func (T *atomicBool) setFalse() bool{ return !atomic.CompareAndSwapInt32((*int32)(T), 1, 0)}
 
 type siteExtend struct {
-	config 			*ConfigSite
+	config 			*config.ConfigSite
 	plugin 			*plugin
 	dynamicCache	vmap.Map		// 缓存动态文件对象
 }
@@ -50,8 +51,8 @@ type Server struct {
     tlsconf				*tls.Config
 	l					listener
 	status				atomicBool
-	cs					*ConfigServer
-	cc					*ConfigConn
+	cs					*config.ConfigServer
+	cc					*config.ConfigConn
 }
 
 func (T *Server) init(){
@@ -86,12 +87,12 @@ func (T *Server) ListenAndServe() error {
 	return T.Serve(l)
 }
 
-func (T *Server) ConfigConn(cc *ConfigConn) error {
+func (T *Server) ConfigConn(cc *config.ConfigConn) error {
 	if cc == nil {
-		return verror.TrackError("server: *ConfigConn不可以为nil")
+		return verror.TrackError("server: *config.ConfigConn不可以为nil")
 	}
 	if T.cc == nil {
-		T.cc=&ConfigConn{}
+		T.cc=&config.ConfigConn{}
 	}
 	*T.cc = *cc
 	T.l.cc = T.cc
@@ -99,12 +100,12 @@ func (T *Server) ConfigConn(cc *ConfigConn) error {
 
 }
 
-func (T *Server) ConfigServer(cs *ConfigServer) error {
+func (T *Server) ConfigServer(cs *config.ConfigServer) error {
 	if cs == nil {
-		return verror.TrackError("server: *ConfigServer不可以为nil")
+		return verror.TrackError("server: *config.ConfigServer不可以为nil")
 	}
 	if T.cs == nil {
-		T.cs=&ConfigServer{}
+		T.cs=&config.ConfigServer{}
 	}
 	*T.cs = *cs
 	
@@ -134,7 +135,7 @@ func (T *Server) ConfigServer(cs *ConfigServer) error {
 }
 
 //TLS文件配置
-func configTLSFile(c *tls.Config, conf *ConfigServerTLS) error {
+func configTLSFile(c *tls.Config, conf *config.ConfigServerTLS) error {
     c.NextProtos                	= conf.NextProtos
     c.PreferServerCipherSuites  	= conf.PreferServerCipherSuites
     c.SessionTicketsDisabled    	= conf.SessionTicketsDisabled
@@ -234,7 +235,7 @@ type ServerGroup struct {
 	
     // 用于 .UpdateConfigFile 方法
     backConfigDate      []byte              // 备份配置数据。如果是相同数据，则不更新
-    config				*Config				// 配置
+    config				*config.Config				// 配置
     
 }
 
@@ -314,13 +315,13 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
         http.Error(rw, "The configuration is nil\n", http.StatusInternalServerError)
         return
     }
-    config := se.config
+    conf := se.config
     
     //** 静态文件
     var(
         rootPath    			string = "."
         pagePath    			string
-        cacheStaticFileDir		string = config.Dynamic.CacheStaticFileDir
+        cacheStaticFileDir		string = conf.Dynamic.CacheStaticFileDir
         err						error
     )
     if site.RootDir != nil {
@@ -332,11 +333,11 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
         return
     }
 
-    if config.Dynamic.Cache && cacheStaticFileDir != "" {
+    if conf.Dynamic.Cache && cacheStaticFileDir != "" {
     	if !filepath.IsAbs(cacheStaticFileDir) {
     		cacheStaticFileDir = filepath.Join(rootPath, cacheStaticFileDir)
     	}
-    	_, pagePath, err = vweb.PagePath(cacheStaticFileDir, r.URL.Path, config.IndexFile)
+    	_, pagePath, err = vweb.PagePath(cacheStaticFileDir, r.URL.Path, conf.IndexFile)
     	if err == nil {
     		//替换根目录
     		rootPath = cacheStaticFileDir
@@ -347,10 +348,10 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
     if pagePath == "" {
 	    
 	    //** 转发URL
-	    forward := config.Forward
+	    forward := conf.Forward
 	   	urlPath := r.URL.Path
 	    if  len(forward) != 0 {
-	        var forwardC ConfigSiteForward
+	        var forwardC config.ConfigSiteForward
 	        derogatoryDomain(r.Host, func(h string) (ok bool){
 	        	forwardC, ok = forward[h]
 	            return
@@ -383,10 +384,10 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 	    }
 	    
 	    //** 文件存在
-	    _, pagePath, err = vweb.PagePath(rootPath, urlPath, config.IndexFile)
+	    _, pagePath, err = vweb.PagePath(rootPath, urlPath, conf.IndexFile)
 	    if err != nil {
 	    	//404 无法找到指定位置的资源。这也是一个常用的应答。
-	        httpError(rw, rootPath, config.ErrorPage, err.Error(), http.StatusNotFound)
+	        httpError(rw, rootPath, conf.ErrorPage, err.Error(), http.StatusNotFound)
 	        return
 	    }
     }
@@ -394,22 +395,22 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
     //** 文件后缀支持
     var(
         fileExt         = path.Ext(pagePath)
-        header          = config.Header
+        header          = conf.Header
         contentType     = httpTypeByExtension(fileExt, header.MIME)
     )
 
     if contentType == "" {
 		contentType = "application/octet-stream"
     	//403 资源不可用。服务器解析客户的请求，但拒绝处理它。
-        //httpError(rw, config.ErrorPage, "This file suffix type MIME system does not recognize!", http.StatusForbidden)
+        //httpError(rw, conf.ErrorPage, "This file suffix type MIME system does not recognize!", http.StatusForbidden)
         //return
     }
 
 	//** 文件固定标头准备
 	var (
-		buffSize 	= config.Property.BuffSize
+		buffSize 	= conf.Property.BuffSize
 	    wh 			= rw.Header()
-	    th			ConfigSiteHeaderType
+	    th			config.ConfigSiteHeaderType
 	)
 	wh.Set("Content-Type", contentType)
 	wh.Set("Server", Version)
@@ -420,7 +421,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 	}
 
     //** 文件动态静态分离
-    if strSliceContains(config.Dynamic.Ext, fileExt) {
+    if strSliceContains(conf.Dynamic.Ext, fileExt) {
 		//动态页面
 		
 	    //读取指定后缀类型的标头内容
@@ -440,10 +441,10 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 		//处理动态格式
         var handlerDynamic *vweb.ServerHandlerDynamic
         inf, ok := se.dynamicCache.GetHas(pagePath)
-        if ok && config.Dynamic.Cache {
+        if ok && conf.Dynamic.Cache {
         	handlerDynamic = inf.(*vweb.ServerHandlerDynamic)
-    		if config.Dynamic.CacheParseTimeout != 0 {
-    			se.dynamicCache.SetExpired(pagePath, time.Duration(config.Dynamic.CacheParseTimeout))
+    		if conf.Dynamic.CacheParseTimeout != 0 {
+    			se.dynamicCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
     		}
         }else{
         	if ok {
@@ -454,14 +455,14 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
         		PagePath: pagePath,
         		Plus: T.DynamicTemplate,
         	}
-        	if config.Dynamic.Cache {
+        	if conf.Dynamic.Cache {
         		//时效
         		se.dynamicCache.Set(pagePath, handlerDynamic)
-        		if config.Dynamic.CacheParseTimeout != 0 {
-        			se.dynamicCache.SetExpired(pagePath, time.Duration(config.Dynamic.CacheParseTimeout))
+        		if conf.Dynamic.CacheParseTimeout != 0 {
+        			se.dynamicCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
         		}
         		//转存静态
-        		handlerDynamic.StaticAt = func(dynamic ConfigSiteDynamic) func(u *url.URL, r io.Reader, l int) (int, error) {
+        		handlerDynamic.StaticAt = func(dynamic config.ConfigSiteDynamic) func(u *url.URL, r io.Reader, l int) (int, error) {
         			return func(u *url.URL, r io.Reader, l int) (int, error) {
 	        			cacheStaticFileDir := dynamic.CacheStaticFileDir
 	        			//没有开启静态缓存目录
@@ -538,13 +539,13 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 			        	}
 			        	return 0, nil
 			        }
-        		}(config.Dynamic)
+        		}(conf.Dynamic)
         	}
         }
         handlerDynamic.RootPath = rootPath
         handlerDynamic.BuffSize = buffSize
        	handlerDynamic.Site 	= site
-        handlerDynamic.Context 	= context.WithValue(r.Context(), "Plugin", (Pluginer)(se.plugin))
+        handlerDynamic.Context 	= context.WithValue(r.Context(), "Plugin", (config.Pluginer)(se.plugin))
 
         handlerDynamic.ServeHTTP(rw, r)
    }else{
@@ -576,7 +577,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 
 
 //更新插件
-func (T *ServerGroup) updatePluginConn(cSite ConfigSite){
+func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 	site := T.sitePool.NewSite(cSite.Identity)
 	if site.Extend == nil {
    	   site.Extend = &siteExtend{}
@@ -674,8 +675,8 @@ func (T *ServerGroup) updatePluginConn(cSite ConfigSite){
 }
 
 //updateSitePoolAdd 更新站点池或增加
-//	conf ConfigSite     配置
-func (T *ServerGroup) updateSitePoolAdd(cSite ConfigSite) {
+//	cSite config.ConfigSite     配置
+func (T *ServerGroup) updateSitePoolAdd(cSite config.ConfigSite) {
 	
 	site := T.sitePool.NewSite(cSite.Identity)
 	for _, host := range cSite.Host {
@@ -716,7 +717,7 @@ func (T *ServerGroup) updateSitePoolDel(siteIdent []string) {
     })
 }
 
-func (T *ServerGroup) updateConfigSites(conf *ConfigSites) error {
+func (T *ServerGroup) updateConfigSites(conf *config.ConfigSites) error {
     var (
         siteIdent   []string
         siteHosts  	[]string
@@ -850,7 +851,7 @@ func (T *ServerGroup) newServer(laddr string) *Server {
 }
 
 //listenStart 启动监听端口
-func (T *ServerGroup) listenStart(laddr string, conf ConfigListen) error {
+func (T *ServerGroup) listenStart(laddr string, conf config.ConfigListen) error {
     srv := T.newServer(laddr)
     err := srv.ConfigConn(&conf.CC)
     if err != nil {
@@ -885,7 +886,7 @@ func (T *ServerGroup) listenStop(laddr string) (err error) {
 }
 
 //监听决定，区分是开启还是关闭监听。
-func (T *ServerGroup) updateConfigServers(conf *ConfigServers) {
+func (T *ServerGroup) updateConfigServers(conf *config.ConfigServers) {
 	var err error
 
     //如果在新的IP例表中没有找到已经存在的开放监听端口IP，而停止监听此IP
@@ -935,10 +936,10 @@ func (T *ServerGroup) updateConfigServers(conf *ConfigServers) {
 
 //LoadConfigFile 挂载本地配置文件。
 //	p string        文件路径
-//	conf *Config	配置
+//	conf *config.Config	配置
 //	ok bool			true配置文件被修改过，false没有变动
 //	err error       错误
-func (T *ServerGroup) LoadConfigFile(p string)  (conf *Config, ok bool, err error) {
+func (T *ServerGroup) LoadConfigFile(p string)  (conf *config.Config, ok bool, err error) {
     b, err := ioutil.ReadFile(p)
     if err != nil {
     	return
@@ -949,10 +950,10 @@ func (T *ServerGroup) LoadConfigFile(p string)  (conf *Config, ok bool, err erro
     }
     T.backConfigDate = b
 
-    conf = new(Config)
+    conf = new(config.Config)
     r := bytes.NewReader(b)
     //解析配置文件
-    err = ConfigDataParse(conf, r)
+    err = config.ConfigDataParse(conf, r)
     if err != nil {
     	return
     }
@@ -965,9 +966,9 @@ func (T *ServerGroup) LoadConfigFile(p string)  (conf *Config, ok bool, err erro
 }
 
 //UpdateConfig 更新配置并把配置分配到各个地方。不检查改动，直接更新。更新配置需要调用 .Start 方法之后才生效。
-//	conf *Config        配置
+//	conf *config.Config        配置
 //	error               错误
-func (T *ServerGroup) UpdateConfig(conf *Config) error {
+func (T *ServerGroup) UpdateConfig(conf *config.Config) error {
 	if conf == nil {
     	return verror.TrackErrorf("server: 配置为nil，无法更新。")
 	}
