@@ -20,7 +20,7 @@ set GOARCH=amd64
 go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w" ./
 
 ::set CGO_ENABLED=1
-::go build -o bin/V-WEB-Server-win-amd64-general.exe -ldflags="-s -w" --tags general ./
+::go build -o bin/V-WEB-Server-win-amd64-general.exe -ldflags="-s -w -extldflags '-static -fpic'" -tags "general" ./
 
 upx -9 ./bin/*
 
