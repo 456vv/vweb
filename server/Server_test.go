@@ -59,19 +59,19 @@ LzeIJd6AClByowsdS5v/DeZQnfDaW68OB3+vqKQbMbei
 
 func Test_NewServerGroup_1(t *testing.T){
 	sg := NewServerGroup()
-	go func(){
+	go func(t *testing.T){
 		time.AfterFunc(time.Second, func(){
 	        sg.Close()
 	    })
 	    file := "./config/test/config.json"
 	    _, _, err := sg.LoadConfigFile(file)
 	    if(err != nil){
-	        t.Fatalf("挂载文件失败：%s", err)
+	        t.Fatalf("挂载文件失败：%v", err)
 	    }
-	}()
+	}(t)
     err := sg.Start()
     if(err != nil){
-        t.Fatalf("启动失败：%s", err)
+        t.Fatalf("启动失败：%v", err)
     }
 }
 

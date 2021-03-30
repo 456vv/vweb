@@ -20,7 +20,6 @@ import (
     "mime"
     "context"
 	"sync/atomic"
-	"regexp"
     "github.com/456vv/vmap/v2"
     "github.com/456vv/verror"
     "github.com/456vv/vweb/v2"
@@ -499,9 +498,9 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 			        	 	err error
 			        	 ) 
 			        	for _, spath := range dynamic.CacheStaticAllowPath {
-			        		matched, err = regexp.MatchString(spath, filePath)
+			        		matched, err = path.Match(spath, filePath)
 			        		if err != nil {
-			        			T.ErrorLog.Printf("server: Dynamic.CacheStaticPaths 正则格式不正确：%s, %s\n", spath, err.Error())
+			        			T.ErrorLog.Printf("server: Dynamic.CacheStaticPaths 通配符格式不正确：%s, %s\n", spath, err.Error())
 			        			continue
 			        		}
 			        		if matched {
