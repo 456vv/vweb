@@ -154,7 +154,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 }
 
 //ParseText 解析模板
-//	content, name string	模板内容，模板名称
+//	name, content string	模板名称, 模板内容
 //	error					错误
 func (T *ServerHandlerDynamic) ParseText(name, content string) error {
 	T.PagePath = name
@@ -177,13 +177,7 @@ func (T *ServerHandlerDynamic) ParseFile(path string) error {
 	}
 
 	defer file.Close()
-	b, err := ioutil.ReadAll(file)
-	if err != nil {
-		return err
-	}
-
-	r := bytes.NewBuffer(b)
-	return T.Parse(r)
+	return T.Parse(file)
 }
 
 //Parse 解析模板

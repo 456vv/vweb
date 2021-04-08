@@ -4,6 +4,7 @@ import(
     "net/rpc"
     "encoding/gob"
     "net/http"
+    "strconv"
 )
 
 //ServerRPC 服务器，这个一个RPC服务器，客户端可以调用绑定的方法。
@@ -57,8 +58,12 @@ func (T *ServerRPC) ListenAndServe() error {
 //Serve 监听客户端连接
 //	error 错误
 func (T *ServerRPC) Serve(l net.Listener) error {
-	
-    T.Addr = l.Addr().String()
+	addr := l.Addr().(*net.TCPAddr)
+	ip := addr.IP.To4()
+	if ip == nil {
+		ip = addr.IP.To16()
+	}
+	T.Addr 	= net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
     T.l.TCPListener = l.(*net.TCPListener)
     if T.handled {
         return http.Serve(&T.l, nil)

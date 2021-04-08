@@ -1,17 +1,18 @@
-RootDir(path string) string																// 网站的根目录
-Request() *http.Request                                                                 // 用户的请求信息
-RequestLimitSize(l int64) *http.Request                                                 // 请求限制大小
-Header() http.Header                                                                    // 标头
-Response() Responser                                                                    // 数据写入响应
-ResponseWriter() http.ResponseWriter                                                    // 数据写入响应
-Session() Sessioner                                                                     // 用户的会话缓存
-Global() Globaler                                                                       // 全站缓存
-Cookie() Cookier                                                                        // 用户的Cookie
-Swap() *vmap.Map                                                                        // 信息交换
-Defer(call interface{}, args ... interface{}) error										// 退回调用
-Context() context.Context                                             					// 上下文
-WithContext(ctx context.Context)														// 替换上下文
-Import(pkgName string) map[string]interface{}
+.RootDir(path string) string																// 网站的根目录
+.Request() *http.Request                                                                 // 用户的请求信息
+.RequestLimitSize(l int64) *http.Request                                                 // 请求限制大小
+.Header() http.Header                                                                    // 标头
+.Response() Responser                                                                    // 数据写入响应
+.ResponseWriter() http.ResponseWriter                                                    // 数据写入响应
+.Session() Sessioner                                                                     // 用户的会话缓存
+.Global() Globaler                                                                       // 全站缓存
+.Cookie() Cookier                                                                        // 用户的Cookie
+.Swap() *vmap.Map                                                                        // 信息交换
+.Defer(call interface{}, args ... interface{}) error										// 退回调用
+.Context() context.Context                                             					// 上下文
+.WithContext(ctx context.Context)														// 替换上下文
+.Import(pkgName string) map[string]interface{}
+
 ForMethod(x interface{}) string
 ForType(x interface{}, all bool) string
 InDirect(v reflect.Value) reflect.Value
@@ -32,13 +33,12 @@ ToPtr(inf interface{}) interface{}
 Nil() interface{}
 NotNil(inf interface{}) bool
 IsNil(inf interface{}) bool
-StringToByte(s string) []byte
-StringToRune(s string) []rune
-RuneToString(r []rune) string
-ByteToString(b []byte) string
+Bytes(inf interface{}) []byte
+Runs(inf interface{}) []rune
+String(a interface{}) string
 Append([]T, value...)
-Pointer(v interface{})
-Uintptr(v interface{})
+Pointer(a interface{}) unsafe.Pointer
+Uintptr(a interface{}) uintptr
 _Uintptr_(s []uintptr, v ...uintptr) []uintptr
 _Uintptr(s uintptr) *uintptr
 Uintptr_(s *uintptr) uintptr
@@ -117,7 +117,7 @@ _Complex128_(s []complex128, c ...complex128) []complex128
 _Complex128(c complex128) *complex128
 Complex128_(c *complex128) complex128
 SetComplex128(c *complex128, v complex128) *complex128
-Type(v)
+Type(v) reflect.Type
 Panic(v)
 Make([]T, length, cap)
 Make([T]T, length)

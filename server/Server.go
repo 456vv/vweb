@@ -68,7 +68,12 @@ func (T *Server) init(){
 
 func (T *Server) Serve(l net.Listener) error {
 	T.init()
-	T.Addr 	= l.Addr().String()
+	addr := l.Addr().(*net.TCPAddr)
+	ip := addr.IP.To4()
+	if ip == nil {
+		ip = addr.IP.To16()
+	}
+	T.Addr 	= net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
 	T.l.TCPListener = l.(*net.TCPListener)
 	return T.Server.Serve(&T.l)
 }

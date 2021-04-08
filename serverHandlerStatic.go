@@ -198,7 +198,9 @@ func (T *ServerHandlerStatic) header(rw http.ResponseWriter, req *http.Request) 
 	shsh.setLastModified()
     shsh.setETag()
     shsh.setAcceptRanges()
-    shsh.setPageExpired(T.PageExpired)
+    if T.PageExpired != 0 {
+    	shsh.setPageExpired(T.PageExpired)
+    }
 
     var (
     	block	[]shshRange
