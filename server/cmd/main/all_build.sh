@@ -1,4 +1,5 @@
 go mod tidy
+go mod download
 
 export CGO_ENABLED=0
 

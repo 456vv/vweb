@@ -1,4 +1,5 @@
 go mod tidy
+go mod download
 
 set CGO_ENABLED=0
 set GOOS=linux

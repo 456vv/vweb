@@ -5,6 +5,7 @@ import(
 	"net/http"
     "crypto/tls"
     "context"
+    "strconv"
 )
 
 type ServerTLSFile struct {
@@ -73,8 +74,12 @@ func (T *ServerHTTP) ListenAndServe() error {
 //Serve 监听
 //	error 错误
 func (T *ServerHTTP) Serve(l net.Listener) error{
-
-    T.Addr = l.Addr().String()
+	addr := l.Addr().(*net.TCPAddr)
+	ip := addr.IP.To4()
+	if ip == nil {
+		ip = addr.IP.To16()
+	}
+	T.Addr 	= net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
 	T.l.TCPListener = l.(*net.TCPListener)
 	return T.Server.Serve(&T.l)
 }

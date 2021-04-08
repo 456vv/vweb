@@ -20,7 +20,6 @@ import (
     "mime"
     "context"
 	"sync/atomic"
-	"regexp"
     "github.com/456vv/vmap/v2"
     "github.com/456vv/verror"
     "github.com/456vv/vweb/v2"
@@ -69,7 +68,12 @@ func (T *Server) init(){
 
 func (T *Server) Serve(l net.Listener) error {
 	T.init()
-	T.Addr 	= l.Addr().String()
+	addr := l.Addr().(*net.TCPAddr)
+	ip := addr.IP.To4()
+	if ip == nil {
+		ip = addr.IP.To16()
+	}
+	T.Addr 	= net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
 	T.l.TCPListener = l.(*net.TCPListener)
 	return T.Server.Serve(&T.l)
 }
@@ -499,9 +503,9 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 			        	 	err error
 			        	 ) 
 			        	for _, spath := range dynamic.CacheStaticAllowPath {
-			        		matched, err = regexp.MatchString(spath, filePath)
+			        		matched, err = path.Match(spath, filePath)
 			        		if err != nil {
-			        			T.ErrorLog.Printf("server: Dynamic.CacheStaticPaths 正则格式不正确：%s, %s\n", spath, err.Error())
+			        			T.ErrorLog.Printf("server: Dynamic.CacheStaticPaths 通配符格式不正确：%s, %s\n", spath, err.Error())
 			        			continue
 			        		}
 			        		if matched {
