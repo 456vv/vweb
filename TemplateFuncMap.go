@@ -63,11 +63,11 @@ func callMethod(f interface{}, name string, args ...interface{}) ([]interface{},
 }
 
 func call(f interface{}, args ...interface{}) ([]interface{}, error){
-	ef := execFunc{}
-	if err := ef.add(f, args...); err != nil {
+	ef := ExecCall{}
+	if err := ef.Func(f, args...); err != nil {
 		return nil, err
 	}
-	return ef.exec(), nil
+	return ef.Exec(), nil
 }
 
 // 模板函数映射

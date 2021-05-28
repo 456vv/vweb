@@ -61,7 +61,7 @@ func (T *SitePool) RangeSite(f func(name string, site *Site) bool){
 	})
 }
 
-//SetRecoverSession 设置回收无效的会话。默认为1秒
+//SetRecoverSession 设置回收无效的会话间隔。默认为1秒
 //	d time.Duration     回收时间隔，不可以等于或小于0，否则CPU爆增
 func (T *SitePool) SetRecoverSession(d time.Duration) {
     T.tick.Reset(d)
