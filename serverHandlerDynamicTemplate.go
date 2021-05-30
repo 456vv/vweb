@@ -238,15 +238,15 @@ func (T *ServerHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []refl
 	for _, arg := range args {
 		inv = append(inv, reflect.ValueOf(arg))
 	}
-	ef := execFunc{}
-	if err := ef.add(f, inv); err != nil {
+	ef := ExecCall{}
+	if err := ef.Func(f, inv); err != nil {
 		panic(err)
 	}
 	//NewFunc 执行后返回是[]reflect.Value
-	for _, result := range ef.exec() {
+	for _, result := range ef.Exec() {
 		//已100%确认变量的类型为reflect.Value
 		//1，查看func (T *serverHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)
-		//2，查看func (T *execFunc) exec() (ret []interface{})
+		//2，查看func (T *ExecFunc) Exec() (ret []interface{})
 		for _, rv := range result.([]reflect.Value) {
 			ret = append(ret, typeSelect(rv))
 		}

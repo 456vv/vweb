@@ -4,7 +4,7 @@ import (
     "github.com/fsnotify/fsnotify"
 	"github.com/456vv/vweb/v2"
     "github.com/456vv/vweb/v2/server"
-    "github.com/456vv/vweb/v2/server/watch"
+    "github.com/456vv/x/watch"
     "github.com/456vv/x/vweb_dynamic"
     _ "github.com/456vv/x/vweb_lib"
     "path/filepath"

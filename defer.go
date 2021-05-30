@@ -5,13 +5,13 @@ import(
     "github.com/456vv/verror"
 )
 
-//execFunc 执行函数
-type execFunc struct {
+//ExecCall 执行函数
+type ExecCall struct {
 	fun         reflect.Value                                                               // 函数
     arg         []reflect.Value                                                             // 参数
     argVariadic bool                                                                        // 有可变参数
 }
-func (T *execFunc) add(call interface{}, args ... interface{}) error {
+func (T *ExecCall) Func(call interface{}, args ... interface{}) error {
     var (
 		
         fn          reflect.Value
@@ -113,7 +113,7 @@ func (T *execFunc) add(call interface{}, args ... interface{}) error {
     T.argVariadic = variadic
     return nil
 }
-func (T *execFunc) exec() (ret []interface{}) {
+func (T *ExecCall) Exec() (ret []interface{}) {
 	var rvs []reflect.Value
 	if T.argVariadic {
 		rvs = T.fun.CallSlice(T.arg)
@@ -132,7 +132,7 @@ func (T *execFunc) exec() (ret []interface{}) {
 //ExitCall 过期函数
 type ExitCall struct {
     // 记录每个用户的函数，会话超时后关闭打开的对象
-    efs     []*execFunc
+    efs     []*ExecCall
 }
 
 // Defer 在用户会话时间过期后，将被调用。
@@ -143,8 +143,8 @@ type ExitCall struct {
 //	.Defer(fmt.Println, "1", "2")
 //	.Defer(fmt.Printf, "%s", "汉字")
 func (T *ExitCall) Defer(call interface{}, args ... interface{}) error {
-	df := new(execFunc)
-	if err := df.add(call, args...); err != nil {
+	df := new(ExecCall)
+	if err := df.Func(call, args...); err != nil {
 		return err
 	}
     T.efs = append(T.efs, df)
@@ -155,7 +155,7 @@ func (T *ExitCall) Defer(call interface{}, args ... interface{}) error {
 //Free 执行结束Defer
 func (T *ExitCall) Free() {
 	for _, ef := range T.efs {
-	 	ef.exec()
+	 	ef.Exec()
 	}
 	T.efs = nil
 }
