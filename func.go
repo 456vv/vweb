@@ -5,7 +5,6 @@ import(
 	"time"
     "crypto/rand"
     mathRand "math/rand"
-    "encoding/base64"
 	"os"
 	"path"
 	"github.com/456vv/verror"
@@ -96,6 +95,11 @@ func GenerateRandom(length int) ([]byte, error){
 	if err != nil {
 		return nil, err
 	}
+	encodeLength := len(encodeStd)
+	for i:=0;i<length;i++{
+		pos := int(rnd[i]) % encodeLength
+		rnd[i]=encodeStd[pos]
+	}
 	return rnd, nil
 }
 
@@ -104,13 +108,8 @@ func GenerateRandom(length int) ([]byte, error){
 //	string  	生成的标识符
 //	err error	错误
 func GenerateRandomString(length int) (string, error){
-	b, err := GenerateRandom(length)
-	if err != nil {
-		return "", err
-	}
-	base64Encoding := base64.NewEncoding(encodeStd).WithPadding(base64.StdPadding).Strict()
-	base64Encoding.EncodedLen(length)
-	return base64Encoding.EncodeToString(b)[:length], nil
+	r, err := GenerateRandom(length)
+	return string(r), err
 }
 
 //AddSalt 加盐
@@ -120,25 +119,25 @@ func GenerateRandomString(length int) (string, error){
 func AddSalt(rnd []byte, salt string) string {
     var (
         start 	int
-	    length	= len(salt)
-	    l		= len(rnd)
+	    sl		= len(salt)
+		encodeLength = len(encodeStd)
     )
-    if l == 0 {
-    	return ""
-    }
-    if length != 0 {
-	    for i:=0; i<l; i++ {
-	    	rnd[i] = rnd[i] ^ salt[start]
+    if sl != 0 {
+	    for i:=0; i<len(rnd); i++ {
+	    	pos := int(rnd[i] ^ salt[start]) % encodeLength
+	    	rnd[i] = encodeStd[pos]
 	       	start++
-	        if start == length {
+	        if start == sl {
 	        	start = 0
 	        }
 	    }
+    }else{
+	    for i:=0; i<len(rnd); i++ {
+	    	pos := int(rnd[i]) % encodeLength
+	    	rnd[i] = encodeStd[pos]
+	    }
     }
-    
-	base64Encoding := base64.NewEncoding(encodeStd).WithPadding(base64.StdPadding).Strict()
-	base64Encoding.EncodedLen(length)
-	return base64Encoding.EncodeToString(rnd)[:l]
+    return string(rnd)
 }
 
 

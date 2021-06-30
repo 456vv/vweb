@@ -87,11 +87,10 @@ func Benchmark_GenerateRandomString(t *testing.B){
 		if l := len(code); l != length {
 			t.Fatalf("生成长度错误，预定 %d，结果 %d", length, l)
 		}
-	//	t.Log(code)
 	}
 }
 
-func Benchmark_AddSalt(t *testing.B){
+func Benchmark_AddSalt_1(t *testing.B){
 	var length = 40
 	for i:=0;i<t.N;i++ {
 		p, err := GenerateRandom(length)
@@ -99,6 +98,20 @@ func Benchmark_AddSalt(t *testing.B){
 			t.Fatal(err)
 		}
 		code := AddSalt(p,"dkeinifjperiocjopirem")
+		if l := len(code); l != length {
+			t.Fatalf("生成长度错误，预定 %d，结果 %d", length, l)
+		}
+		//t.Log(code)
+	}
+}
+func Benchmark_AddSalt_2(t *testing.B){
+	var length = 40
+	for i:=0;i<t.N;i++ {
+		p, err := GenerateRandom(length)
+		if err != nil {
+			t.Fatal(err)
+		}
+		code := AddSalt(p,"")
 		if l := len(code); l != length {
 			t.Fatalf("生成长度错误，预定 %d，结果 %d", length, l)
 		}
