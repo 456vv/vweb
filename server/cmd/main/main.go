@@ -14,7 +14,7 @@ import (
     "time"
 )
 
-const version = "App/v2.6.1"
+const version = "App/v2.6.2"
 
 var (
 	fRootDir			= flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
@@ -61,7 +61,9 @@ func main(){
 	serverGroup := server.NewServerGroup()
 	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplateFunc{
 		"ank": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Anko{}}),
-		"gop": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.GoPlus{}}),
+		"yaegi": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Yaegi{}}),
+		"template": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Template{}}),
+		//"gop": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.GoPlus{}}),
 	}
 	defer serverGroup.Close()
 	

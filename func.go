@@ -200,5 +200,9 @@ func delay(wait, maxDelay time.Duration) time.Duration {
 //	[]interface{}				返回直
 //	error                       错误
 func ExecFunc(f interface{}, args ...interface{}) ([]interface{}, error) {
-	return call(f, args...)
+	var ef  ExecCall
+	if err := ef.Func(f, args...); err != nil {
+		return nil, err
+	}
+	return ef.Exec(), nil
 }
