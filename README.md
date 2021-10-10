@@ -229,12 +229,6 @@ type TemplateDoter interface {                                                  
     Defer(call interface{}, args ...interface{}) error                                                              // 退回调用
     DotContexter
 }
-type ServerHandlerDynamicTemplateExtend struct{                                                                 // 模板扩展
-    *template.Template                                                                                              // 模板对象
-}
-func (T *ServerHandlerDynamicTemplateExtend) NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)          // 创建新函数
-func (T *ServerHandlerDynamicTemplateExtend) Call(f func([]reflect.Value) []reflect.Value, args ...interface{}) []interface{}   // 执行新函数
-func (T *ServerHandlerDynamicTemplateExtend) ExecuteTemplate(out io.Writer, name string, in interface{}) error                  // 执行新模板
 type ExecCall struct{}                                                                                                      // 执行函数
 func (T *ExecCall) Func(call interface{}, args ... interface{}) error                                                           // 装入函数
 func (T *ExecCall) Exec() (ret []interface{})                                                                                   // 执行函数

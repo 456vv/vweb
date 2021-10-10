@@ -218,29 +218,18 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 	}
 
 	dynmicType := string(firstLine)
-    switch dynmicType {
-    case "//template":
-        var shdt = &serverHandlerDynamicTemplate{P:T}
+	if T.Plus == nil || len(dynmicType) < 3 {
+		return errors.New("vweb: The file type of the first line of the file is not recognized")
+	}
+	if plus, ok := T.Plus[dynmicType[2:]]; ok {
+		shdt := plus(T)
 		shdt.SetPath(T.RootPath, T.PagePath)
-        err = shdt.Parse(bufr)
+		err = shdt.Parse(bufr)
         if err != nil {
         	return
         }
-        T.exec = shdt
-    default:
-    	if T.Plus == nil || len(dynmicType) < 3 {
-    		return errors.New("vweb: The file type of the first line of the file is not recognized")
-    	}
-		if plus, ok := T.Plus[dynmicType[2:]]; ok {
-			shdt := plus(T)
-			shdt.SetPath(T.RootPath, T.PagePath)
-			err = shdt.Parse(bufr)
-	        if err != nil {
-	        	return
-	        }
-	       T.exec = shdt
-		}
-    }
+       T.exec = shdt
+	}
     return
 }
 
