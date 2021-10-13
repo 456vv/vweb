@@ -10,8 +10,8 @@ import(
 )
 
 type Route struct{
-	HandlerError	func(w http.ResponseWriter, r *http.Request)	// 错误访问处理
-	rt       		sync.Map										// 路由表 map[string]
+	HandlerError	http.HandlerFunc	// 错误访问处理
+	rt       		sync.Map			// 路由表 map[string]
 }
 
 
@@ -77,7 +77,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request){
 	
 	//处理错误的请求
 	if T.HandlerError != nil {
-		T.HandlerError(w, r)
+		T.HandlerError.ServeHTTP(w, r)
 		return
 	}
 	

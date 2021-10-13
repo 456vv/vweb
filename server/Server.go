@@ -28,7 +28,7 @@ import (
 
 //默认4K
 var defaultDataBufioSize int = 4096
-var Version	string = "Server/2.0.x"
+var Version	string = "Server/2.1.0"
 
 //响应完成设置
 type atomicBool int32
@@ -96,7 +96,7 @@ func (T *Server) ConfigConn(cc *config.ConfigConn) error {
 		return verror.TrackError("server: *config.ConfigConn不可以为nil")
 	}
 	if T.cc == nil {
-		T.cc=&config.ConfigConn{}
+		T.cc=new(config.ConfigConn)
 	}
 	*T.cc = *cc
 	T.l.cc = T.cc
@@ -109,7 +109,7 @@ func (T *Server) ConfigServer(cs *config.ConfigServer) error {
 		return verror.TrackError("server: *config.ConfigServer不可以为nil")
 	}
 	if T.cs == nil {
-		T.cs=&config.ConfigServer{}
+		T.cs=new(config.ConfigServer)
 	}
 	*T.cs = *cs
 	
@@ -229,6 +229,8 @@ type ServerGroup struct {
     ErrorLog			*log.Logger 							// 错误日志文件
     DynamicTemplate		map[string]vweb.DynamicTemplateFunc		// 支持更多动态
     
+    Route				*vweb.Route								// 地址路由
+    
     // srvMan 存储值类型是 *Server，读取时需要转换类型
     srvMan              vmap.Map            // map[ip:port]*Server	服务器集
     sitePool			*vweb.SitePool		// 站点的池
@@ -258,11 +260,22 @@ func (T *ServerGroup) SetServer(laddr string, srv *Server) error {
 		T.srvMan.Del(laddr)
 		return nil
 	}
-    if srv.Handler == nil {
-    	srv.Handler = http.HandlerFunc(T.serveHTTP)
-	}
+    T.defaultHandler(srv)
 	T.srvMan.Set(laddr, srv)
 	return nil
+}
+
+func (T *ServerGroup) defaultHandler(srv *Server) {
+    if srv.Handler == nil {
+    	if T.Route != nil {
+    		srv.Handler = http.HandlerFunc(T.Route.ServeHTTP)
+    		if T.Route.HandlerError == nil {
+    			T.Route.HandlerError = http.HandlerFunc(T.serveHTTP)
+    		}
+    	}else{
+    		srv.Handler = http.HandlerFunc(T.serveHTTP)
+    	}
+	}
 }
 
 //读取一个服务器
@@ -270,11 +283,10 @@ func (T *ServerGroup) SetServer(laddr string, srv *Server) error {
 //	*Server			服务器
 //	bool			如果存在服务器，返回true。否则返回false
 func (T *ServerGroup) GetServer(laddr string) (*Server, bool) {
-	inf, ok := T.srvMan.GetHas(laddr)
-	if !ok {
-		return nil ,ok
+	if inf, ok := T.srvMan.GetHas(laddr); ok {
+		return inf.(*Server), true
 	}
-	return inf.(*Server), true
+	return nil, false
 }
 
 //设置一个站点池，如果没有设置，则使用内置全局默认站点池。
@@ -336,7 +348,8 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
         http.Error(rw, "Web root directory is not set?", http.StatusNotFound)
         return
     }
-
+	
+	//直接读取缓存文件
     if conf.Dynamic.Cache && cacheStaticFileDir != "" {
     	if !filepath.IsAbs(cacheStaticFileDir) {
     		cacheStaticFileDir = filepath.Join(rootPath, cacheStaticFileDir)
@@ -476,8 +489,8 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 			        	
 		        		//存储路径
 		        		var (
-		        		 	filePath = u.Path
 		        		 	fileDir = u.Path
+		        		 	filePath = u.Path
 			        		fileName = "index.html"
 			        		fileExt = path.Ext(u.Path)
 						)
@@ -531,7 +544,13 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 		        		
 		        		//文件保存
 		        		filePath = filepath.Join(cacheStaticFileDir, filePath)
-			        	osFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR, 0777)
+			        	if fi, err := os.Stat(filePath); err == nil {
+				        	//文件大小一样，跳过
+				        	if fi.Size() == int64(l) {
+				        		return 0, nil
+				        	}
+			        	}
+			        	osFile, err := os.Create(filePath)
 			        	if err != nil {
 			        		T.ErrorLog.Printf("server: 静态文件保存发生错误，路径：%s, 错误：%s\n", filePath, err.Error())
 			        		return 0, nil
@@ -584,11 +603,14 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 	site := T.sitePool.NewSite(cSite.Identity)
 	if site.Extend == nil {
-   	   site.Extend = &siteExtend{}
+   	   site.Extend = new(siteExtend)
 	}
-	se := site.Extend.(*siteExtend)
+	se, ok := site.Extend.(*siteExtend)
+	if !ok {
+		return
+	}
 	if se.plugin == nil {
-		se.plugin = &plugin{}
+		se.plugin = new(plugin)
 	}
 	
 	var (
@@ -610,12 +632,11 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 			}
 			
 			var httpC *vweb.PluginHTTPClient
-			inf, ok := se.plugin.http.Load(name)
-			if ok {
+			if inf, ok := se.plugin.http.Load(name); ok {
 				httpC = inf.(*vweb.PluginHTTPClient)
 			}
 			if httpC == nil {
-				httpC = &vweb.PluginHTTPClient{}
+				httpC = new(vweb.PluginHTTPClient)
 			}
 			
 			if err := p.ConfigPluginHTTPClient(httpC); err != nil {
@@ -636,8 +657,7 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 			}
 			
 			var rpcC *vweb.PluginRPCClient
-			inf, ok := se.plugin.rpc.Load(name)
-			if ok {
+			if inf, ok := se.plugin.rpc.Load(name); ok {
 				rpcC = inf.(*vweb.PluginRPCClient)
 			}
 			if rpcC == nil {
@@ -695,11 +715,12 @@ func (T *ServerGroup) updateSitePoolAdd(cSite config.ConfigSite) {
 	site.RootDir = cSite.Directory.RootDir
 	
 	if site.Extend == nil {
-	   site.Extend = &siteExtend{}
+	   site.Extend = new(siteExtend)
 	}
-	
-	se := site.Extend.(*siteExtend)
-	se.config = &cSite
+	//备份站点配置
+	if se, ok := site.Extend.(*siteExtend); ok {
+		se.config = &cSite
+	}
 
 }
 
@@ -845,8 +866,7 @@ func (T *ServerGroup) updateConfigSites(conf *config.ConfigSites) error {
 }
 
 func (T *ServerGroup) newServer(laddr string) *Server {
-    inf, ok := T.srvMan.GetHas(laddr)
-    if ok {
+    if inf, ok := T.srvMan.GetHas(laddr); ok {
     	return inf.(*Server)
     }
     srv := new(Server)
@@ -865,9 +885,7 @@ func (T *ServerGroup) listenStart(laddr string, conf config.ConfigListen) error 
     if err != nil {
     	return err
     }
-    if srv.Handler == nil {
-    	srv.Handler = http.HandlerFunc(T.serveHTTP)
-   }
+    T.defaultHandler(srv)
    	go T.serve(srv)
     return nil
 }
