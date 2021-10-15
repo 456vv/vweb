@@ -31,10 +31,20 @@ func (T *Route) HandleFunc(url string,  handler func(w http.ResponseWriter, r *h
 //	r *Request          请求
 func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request){
 	upath := r.URL.Path
+	req := r
+
+	forkReq := func() {
+		if r == req {
+			req = new(http.Request)
+			*req = *r
+		}
+	}
+
 	inf, ok := T.rt.Load(upath)
 	if ok {
-		inf.(http.Handler).ServeHTTP(w, r)
-		if upath == r.URL.Path {
+		forkReq()
+		inf.(http.Handler).ServeHTTP(w, req)
+		if upath == req.URL.Path {
 			return
 		}
 	}else{
@@ -50,7 +60,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request){
 		        _, complete := regexpRegexp.LiteralPrefix()
 		        if !complete {
 	           		regexpRegexp.Longest()
-			        if regexpRegexp.MatchString(r.URL.Path) {
+			        if regexpRegexp.MatchString(upath) {
 			        	ok = true
 			            handleFunc = v.(http.Handler)
 			            return false
@@ -59,7 +69,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request){
 				return true
 			}
 			//通配符
-			matched, _ := path.Match(pattern, r.URL.Path)
+			matched, _ := path.Match(pattern, upath)
 			if matched {
 	        	ok = true
 	            handleFunc = v.(http.Handler)
@@ -68,8 +78,9 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request){
 			return true
 		});
 		if ok {
-			handleFunc.ServeHTTP(w, r)
-			if upath == r.URL.Path {
+			forkReq()
+			handleFunc.ServeHTTP(w, req)
+			if upath == req.URL.Path {
 				return
 			}
 		}
@@ -77,7 +88,8 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request){
 	
 	//处理错误的请求
 	if T.HandlerError != nil {
-		T.HandlerError.ServeHTTP(w, r)
+		forkReq()
+		T.HandlerError.ServeHTTP(w, req)
 		return
 	}
 	
