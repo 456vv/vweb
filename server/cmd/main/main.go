@@ -5,6 +5,7 @@ import (
 	"github.com/456vv/vweb/v2"
     "github.com/456vv/vweb/v2/server"
     "github.com/456vv/x/watch"
+    "github.com/456vv/x/ticker"
     "github.com/456vv/x/vweb_dynamic"
     _ "github.com/456vv/x/vweb_lib"
     "path/filepath"
@@ -14,7 +15,7 @@ import (
     "time"
 )
 
-const version = "App/v2.6.2"
+const version = "App/v2.6.3"
 
 var (
 	fRootDir			= flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
@@ -47,7 +48,7 @@ func main(){
 	log.Printf("根目录：%s\n", dir)
 	
 	//日志文件对象
-	if err = os.MkdirAll(filepath.Dir(*fLogFile), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*fLogFile), 0777); err != nil {
 		panic(err)
 	}
 	logFile, err := os.OpenFile(*fLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0755)
@@ -59,6 +60,7 @@ func main(){
 	
 	//服务器
 	serverGroup := server.NewServerGroup()
+	serverGroup.ErrorLog.SetOutput(logFile)
 	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplateFunc{
 		"ank": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Anko{}}),
 		"yaegi": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Yaegi{}}),
@@ -66,29 +68,17 @@ func main(){
 	}
 	defer serverGroup.Close()
 	
-	//设置
-	serverGroup.ErrorLog.SetOutput(logFile)
-	_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
-	if err != nil {
-		log.Printf("加载配置文件错误：%s\n", err)
-	}
-	if ok {
-		log.Printf("配置文件成功: %s\n", *fConfigFile)
-	}
-	timeTicker := time.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
-	defer timeTicker.Stop()
-	go func(){
-		for _ = range timeTicker.C {
-			_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
-			if err !=  nil {
-				log.Printf("配置文件错误：%s\n", err)
-				continue
-			}
-			if ok {
-				log.Println("配置文件更新!")
-			}
+	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
+	defer tick.Stop()
+	refererConfog := tick.Func(func(){
+		_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
+		if err != nil {
+			log.Printf("加载配置文件错误：%s\n", err)
 		}
-	}()
+		if ok {
+			log.Printf("配置文件成功: %s\n", *fConfigFile)
+		}
+	})
 	
 	//文件看守
 	watcher, err := watch.NewWatch()
@@ -102,20 +92,13 @@ func main(){
 	watcher.Monitor(*fConfigFile, func(event fsnotify.Event) {
 		switch event.Op {
 		case fsnotify.Create, fsnotify.Write:
-			_,ok, err := serverGroup.LoadConfigFile(*fConfigFile)
-			if err !=  nil {
-				log.Printf("配置文件错误：%s\n", err)
-				return
-			}
-			if ok {
-				log.Println("配置文件更新!")
-			}
+			refererConfog()
 		default:
 		}
 	})
-
-	err = serverGroup.Start()
-	if err != nil {
+	
+	refererConfog()
+	if err := serverGroup.Start(); err != nil {
 		log.Printf("启动失败：%s\n", err)
 	}
 }
