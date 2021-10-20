@@ -14,16 +14,13 @@ var DefaultSitePool    = NewSitePool()                                          
 type SitePool struct {
 	pool					sync.Map                                                        // map[host]*Site
     tick					*time.Ticker													// 定时器
+    tickCycle				time.Duration
     exit                    chan bool                                                       // 退出
     run						atomicBool														// 已经启动
 }
 
 func NewSitePool() *SitePool {
-   	sp := &SitePool{
-        exit: make(chan bool),
-    }
-    sp.tick = time.NewTicker(time.Second)
-    return sp
+    return &SitePool{exit: make(chan bool),}
 }
 
 
@@ -64,7 +61,10 @@ func (T *SitePool) RangeSite(f func(name string, site *Site) bool){
 //SetRecoverSession 设置回收无效的会话间隔。默认为1秒
 //	d time.Duration     回收时间隔，不可以等于或小于0，否则CPU爆增
 func (T *SitePool) SetRecoverSession(d time.Duration) {
-    T.tick.Reset(d)
+	T.tickCycle = d
+	if T.tick != nil {
+    	T.tick.Reset(d)
+	}
 }
 
 //Start 启动池，用于读取处理过期的会话
@@ -73,6 +73,11 @@ func (T *SitePool) Start() error {
     if T.run.setTrue() {
     	return verror.TrackError("vweb: 站点池已经启用！")
     }
+    
+    if T.tickCycle == 0 {
+    	T.tickCycle = time.Second
+    }
+    T.tick = time.NewTicker(T.tickCycle)
     go T.start()
 	return nil
 }
@@ -107,7 +112,7 @@ func (T *SitePool) Close() error {
 type Site struct {
     Sessions	*Sessions                                                           // 会话集
     Global		Globaler                                                            // Global
-    RootDir		func(path string) string											// 网站的根目录
+    RootDir		func(path string) string											// 网站的根目录z
     Extend		interface{}															// 接口类型，可以自己存在任何类型
 	identity	string
 }

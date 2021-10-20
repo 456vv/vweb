@@ -234,7 +234,7 @@ type ServerGroup struct {
     // srvMan 存储值类型是 *Server，读取时需要转换类型
     srvMan              vmap.Map            // map[ip:port]*Server	服务器集
     sitePool			*vweb.SitePool		// 站点的池
-    siteMan				vweb.SiteMan		// 站点管理
+    siteMan				*vweb.SiteMan		// 站点管理
     exit                chan bool			// 退出
 	
 	run					atomicBool			// 服务器启动了
@@ -289,12 +289,19 @@ func (T *ServerGroup) GetServer(laddr string) (*Server, bool) {
 	return nil, false
 }
 
-//设置一个站点池，如果没有设置，则使用内置全局默认站点池。
-//站点池主要是管理会话的过期。
+//设置一个站点池，随配置文件变动，pool 原来的保存内容可能会被删除或增加。
 //	pool *vweb.SitePool	池
 //	error				错误
 func (T *ServerGroup) SetSitePool(pool *vweb.SitePool) error {
 	T.sitePool 		= pool
+	return nil
+}
+
+//设置一个站点管理，随配置文件变动，man 原来的保存内容可能会被删除或增加。
+//	man *vweb.SiteMan	站点管理
+//	error				错误
+func (T *ServerGroup) SetSiteMan(man *vweb.SiteMan) error {
+	T.siteMan 		= man
 	return nil
 }
 
@@ -1030,11 +1037,15 @@ func (T *ServerGroup) Start() error {
 	//站点池
 	if T.sitePool == nil {
 		pool := vweb.DefaultSitePool
-		err := pool.Start()
-		if err == nil {
+		if err := pool.Start(); err == nil {
 			defer pool.Close()
 		}
 		T.sitePool = pool
+	}
+	
+	//站点管理
+	if T.siteMan == nil {
+		T.siteMan = new(vweb.SiteMan)
 	}
 	
 	//刷新配置
@@ -1072,6 +1083,7 @@ func (T *ServerGroup) Close() error {
     })
     
 	T.sitePool = nil
+	T.siteMan = nil
    	T.exit <- true
     return nil
 }
