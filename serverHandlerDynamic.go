@@ -199,7 +199,7 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 		bufr = bytes.NewBuffer(allb)
 	}else if !ok {
 		bufr = bytes.NewBuffer(nil)
-		bufr.Grow(T.BuffSize)
+		bufr.Grow(4096)
 		bufr.ReadFrom(r)
 	}
 	
