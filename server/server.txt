@@ -18,6 +18,7 @@ func (T *ServerGroup) Close() error																	// 关闭服务集
 func (T *ServerGroup) GetServer(laddr string) (*Server, bool)										// 读取一个服务器
 func (T *ServerGroup) LoadConfigFile(p string) (conf *Config, ok bool, err error)					// 挂载本地配置文件
 func (T *ServerGroup) SetServer(laddr string, srv *Server) error									// 增加一个服务器
-func (T *ServerGroup) SetSitePool(pool *vweb.SitePool) error										// 设置一个站点池，如果没有设置，则使用内置全局默认站点池。 站点池主要是管理会话的过期。
+func (T *ServerGroup) SetSitePool(pool *vweb.SitePool)												// 设置一个站点池
+func (T *ServerGroup) SetSiteMan(man *vweb.SiteMan)													// 设置一个站点管理
 func (T *ServerGroup) Start() error																	// 启动服务集群
 func (T *ServerGroup) UpdateConfig(conf *Config) error												// 更新配置并把配置分配到各个地方。不检查改动，直接更新。更新配置需要调用 .Start 方法之后才生效。
