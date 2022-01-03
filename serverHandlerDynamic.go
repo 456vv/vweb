@@ -118,7 +118,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
     if ctx == nil {
     	ctx = req.Context()
     }
-    dock.WithContext(context.WithValue(ctx, "Dynamic", T))
+    dock.WithContext(ctx)
 	var body = new(bytes.Buffer)
 	defer func(){
 		dock.Free()
@@ -199,7 +199,7 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 		bufr = bytes.NewBuffer(allb)
 	}else if !ok {
 		bufr = bytes.NewBuffer(nil)
-		bufr.Grow(T.BuffSize)
+		bufr.Grow(4096)
 		bufr.ReadFrom(r)
 	}
 	

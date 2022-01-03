@@ -2,23 +2,24 @@ go mod tidy
 go mod download
 
 export CGO_ENABLED=0
+export version="App/`date +%Y%m%d%H%M%S`"
 
 export GOOS=linux
 export GOARCH=386
-go build -o bin/V-WEB-Server-linux-386 -ldflags="-s -w" ./
+go build -o bin/V-WEB-Server-linux-386 -ldflags="-s -w -X main.version=$version" ./
 export GOARCH=amd64
-go build -o bin/V-WEB-Server-linux-amd64 -ldflags="-s -w" ./
+go build -o bin/V-WEB-Server-linux-amd64 -ldflags="-s -w -X main.version=$version" ./
 export GOARCH=arm
 export GOARM=6
-go build -o bin/V-WEB-Server-linux-armv6 -ldflags="-s -w" ./
+go build -o bin/V-WEB-Server-linux-armv6 -ldflags="-s -w -X main.version=$version" ./
 export GOARCH=arm64
-go build -o bin/V-WEB-Server-linux-arm64 -ldflags="-s -w" ./
+go build -o bin/V-WEB-Server-linux-arm64 -ldflags="-s -w -X main.version=$version" ./
 export GOARCH=mips
-go build -o bin/V-WEB-Server-linux-mips -ldflags="-s -w" ./
+go build -o bin/V-WEB-Server-linux-mips -ldflags="-s -w -X main.version=$version" ./
 
 export GOOS=windows
 export GOARCH=amd64
-go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w" ./
+go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w -X main.version=$version" ./
 
 #export CGO_ENABLED=1
 #
@@ -30,7 +31,7 @@ go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w" ./
 #export CPP=x86_64-linux-musl-cpp
 #export GOOS=linux
 #export GOARCH=amd64
-#go build -o bin/V-WEB-Server-linux-amd64-general -ldflags '-s -w --extldflags "-static -fpic"' -tags "general" ./
+#go build -o bin/V-WEB-Server-linux-amd64-general -ldflags '-s -w -X main.version=$version --extldflags "-static -fpic"' -tags "general" ./
 #
 #
 #export PATH=/root/armv6-linux-musleabihf-cross/bin:$PATH
@@ -41,7 +42,7 @@ go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w" ./
 #export CPP=armv6-linux-musleabihf-cpp
 #export GOARCH=arm
 #export GOARM=6
-#go build -o bin/V-WEB-Server-linux-armv6-general -ldflags '-s -w --extldflags "-static -fpic"' -tags "general" ./
+#go build -o bin/V-WEB-Server-linux-armv6-general -ldflags '-s -w  -X main.version=$version --extldflags "-static -fpic"' -tags "general" ./
 #
 #upx -9 ./bin/*
 

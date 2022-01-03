@@ -106,15 +106,6 @@ func Test_NewServerGroup_2(t *testing.T){
 
 func Test_NewServerGroup_3(t *testing.T){
 	sg := NewServerGroup()
-	defer sg.Close()
-
-	go func(){
-		time.AfterFunc(time.Second, func(){
-			sg.run.setTrue()
-	        sg.Close()
-	    })
-	    
-	}()
 	serv := sg.newServer("127.0.0.1:0")
 	serv.init()
 	
@@ -183,6 +174,11 @@ func Test_NewServerGroup_3(t *testing.T){
 		
 		http.Error(rw, "1234567", 200)
 	})
+
+	go func(){
+		time.Sleep(time.Second)
+		serv.Close()
+	}()
 	sg.serve(serv)
 }
 
