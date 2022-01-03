@@ -15,7 +15,7 @@ import (
     "time"
 )
 
-const version = "App/v2.6.3"
+var version = "App/v1.0.0"
 
 var (
 	fRootDir			= flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
