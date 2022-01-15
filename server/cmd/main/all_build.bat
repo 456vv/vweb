@@ -21,7 +21,7 @@ go build -o bin/V-WEB-Server-linux-mips -ldflags="-s -w -X main.version=%version
 
 set GOOS=windows
 set GOARCH=amd64
-go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w -X main.version=%version%" ./
+go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w -X main.version=%version%" -tags="%tags%" ./
 
 set /p tags=CGO_ENABLED=1/go:build tags:
 if "%tags%" == "" goto upx
