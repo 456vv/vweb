@@ -31,7 +31,7 @@ go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w -X main.version=$vers
 #export CPP=x86_64-linux-musl-cpp
 #export GOOS=linux
 #export GOARCH=amd64
-#go build -o bin/V-WEB-Server-linux-amd64-general -ldflags '-s -w -X main.version=$version --extldflags "-static -fpic"' -tags "general" ./
+#go build -o bin/V-WEB-Server-linux-amd64-general -ldflags '-s -w -X main.version=$version --extldflags "-static -fpic"' -tags "yaegi_lib libsass" ./
 #
 #
 #export PATH=/root/armv6-linux-musleabihf-cross/bin:$PATH
@@ -42,7 +42,7 @@ go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w -X main.version=$vers
 #export CPP=armv6-linux-musleabihf-cpp
 #export GOARCH=arm
 #export GOARM=6
-#go build -o bin/V-WEB-Server-linux-armv6-general -ldflags '-s -w  -X main.version=$version --extldflags "-static -fpic"' -tags "general" ./
+#go build -o bin/V-WEB-Server-linux-armv6-general -ldflags '-s -w  -X main.version=$version --extldflags "-static -fpic"' -tags "yaegi_lib libsass" ./
 #
 #upx -9 ./bin/*
 

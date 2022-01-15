@@ -3,6 +3,7 @@ package vweb
 import(
     "reflect"
     "github.com/456vv/verror"
+    "sync"
 )
 
 //ExecCall 执行函数
@@ -133,6 +134,7 @@ func (T *ExecCall) Exec() (ret []interface{}) {
 type ExitCall struct {
     // 记录每个用户的函数，会话超时后关闭打开的对象
     efs     []*ExecCall
+    m		sync.Mutex
 }
 
 // Defer 在用户会话时间过期后，将被调用。
@@ -143,6 +145,9 @@ type ExitCall struct {
 //	.Defer(fmt.Println, "1", "2")
 //	.Defer(fmt.Printf, "%s", "汉字")
 func (T *ExitCall) Defer(call interface{}, args ... interface{}) error {
+	T.m.Lock()
+	defer T.m.Unlock()
+	
 	df := new(ExecCall)
 	if err := df.Func(call, args...); err != nil {
 		return err
@@ -154,8 +159,11 @@ func (T *ExitCall) Defer(call interface{}, args ... interface{}) error {
 
 //Free 执行结束Defer
 func (T *ExitCall) Free() {
-	for _, ef := range T.efs {
-	 	ef.Exec()
+	T.m.Lock()
+	defer T.m.Unlock()
+	
+	for i:=len(T.efs)-1; i>=0; i-- {
+	 	T.efs[i].Exec()
 	}
 	T.efs = nil
 }
