@@ -8,22 +8,9 @@ import(
 	"os"
 	"path"
 	"github.com/456vv/verror"
-	"text/template"
 	"fmt"
 )
 
-
-//ExtendTemplatePackage 扩展模板的包
-//	pkgName string					包名
-//	deputy map[string]interface{} 	函数集
-func ExtendTemplatePackage(pkgName string, deputy template.FuncMap) {
-	if _, ok := dotPackage[pkgName]; !ok {
-		dotPackage[pkgName] = make(template.FuncMap)
-	}
-	for name, fn  := range deputy {
-		dotPackage[pkgName][name]=fn
-	}
-}
 
 //derogatoryDomain 贬域名
 //	host string             host地址

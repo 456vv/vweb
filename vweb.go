@@ -21,5 +21,3 @@ func (T *atomicBool) setFalse() bool{ return atomic.CompareAndSwapInt32((*int32)
 //随机数的可用字符
 const encodeStd = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._"
 
-// 点函数映射
-var dotPackage = make(map[string]map[string]interface{})
