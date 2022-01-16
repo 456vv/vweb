@@ -7,12 +7,12 @@ import (
     "github.com/456vv/x/watch"
     "github.com/456vv/x/ticker"
     "github.com/456vv/x/vweb_dynamic"
-    _ "github.com/456vv/x/vweb_lib"
     "path/filepath"
     "os"
     "flag"
     "log"
     "time"
+	"github.com/456vv/vweb/v2/server/cmd/main/internal/base"
 )
 
 var version = "App/v1.0.0"
@@ -35,8 +35,19 @@ func main(){
 		return
 	}
 	
-	var err error
+	var (
+	 	err error
+	 	exitCall vweb.ExitCall
+	 )
 	
+	//非法结束退出
+	base.StartSigHandlers()
+	go func(){
+		<-base.Interrupted
+		exitCall.Free()
+	}()
+	defer exitCall.Free()
+
 	//程序根目录
 	if err = os.Chdir(*fRootDir); err != nil {
 		panic(err)
@@ -56,20 +67,16 @@ func main(){
 		log.Println(err)
 		return
 	}
-	defer logFile.Close()
+	exitCall.Defer(logFile.Close)
 	
 	//服务器
 	serverGroup := server.NewServerGroup()
 	serverGroup.ErrorLog.SetOutput(logFile)
-	serverGroup.DynamicTemplate = map[string]vweb.DynamicTemplateFunc{
-		"ank": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Anko{}}),
-		"yaegi": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Yaegi{}}),
-		"template": vweb.DynamicTemplateFunc(func(D *vweb.ServerHandlerDynamic) vweb.DynamicTemplater {return &vweb_dynamic.Template{}}),
-	}
-	defer serverGroup.Close()
+	serverGroup.DynamicTemplate = vweb_dynamic.DefaultPlus()
+	exitCall.Defer(serverGroup.Close)
 	
 	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
-	defer tick.Stop()
+	exitCall.Defer(tick.Stop)
 	refererConfog := tick.Func(func(){
 		_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
 		if err != nil {
@@ -86,7 +93,7 @@ func main(){
 		log.Println(err)
 		return
 	}
-	defer watcher.Close()
+	exitCall.Defer(watcher.Close)
 	
 	//监听配置文件
 	watcher.Monitor(*fConfigFile, func(event fsnotify.Event) {
@@ -101,4 +108,6 @@ func main(){
 	if err := serverGroup.Start(); err != nil {
 		log.Printf("启动失败：%s\n", err)
 	}
+	//非法结束进程，留给另一个线程处理退出
+	time.Sleep(time.Second)
 }
