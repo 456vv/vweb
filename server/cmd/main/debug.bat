@@ -10,6 +10,6 @@ go build -gcflags "-N -l" -ldflags="-X main.version=%version%" -tags="vweb_lib y
 
 set PATH=K:\code\GO\bin;%PATH%
 cd /D bin
-gdlv exec V-WEB-Server-win-amd64.exe -RootDir ../test -ConfigFile config.json
+V-WEB-Server-win-amd64.exe -RootDir ../test -ConfigFile config.json
 
 pause
