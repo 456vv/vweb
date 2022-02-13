@@ -60,7 +60,7 @@ func forType(x interface{}, str string, flx string, floor int, all bool) string 
 	        	k = typeSelect(z)
 	        }
         }
-        s += fmt.Sprintf("%s %v %v %v\t%v `%v` = %v\r\n", flx+str, f.Index, f.PkgPath, f.Name, f.Type, f.Tag, k)
+        s += fmt.Sprintf("%s %v %v %v\t%v `%v` = %#v\r\n", flx+str, f.Index, f.PkgPath, f.Name, f.Type, f.Tag, k)
         if z.Kind() == reflect.Struct{
         	floor++
             s += forType(z, str, flx+"  ", floor, all)
