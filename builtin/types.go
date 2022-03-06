@@ -211,7 +211,6 @@ func setStructMember(o reflect.Value, args ...interface{}) {
 			panic(fmt.Sprintf("struct `%v` can't set name `%v`", o.Type(), args[i]))
 		}
 		field.Set(autoConvert(field.Type(), args[i+1]))
-		//field.Set(reflect.ValueOf(args[i+1]))
 	}
 }
 
@@ -511,4 +510,97 @@ func typeSelect(v reflect.Value) interface{} {
     }
     
    panic(fmt.Errorf("vweb: 该类型 %s，无法转换为 interface 类型", v.Kind()))
+}
+
+func typeConvert(av, bv reflect.Value) bool {
+	if !av.CanSet() {
+		return false
+	}
+	switch bv.Kind() {
+	case reflect.Struct:
+		//{} to *{}
+		
+		//防止av是nil值，最后得到是invalid
+		typeInit(av, false)
+		//转到最后一层
+		for ; av.Kind() == reflect.Ptr || av.Kind() == reflect.Interface; av = av.Elem(){}
+	case reflect.Interface:
+		//interface -> ptr
+		for ; bv.Kind() == reflect.Interface; bv = bv.Elem(){}
+		//bv "接口"是 nil 值，是无效的类型
+		if bv.Kind() == reflect.Invalid {return false}
+	case reflect.Invalid:
+		//bv 是 nil
+		return false
+	}
+	
+	avt := av.Type()
+	if bv.CanConvert(avt) {
+		//*{} to *{}
+		t := bv.Convert(avt)
+		av.Set(t)
+		return true
+	}
+	return false
+}
+
+func typeInit(v reflect.Value, isZero bool, args ...interface{}) {
+	//无参数，仅初始化
+	pv := v
+	for ;v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface;{
+		//创建下一层
+		//1，空指针
+		//2，非接口
+		if v.IsNil() && v.Kind() != reflect.Interface {
+			//Chan，Func，Interface，Map，Ptr，或Slice
+			nv := reflect.New(v.Type().Elem())
+			pv.Set( nv )
+			pv = nv
+			v = nv.Elem()
+			continue
+		}
+		//1，接口类型，进入下一层
+		pv = v
+		v = v.Elem()
+	}
+	
+	if isZero && v.CanSet() {
+		switch v.Kind() {
+		case reflect.Map:
+			l := 0
+			if len(args) > 0 {
+				l,_ = args[0].(int)
+			}
+			v.Set(reflect.MakeMapWithSize(v.Type(), l))
+			return
+		case reflect.Slice:
+			l, c := 0,0
+			if len(args) > 0 {
+				l,_ = args[0].(int)
+				c = l
+			}
+			if len(args) > 1 {
+				c,_ = args[1].(int)
+				if c < l {
+					c = l
+				}
+			}
+			v.Set(reflect.MakeSlice(v.Type(), l, c))
+			return
+		case reflect.Func:
+			if len(args) > 0 {
+				f,_ := args[0].(func([]reflect.Value) []reflect.Value)
+				v.Set(reflect.MakeFunc(v.Type(), f))
+				return
+			}
+		case reflect.Chan:
+			l := 0
+			if len(args) == 1 {
+				l,_ = args[0].(int)
+			}
+			v.Set(reflect.MakeChan(v.Type(), l))
+			return
+		}
+		v.Set(reflect.Zero(v.Type()))
+	}
 }

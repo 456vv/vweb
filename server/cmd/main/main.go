@@ -78,7 +78,7 @@ func main(){
 	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
 	exitCall.Defer(tick.Stop)
 	refererConfog := tick.Func(func(){
-		_, ok, err := serverGroup.LoadConfigFile(*fConfigFile)
+		ok, err := serverGroup.LoadConfigFile(*fConfigFile)
 		if err != nil {
 			log.Printf("加载配置文件错误：%s\n", err)
 		}
