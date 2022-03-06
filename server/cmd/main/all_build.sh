@@ -24,7 +24,7 @@ go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w -X main.version=$vers
 #export CGO_ENABLED=1
 #
 #export PATH=/root/x86_64-linux-musl-cross/bin:$PATH
-#export LD_LIBRARY_PATH=/root/x86_64-linux-musl-cross/x86_64-linux-musl/lib:/usr/lib64:/usr/lib:$LD_LIBRARY_PATH
+#export LD_LIBRARY_PATH=/root/x86_64-linux-musl-cross/x86_64-linux-musl/lib:/usr/lib64:/usr/lib
 #export LD=x86_64-linux-musl-ld
 #export CC=x86_64-linux-musl-gcc
 #export CXX=x86_64-linux-musl-g++

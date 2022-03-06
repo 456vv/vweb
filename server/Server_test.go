@@ -64,7 +64,7 @@ func Test_NewServerGroup_1(t *testing.T){
 	        sg.Close()
 	    })
 	    file := "./config/test/config.json"
-	    _, _, err := sg.LoadConfigFile(file)
+	    _, err := sg.LoadConfigFile(file)
 	    if(err != nil){
 	        t.Fatalf("挂载文件失败：%v", err)
 	    }
@@ -88,7 +88,7 @@ func Test_NewServerGroup_2(t *testing.T){
     }
     buf := bytes.NewBuffer(b)
     conf    := &config.Config{}
-    err = config.ConfigDataParse(conf, buf)
+    err = conf.ParseReader(buf)
     if(err != nil){
         t.Fatal(err)
     }
@@ -186,12 +186,9 @@ func Test_ServerGroup_LoadConfigFile(t *testing.T){
 	sg := NewServerGroup()
     defer sg.Close()
     file := "./config/test/config.json"
-    conf, _, err := sg.LoadConfigFile(file)
+    _, err := sg.LoadConfigFile(file)
     if err == nil && sg.config == nil {
         t.Fatalf("加载配置文件错误：%s", file)
-    }
-    if conf == nil {
-    	t.Fatalf("错误的conf不应该为nil")
     }
 }
 

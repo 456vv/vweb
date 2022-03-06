@@ -28,9 +28,10 @@ func Panic(v interface{}) {
 //Make([]T, length, cap)
 //Make([T]T, length)
 //Make(Chan, length)
+//Make(func, func([]reflect.Value)[]reflect.Value)
 func Make(typ interface{}, args ...interface{}) interface{} {
 	v := Value(typ)
-	goTypeInit(v, true, args...)
+	typeInit(v.Elem(), true, args...)
 	return v.Elem().Interface()
 }
 
@@ -81,31 +82,50 @@ func MapFrom(m interface{}, args ...interface{}) interface{} {
 		mv := reflect.MakeMapWithSize(mt, n/2)
 		return setMapMember(mv.Interface(), args...)
 	}
+	
+	//如果M是nil
 	switch kind2Args(args, 0) {
 	case reflect.String:
 		switch kind2Args(args, 1) {
 		case reflect.String:
 			ret := make(map[string]string, n>>1)
 			for i := 0; i < n; i += 2 {
-				ret[args[i].(string)] = args[i+1].(string)
+				key, _ := args[i].(string)
+				val, _ := args[i+1].(string)
+				if key == "" {
+					continue
+				}
+				ret[key] = val
 			}
 			return ret
 		case reflect.Int:
 			ret := make(map[string]int, n>>1)
 			for i := 0; i < n; i += 2 {
-				ret[args[i].(string)] = asInt(args[i+1])
+				key, _ := args[i].(string)
+				if key == "" {
+					continue
+				}
+				ret[key] = asInt(args[i+1])
 			}
 			return ret
 		case reflect.Float64:
 			ret := make(map[string]float64, n>>1)
 			for i := 0; i < n; i += 2 {
-				ret[args[i].(string)] = asFloat(args[i+1])
+				key, _ := args[i].(string)
+				if key == "" {
+					continue
+				}
+				ret[key] = asFloat(args[i+1])
 			}
 			return ret
 		default:
 			ret := make(map[string]interface{}, n>>1)
 			for i := 0; i < n; i += 2 {
-				ret[args[i].(string)] = args[i+1]
+				key, _ := args[i].(string)
+				if key == "" {
+					continue
+				}
+				ret[key] = args[i+1]
 			}
 			return ret
 		}
@@ -114,7 +134,8 @@ func MapFrom(m interface{}, args ...interface{}) interface{} {
 		case reflect.String:
 			ret := make(map[int]string, n>>1)
 			for i := 0; i < n; i += 2 {
-				ret[asInt(args[i])] = args[i+1].(string)
+				val, _ := args[i+1].(string)
+				ret[asInt(args[i])] = val
 			}
 			return ret
 		case reflect.Int:
@@ -184,7 +205,7 @@ func Delete(m interface{}, key interface{}) {
 func Set(m interface{}, args ...interface{}) {
 	n := len(args)
 	if (n & 1) != 0 {
-		panic("call with invalid argument count: please use `Set(obj, member1, val1, ...)")
+		panic("call with invalid argument count: please use Set(obj, member1, val1, ...)")
 	}
 	o := reflect.ValueOf(m)
 	o = reflect.Indirect(o)
@@ -192,8 +213,12 @@ func Set(m interface{}, args ...interface{}) {
 	case reflect.Slice, reflect.Array:
 		telem := reflect.TypeOf(m).Elem()
 		for i := 0; i < n; i += 2 {
+			index,ok := args[i].(int)
+			if !ok {
+				panic("slice position is not a valid `int` type")
+			}
 			val := autoConvert(telem, args[i+1])
-			o.Index(args[i].(int)).Set(val)
+			o.Index(index).Set(val)
 		}
 	case reflect.Map:
 		setMapMember(m, args...)
@@ -695,141 +720,29 @@ func Runs(inf interface{}) []rune {
 
 
 //该函数暂时测试，可能会改动。
-//	v interface{}		一个还没初始化变量，可能是接口类型
-//	typ ...interface{}	要把v初始化成 typ 类型，如果留空则初始化成nil
-//	func(typ ...interface{})
-//		typ ...interface{}	将 typ[0] 转换到 v 的类型或接口上
-//	例：
-//	var a vweb.TemplateDoter = (*vweb.TemplateDot)(nil)
-//	builtin.GoTypeInit(&a)
-//	fmt.Println(a)
-//	//&{<nil> <nil> 0 <nil> false {{{0 0} {<nil>} map[] 0} map[] {0 0} [] 0} {[]} <nil>}
-//	
-//	var b *vweb.TemplateDot
-//	builtin.GoTypeTo(&b)(a)// a to b
-//	
-//	fmt.Println(b)
-//	//&{<nil> <nil> 0 <nil> false {{{0 0} {<nil>} map[] 0} map[] {0 0} [] 0} {[]} <nil>}
-//	fmt.Println(a)
-//	//&{<nil> <nil> 0 <nil> false {{{0 0} {<nil>} map[] 0} map[] {0 0} [] 0} {[]} <nil>}
-func GoTypeTo(v interface{}, args ...interface{}) func(typ ...interface{}) {
-	var vv reflect.Value
-	pv, ok := v.(reflect.Value)
+//	a,b interface{}		b转换到a类型
+func Convert(a, b interface{}) bool {
+	av, ok := a.(reflect.Value)
 	if !ok {
-		pv = reflect.ValueOf(v)
-		vv = reflect.Indirect(pv)
-	}else{
-		vv = pv
+		av = reflect.ValueOf(a)
+		av = reflect.Indirect(av)
 	}
-	return func (a ...interface{}){
-		if len(a) == 0 {
-			//初始化
-			goTypeInit(vv, true, args...)
-			return
-		}
-		
-		if len(a) >= 1 {
-			if a[0] == nil {
-				return
-			}
-			
-			//将 type 转换到 v
-			av := reflect.ValueOf(a[0])
-			avt := av.Type()
-			vvt := vv.Type()
-			if avt.ConvertibleTo(vvt) {
-				//*{} to *{}
-				av = av.Convert(vvt)
-				vv.Set(av)
-				return
-			}else if av.Kind() == reflect.Struct {
-				//{} to *{}
-				goTypeInit(vv, false, args...)
-				for ; vv.Kind() == reflect.Ptr || vv.Kind() == reflect.Interface; vv = vv.Elem(){}
-				if vv.CanSet() {
-					vv.Set(av)
-				}
-			}
-			return
-		}
+	bv, ok := b.(reflect.Value)
+	if !ok {
+		bv = reflect.ValueOf(b)
+		bv = reflect.Indirect(bv)
 	}
+	return typeConvert(av, bv)
 }
 
 //初始化一个类型
 //	v interface{}		未初始化的类型
-//	args ...interface{}	参数可选：[args[0]==len, args[1]==cap]或[args[0]==func([]reflect.Value)[]reflect.Value{}]
-func GoTypeInit(v interface{}, args ...interface{}) {
-	vv, ok := v.(reflect.Value)
+func Init(v interface{}) {
+	rv, ok := v.(reflect.Value)
 	if !ok {
-		vv = reflect.ValueOf(v)
-		vv = reflect.Indirect(vv)
+		rv = reflect.ValueOf(v)
+		rv = reflect.Indirect(rv)
 	}
-	goTypeInit(vv, true, args...)
+	typeInit(rv, false)
 }
 
-func goTypeInit(vv reflect.Value, isZero bool, args ...interface{}) {
-	//无参数，仅初始化
-	pvv := vv
-	for ;vv.Kind() == reflect.Ptr || vv.Kind() == reflect.Interface;{
-		//fmt.Println("+++++++++++++++")
-		//fmt.Println("1  type: ",vv.Type())
-		//fmt.Println("2  kind: ",vv.Kind())
-		//fmt.Println("3  addr: ",vv.CanAddr())
-		//fmt.Println("4   set: ",vv.CanSet())
-		//fmt.Println("5 valid: ",vv.IsValid())
-		//fmt.Println("6  zero: ",vv.IsZero())
-		//fmt.Println("7   nil: ",vv.IsNil())
-		if vv.IsNil() && vv.Kind() != reflect.Interface {
-			//Chan，Func，Interface，Map，Ptr，或Slice
-			nvv := reflect.New(vv.Type().Elem())
-			pvv.Set( nvv )
-			pvv = nvv
-			vv = nvv.Elem()
-			continue
-		}
-		pvv = vv
-		vv = vv.Elem()
-	}
-	//fmt.Println("--------------")
-	//fmt.Println("1  type: ",vv.Type())
-	//fmt.Println("2  kind: ",vv.Kind())
-	//fmt.Println("3  addr: ",vv.CanAddr())
-	//fmt.Println("4   set: ",vv.CanSet())
-	//fmt.Println("5 valid: ",vv.IsValid())
-	//fmt.Println("6  zero: ",vv.IsZero())
-	//fmt.Println("==============")
-	
-	if isZero && vv.CanSet() {
-		switch vv.Kind() {
-		case reflect.Map:
-			l := 0
-			if len(args) > 0 {
-				l = args[0].(int)
-			}
-			vv.Set(reflect.MakeMapWithSize(vv.Type(), l))
-		case reflect.Slice:
-			l, c := 0,0
-			if len(args) > 0 {
-				l = args[0].(int)
-				c = l
-			}
-			if len(args) > 1 {
-				c = args[1].(int)
-			}
-			vv.Set(reflect.MakeSlice(vv.Type(), l, c))
-		case reflect.Func:
-			if len(args) > 0 {
-				f := args[0].(func([]reflect.Value) []reflect.Value)
-				vv.Set(reflect.MakeFunc(vv.Type(), f))
-			}
-		case reflect.Chan:
-			l := 0
-			if len(args) == 1 {
-				l = args[0].(int)
-			}
-			vv.Set(reflect.MakeChan(vv.Type(), l))
-		default:
-			vv.Set(reflect.Zero(vv.Type()))
-		}
-	}
-}

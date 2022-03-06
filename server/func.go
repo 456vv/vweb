@@ -11,7 +11,7 @@ import (
 )	
 
 
-var _ = builtin.GoTypeTo
+var _ = builtin.Init
 var _ = vcipher.AES
 var _ *verifycode.Color
 var _ *vforward.Addr

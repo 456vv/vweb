@@ -120,8 +120,7 @@ func (T *ConfigSitePlugins) ConfigSitePluginRPC(origin *ConfigSitePlugin, handle
 	if origin == nil {
 		return false
 	}
-	c, ok := T.RPC[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if c, ok := T.RPC[origin.PublicName]; ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
 		*origin=c
 		return true
 	}
@@ -434,32 +433,28 @@ type Config struct {
     Sites       	ConfigSites                                             // 站点集
 }
 
-//ConfigFileParse 解析服务器配置文件，一个JSON格式的文件。
+//ParseFile 解析服务器配置文件，一个JSON格式的文件。
 //    参：
-//      conf *Config    配置
 //      file string     文件
 //    返：
 //      error           错误，如果文件无法打开，或无法解析的情况
-func ConfigFileParse(conf *Config, file string) error {
+func (T *Config) ParseFile(file string) error {
     osFile, err := os.Open(file)
-    defer osFile.Close()
     if err != nil {
         return err
     }
-    jsonDecoder := json.NewDecoder(osFile)
-    return jsonDecoder.Decode(conf)
+    defer osFile.Close()
+    return json.NewDecoder(osFile).Decode(T)
 }
 
 
-//ConfigDataParse 解析服务器配置数据，一个JSON格式的数据。
+//ParseReader 解析服务器配置数据，一个JSON格式的数据。
 //    参：
-//      conf *Config        配置
 //      r   io.Reader       读接口
 //    返：
 //      error               错误，如果无法解析的情况
-func ConfigDataParse(conf *Config, r io.Reader) error {
-    jsonDecoder := json.NewDecoder(r)
-    return jsonDecoder.Decode(conf)
+func (T *Config) ParseReader(r io.Reader) error {
+    return json.NewDecoder(r).Decode(T)
 }
 
 

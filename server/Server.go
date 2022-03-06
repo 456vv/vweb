@@ -425,9 +425,6 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
 
     if contentType == "" {
 		contentType = "application/octet-stream"
-    	//403 资源不可用。服务器解析客户的请求，但拒绝处理它。
-        //httpError(rw, conf.ErrorPage, "This file suffix type MIME system does not recognize!", http.StatusForbidden)
-        //return
     }
 
 	//** 文件固定标头准备
@@ -621,8 +618,8 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 	}
 	
 	var (
-		httpNames	[]string
-		rpcNames	[]string
+		httpEffectiveNames	[]string
+		rpcEffectiveNames	[]string
 	)
 	//配置插件
 	if cSite.Status {
@@ -631,7 +628,7 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 			if !p.Status {
 				continue
 			}
-			httpNames = append(httpNames, name)
+			httpEffectiveNames = append(httpEffectiveNames, name)
 			
 			if p.Addr == "" {
 				T.ErrorLog.Println(fmt.Sprintf("server: 名称 %s 的HTTP插件配 Addr 字段不可以为空", name))
@@ -656,7 +653,7 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 			if !p.Status {
 				continue
 			}
-			rpcNames = append(rpcNames, name)
+			rpcEffectiveNames = append(rpcEffectiveNames, name)
 			
 			if p.Addr == "" {
 				T.ErrorLog.Println(fmt.Sprintf("server: 名称 %s 的RPC插件配 Addr 字段不可以为空", name))
@@ -686,7 +683,7 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 	
 	//关闭无效的插件
 	se.plugin.http.Range(func(ninf, hinf interface{}) bool {
-		if !strSliceContains(httpNames, ninf.(string)) {
+		if !strSliceContains(httpEffectiveNames, ninf.(string)) {
 			se.plugin.http.Delete(ninf)
 			
 			httpC := hinf.(*vweb.PluginHTTPClient)
@@ -695,7 +692,7 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite){
 		return true
 	})
 	se.plugin.rpc.Range(func(ninf, rinf interface{}) bool {
-		if !strSliceContains(rpcNames, ninf.(string)) {
+		if !strSliceContains(rpcEffectiveNames, ninf.(string)) {
 			se.plugin.rpc.Delete(ninf)
 			
 			rpcC := rinf.(*vweb.PluginRPCClient)
@@ -732,11 +729,11 @@ func (T *ServerGroup) updateSitePoolAdd(cSite config.ConfigSite) {
 }
 
 //updateSitePoolDel 更新站点池删除，过滤并删除无效的站点池。
-//	siteIdent []string      现有的站点列表
-func (T *ServerGroup) updateSitePoolDel(siteIdent []string) {
+//	siteEffectiveIdent []string      现有的站点列表
+func (T *ServerGroup) updateSitePoolDel(siteEffectiveIdent []string) {
     
     T.sitePool.RangeSite(func(name string, site *vweb.Site) bool{
-    	if !strSliceContains(siteIdent, name) {
+    	if !strSliceContains(siteEffectiveIdent, name) {
 	    	//从池中删除
 			T.sitePool.DelSite(name)
 			
@@ -751,8 +748,8 @@ func (T *ServerGroup) updateSitePoolDel(siteIdent []string) {
 
 func (T *ServerGroup) updateConfigSites(conf *config.ConfigSites) error {
     var (
-        siteIdent   []string
-        siteHosts  	[]string
+        siteEffectiveIdent	[]string
+        siteEffectiveHosts  []string
     )
     for _, cSite := range conf.Site {
         if cSite.Identity == "" {
@@ -843,12 +840,12 @@ func (T *ServerGroup) updateConfigSites(conf *config.ConfigSites) error {
             T.updateSitePoolAdd(cSite)
             
             //集中名称
-            siteIdent = append(siteIdent, cSite.Identity)
+            siteEffectiveIdent = append(siteEffectiveIdent, cSite.Identity)
 
             //集中站点Host
             //可能有多个站点绑定了同一个Host，只有最后一个是有效的
             for _, host := range cSite.Host {
-                siteHosts = append(siteHosts, host)
+                siteEffectiveHosts = append(siteEffectiveHosts, host)
             }
         }
 		
@@ -859,14 +856,14 @@ func (T *ServerGroup) updateConfigSites(conf *config.ConfigSites) error {
 
     //更新网站
 	T.siteMan.Range(func(host string, site *vweb.Site) bool {
-		if !strSliceContains(siteHosts, host) {
+		if !strSliceContains(siteEffectiveHosts, host) {
 			T.siteMan.Add(host, nil)
 		}
 		return true
 	})
 	
 	//删除池中不存在的配置
-    T.updateSitePoolDel(siteIdent)
+    T.updateSitePoolDel(siteEffectiveIdent)
     
 	return nil
 
@@ -916,20 +913,17 @@ func (T *ServerGroup) listenStop(laddr string) (err error) {
 
 //监听决定，区分是开启还是关闭监听。
 func (T *ServerGroup) updateConfigServers(conf *config.ConfigServers) {
-	var err error
-
     //如果在新的IP例表中没有找到已经存在的开放监听端口IP，而停止监听此IP
     T.srvMan.Range(func(key, val interface{}) bool{
         ip := key.(string)
         if _, ok := conf.Listen[ip]; !ok {
-            err = T.listenStop(ip)
-            if err != nil {
+            if err := T.listenStop(ip); err != nil {
             	T.ErrorLog.Println(err.Error())
             }
         }
         return true
     })
-
+    
     //如果还没开启监听，则启动他
     for laddr, cl := range conf.Listen {
 	    if cl.Status {
@@ -950,13 +944,11 @@ func (T *ServerGroup) updateConfigServers(conf *config.ConfigServers) {
             	T.ErrorLog.Printf("server: %s 地址的私有CS与公共CS合并失败\n", laddr)
 			}
 			
-	        err = T.listenStart(laddr, cl)
-	        if err != nil {
+	        if err := T.listenStart(laddr, cl); err != nil {
             	T.ErrorLog.Println(err.Error())
 	        }
 	    }else{
-	    	err = T.listenStop(laddr)
-	        if err != nil {
+	        if err := T.listenStop(laddr); err != nil {
             	T.ErrorLog.Println(err.Error())
 	        }
 	    }
@@ -965,24 +957,23 @@ func (T *ServerGroup) updateConfigServers(conf *config.ConfigServers) {
 
 //LoadConfigFile 挂载本地配置文件。
 //	p string        文件路径
-//	conf *config.Config	配置
 //	ok bool			true配置文件被修改过，false没有变动
 //	err error       错误
-func (T *ServerGroup) LoadConfigFile(p string)  (conf *config.Config, ok bool, err error) {
+func (T *ServerGroup) LoadConfigFile(p string)  (ok bool, err error) {
     b, err := ioutil.ReadFile(p)
     if err != nil {
     	return
     }
     //判断文件是否有改动
     if bytes.Equal(b, T.backConfigDate) {
-    	return T.config, false, nil
+    	return false, nil
     }
     T.backConfigDate = b
 
-    conf = new(config.Config)
+    conf := new(config.Config)
     r := bytes.NewReader(b)
     //解析配置文件
-    err = config.ConfigDataParse(conf, r)
+    err = conf.ParseReader(r)
     if err != nil {
     	return
     }
@@ -991,7 +982,7 @@ func (T *ServerGroup) LoadConfigFile(p string)  (conf *config.Config, ok bool, e
     if err != nil {
     	return
     }
-    return conf, true, nil
+    return true, nil
 }
 
 //UpdateConfig 更新配置并把配置分配到各个地方。不检查改动，直接更新。更新配置需要调用 .Start 方法之后才生效。
@@ -999,7 +990,7 @@ func (T *ServerGroup) LoadConfigFile(p string)  (conf *config.Config, ok bool, e
 //	error               错误
 func (T *ServerGroup) UpdateConfig(conf *config.Config) error {
 	if conf == nil {
-    	return verror.TrackErrorf("server: 配置为nil，无法更新。")
+    	return verror.TrackErrorf("server: conf 为 nil，无法更新。")
 	}
 	T.config = conf
 	if T.run.isTrue() {
