@@ -181,7 +181,7 @@ func configTLSFile(c *tls.Config, conf *config.ConfigServerTLS) error {
 			}
 			
 			ext := filepath.Ext(path)
-			if ext == ".crt" {
+			if ext == ".cer" {
 				certificates, err := x509.ParseCertificates(caData)
 				if err != nil {
 	        		errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, err.Error())

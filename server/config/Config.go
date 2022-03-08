@@ -556,7 +556,7 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *ConfigSitePlugin) error {
 			}
 			
 			ext := filepath.Ext(filename)
-			if ext == ".crt" {
+			if ext == ".cer" {
 				certificates, err := x509.ParseCertificates(caData)
 				if err != nil {
         			return verror.TrackErrorf("%s %s", filename, err.Error()) 
