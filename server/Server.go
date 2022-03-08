@@ -572,7 +572,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request){
         handlerDynamic.RootPath = rootPath
         handlerDynamic.BuffSize = buffSize
        	handlerDynamic.Site 	= site
-        handlerDynamic.Context 	= context.WithValue(r.Context(), "Plugin", (config.Pluginer)(se.plugin))
+        handlerDynamic.Context 	= context.WithValue(r.Context(), "Plugin", (vweb.Pluginer)(se.plugin))
 
         handlerDynamic.ServeHTTP(rw, r)
    }else{
@@ -970,16 +970,14 @@ func (T *ServerGroup) LoadConfigFile(p string)  (ok bool, err error) {
     }
     T.backConfigDate = b
 
-    conf := new(config.Config)
-    r := bytes.NewReader(b)
     //解析配置文件
-    err = conf.ParseReader(r)
-    if err != nil {
+    var conf = new(config.Config)
+    r := bytes.NewReader(b)
+    if err = conf.ParseReader(r); err != nil {
     	return
     }
     //更新配置文件
-	err = T.UpdateConfig(conf)
-    if err != nil {
+    if err = T.UpdateConfig(conf); err != nil {
     	return
     }
     return true, nil

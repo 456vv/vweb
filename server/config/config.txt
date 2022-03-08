@@ -226,7 +226,3 @@ type ConfigSites struct {																		// 配置站点s
 	Public ConfigSitePublic																			// 公共
 	Site   []ConfigSite 																			// 站点
 }
-type Pluginer interface {																		// 插件接口
-	RPC(name string) (vweb.PluginRPC, error)														// RPC
-	HTTP(name string) (vweb.PluginHTTP, error)														// HTTP
-}
