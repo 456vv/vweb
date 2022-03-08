@@ -101,6 +101,10 @@ const (
     PluginTypeRPC PluginType = iota                                                                                 // RPC
     PluginTypeHTTP                                                                                                  // HTTP
 )
+type Pluginer interface{                                                                                        // 插件接口
+    RPC(name string) (PluginRPC, error)                                                                             // RPC
+    HTTP(name string) (PluginHTTP, error)                                                                           // HTTP
+}
 type Responser interface {                                                                                      // 响应
     Write([]byte) (int, error)                                                                                      // 写入字节
     WriteString(string) (int, error)                                                                                // 写入字符串

@@ -95,6 +95,10 @@ const (
     PluginTypeRPC PluginType = iota                                                                                 // RPC
     PluginTypeHTTP                                                                                                  // HTTP
 )
+type Pluginer interface{                                                                                        // 插件接口
+    RPC(name string) (PluginRPC, error)                                                                             // RPC
+    HTTP(name string) (PluginHTTP, error)                                                                           // HTTP
+}
 type Responser interface {                                                                                      // 响应
     Write([]byte) (int, error)                                                                                      // 写入字节
     WriteString(string) (int, error)                                                                                // 写入字符串
@@ -109,7 +113,7 @@ type Responser interface {                                                      
 type Route struct {                                                                                             // 路由
     HandlerError func(w http.ResponseWriter, r *http.Request)                                                       // 错误访问处理
 }
-	func (T *Route) SetSiteMan(siteMan *SiteMan)																	// 设置站点管理
+    func (T *Route) SetSiteMan(siteMan *SiteMan)                                                                    // 设置站点管理
     func (T *Route) HandleFunc(url string, handler func(w http.ResponseWriter, r *http.Request))                    // 绑定处理函数
     func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request)                                               // 服务HTTP
 type ServerHandlerDynamic struct {                                                                              // 动态
