@@ -555,18 +555,23 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *ConfigSitePlugin) error {
         		return verror.TrackErrorf("%s %s", filename, err.Error()) 
 			}
 			
-			ext := filepath.Ext(filename)
-			if ext == ".cer" {
-				certificates, err := x509.ParseCertificates(caData)
-				if err != nil {
-        			return verror.TrackErrorf("%s %s", filename, err.Error()) 
+			switch filepath.Ext(filename) {
+				case ".cer":{
+					certificates, err := x509.ParseCertificates(caData)
+					if err != nil {
+	        			return verror.TrackErrorf("%s %s", filename, err.Error()) 
+					}
+					for _, cert := range certificates {
+						tlsconfig.RootCAs.AddCert(cert)
+					}
 				}
-				for _, cert := range certificates {
-					tlsconfig.RootCAs.AddCert(cert)
+				case ".pem", ".crt":{
+					if !tlsconfig.RootCAs.AppendCertsFromPEM(caData) {
+		        		return verror.TrackErrorf("%s %s\n", filename, "not is a valid PEM format")
+					}
 				}
-			}else if ext == ".pem" {
-				if !tlsconfig.RootCAs.AppendCertsFromPEM(caData) {
-	        		return verror.TrackErrorf("%s %s\n", filename, "not is a valid PEM format")
+				default:{
+					return verror.TrackErrorf("TLS.RootCAs[\"%s\"], the file type is not supported，only support \".cer/.crt/.pem\" file type", filename)
 				}
 			}
         }

@@ -180,20 +180,25 @@ func configTLSFile(c *tls.Config, conf *config.ConfigServerTLS) error {
 				continue
 			}
 			
-			ext := filepath.Ext(path)
-			if ext == ".cer" {
-				certificates, err := x509.ParseCertificates(caData)
-				if err != nil {
-	        		errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, err.Error())
-	        		continue
+			switch filepath.Ext(path) {
+				case ".cer":{
+					certificates, err := x509.ParseCertificates(caData)
+					if err != nil {
+		        		errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, err.Error())
+		        		continue
+					}
+					for _, cert := range certificates {
+						c.ClientCAs.AddCert(cert)
+					}
 				}
-				for _, cert := range certificates {
-					c.ClientCAs.AddCert(cert)
+				case ".pem", ".crt":{
+					if !c.ClientCAs.AppendCertsFromPEM(caData) {
+		        		errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, "not is a valid PEM format")
+		        		continue
+					}
 				}
-			}else if ext == ".pem" {
-				if !c.ClientCAs.AppendCertsFromPEM(caData) {
-	        		errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, "not is a valid PEM format")
-	        		continue
+				default:{
+					errClientCA = fmt.Sprintf("TLS.RootCAs[\"%s\"], the file type is not supported，only support \".cer/.crt/.pem\" file type", path)
 				}
 			}
 		}
