@@ -233,6 +233,7 @@ type ConfigSiteDynamic struct {
     CacheParseTimeout	int64												// 动态文件缓存解析超时，（秒为单位）
     CacheStaticFileDir	string												// 缓存静态文件目录，仅适于markdown转HTML
     CacheStaticAllowPath	[]string										// 缓存静态路径，仅适于markdown转HTML
+    CacheStaticTimeout int64												// 缓存静态超时，（秒为单位）
 }
 
 //ConfigSite 配置-站点

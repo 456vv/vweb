@@ -60,7 +60,7 @@ func main() {
     log.Printf("根目录：%s\n", dir)
 
     //日志文件对象
-    if err := os.MkdirAll(filepath.Dir(*fLogFile), 0777); err != nil {
+    if err := os.MkdirAll(filepath.Dir(*fLogFile), 0644); err != nil {
         panic(err)
     }
     logFile, err := os.OpenFile(*fLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0755)
