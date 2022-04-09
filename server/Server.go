@@ -237,7 +237,7 @@ func configTLSFile(c *tls.Config, conf *config.ConfigServerTLS) error {
 
 type ServerGroup struct {
 	ErrorLog        *log.Logger                         // 错误日志文件
-	DynamicTemplate map[string]vweb.DynamicTemplateFunc // 支持更多动态
+	DynamicModule 	map[string]vweb.DynamicTemplateFunc // 支持更多动态
 
 	Route *vweb.Route // 地址路由
 
@@ -486,7 +486,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 			}
 			handlerDynamic = &vweb.ServerHandlerDynamic{
 				PagePath: pagePath,
-				Plus:     T.DynamicTemplate,
+				Module:     T.DynamicModule,
 			}
 			if conf.Dynamic.Cache {
 				//时效

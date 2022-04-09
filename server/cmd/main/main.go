@@ -72,7 +72,7 @@ func main() {
 	//服务器
 	serverGroup := server.NewServerGroup()
 	serverGroup.ErrorLog.SetOutput(logFile)
-	serverGroup.DynamicTemplate = vweb_dynamic.DefaultPlus()
+	serverGroup.DynamicModule = vweb_dynamic.WEBModule()
 	exitCall.Defer(serverGroup.Close)
 
 	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
