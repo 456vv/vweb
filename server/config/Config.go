@@ -233,6 +233,7 @@ type ConfigSiteDynamic struct {
     CacheParseTimeout	int64												// 动态文件缓存解析超时，（秒为单位）
     CacheStaticFileDir	string												// 缓存静态文件目录，仅适于markdown转HTML
     CacheStaticAllowPath	[]string										// 缓存静态路径，仅适于markdown转HTML
+    CacheStaticTimeout int64												// 缓存静态超时，（秒为单位）
 }
 
 //ConfigSite 配置-站点
@@ -555,18 +556,23 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *ConfigSitePlugin) error {
         		return verror.TrackErrorf("%s %s", filename, err.Error()) 
 			}
 			
-			ext := filepath.Ext(filename)
-			if ext == ".cert" {
-				certificates, err := x509.ParseCertificates(caData)
-				if err != nil {
-        			return verror.TrackErrorf("%s %s", filename, err.Error()) 
+			switch filepath.Ext(filename) {
+				case ".cer":{
+					certificates, err := x509.ParseCertificates(caData)
+					if err != nil {
+	        			return verror.TrackErrorf("%s %s", filename, err.Error()) 
+					}
+					for _, cert := range certificates {
+						tlsconfig.RootCAs.AddCert(cert)
+					}
 				}
-				for _, cert := range certificates {
-					tlsconfig.RootCAs.AddCert(cert)
+				case ".pem", ".crt":{
+					if !tlsconfig.RootCAs.AppendCertsFromPEM(caData) {
+		        		return verror.TrackErrorf("%s %s\n", filename, "not is a valid PEM format")
+					}
 				}
-			}else if ext == ".pem" {
-				if !tlsconfig.RootCAs.AppendCertsFromPEM(caData) {
-	        		return verror.TrackErrorf("%s %s\n", filename, "not is a valid PEM format")
+				default:{
+					return verror.TrackErrorf("TLS.RootCAs[\"%s\"], the file type is not supported，only support \".cer/.crt/.pem\" file type", filename)
 				}
 			}
         }

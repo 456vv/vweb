@@ -41,7 +41,7 @@ type ServerHandlerDynamic struct {
     BuffSize			int																	// 缓冲块大小
     Site        		*Site																// 网站配置
 	Context				context.Context														// 上下文
-	Plus				map[string]DynamicTemplateFunc										// 支持更动态文件类型
+	Module				map[string]DynamicTemplateFunc										// 支持更动态文件类型
 	StaticAt			func(u *url.URL, r io.Reader, l int) (int, error)					// 静态结果。仅在 .ServeHTTP 方法中使用
 	ReadFile			func(u *url.URL, filePath string) (io.Reader, time.Time, error)		// 读取文件。仅在 .ServeHTTP 方法中使用
 	ReplaceParse		func(name string, p []byte) []byte
@@ -218,11 +218,11 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 	}
 
 	dynmicType := string(firstLine)
-	if T.Plus == nil || len(dynmicType) < 3 {
+	if T.Module == nil || len(dynmicType) < 3 {
 		return errors.New("vweb: The file type of the first line of the file is not recognized")
 	}
-	if plus, ok := T.Plus[dynmicType[2:]]; ok {
-		shdt := plus(T)
+	if m, ok := T.Module[dynmicType[2:]]; ok {
+		shdt := m(T)
 		shdt.SetPath(T.RootPath, T.PagePath)
 		err = shdt.Parse(bufr)
         if err != nil {

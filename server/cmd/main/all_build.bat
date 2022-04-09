@@ -1,4 +1,4 @@
-go mod tidy
+go mod tidy -compat=1.17
 go mod download
 
 set /p tags=CGO_ENABLED=0/go:build tags:

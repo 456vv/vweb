@@ -49,8 +49,10 @@ func forType(x interface{}, str string, flx string, floor int, all bool) string 
 	t = v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		f = t.Field(i)
-		if f.Name != "" && !all && (f.Name[0] < 65 || f.Name[0] > 90) {
-			continue
+		if f.Name != "" && (f.Name[0] < 65 || f.Name[0] > 90){
+			if !all || (all && floor != 0) {
+				continue
+			}
 		}
 		var k interface{}
 		z = inDirect(v.Field(i))

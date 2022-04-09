@@ -45,7 +45,7 @@ func Test_ConfigSiteForwards(t *testing.T){
 
 func Test_ConfigFileParse(t *testing.T){
     conf := &Config{}
-    err := ConfigFileParse(conf, "./test/config.json")
+    err := conf.ParseFile("./test/config.json")
     if(err != nil){
         t.Fatal(err)
     }
@@ -64,7 +64,7 @@ func Test_ConfigDataParse(t *testing.T){
 
     buf := bytes.NewBuffer(b)
     conf    := &Config{}
-    err = ConfigDataParse(conf, buf)
+    err = conf.ParseReader(buf)
     if(err != nil){
         t.Fatal(err)
     }
