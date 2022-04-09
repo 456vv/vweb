@@ -64,7 +64,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request){
 			defer conn.Close()
 	        return
 	    }
-	    ctx = context.WithValue(ctx, "Site", site)
+	    ctx = context.WithValue(ctx, SiteContextKey, site)
 	}
 	
 	//处理 HandleFunc
