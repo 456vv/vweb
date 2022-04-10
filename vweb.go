@@ -7,7 +7,6 @@ import(
 
 //其它
 const (
-    Version                 string = "VWEB/v2.5.x"                     					// 版本号
     defaultDataBufioSize    int = 32*1024           									// 默认数据缓冲32MB
 )
 

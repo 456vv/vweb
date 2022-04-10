@@ -1,44 +1,46 @@
 package vweb
 
 import (
-	"testing"
 	"reflect"
+	"testing"
+	"unsafe"
 
+	"github.com/issue9/assert/v2"
 )
 
 type TForMethod struct{}
-func (tf *TForMethod) A1(){}
-func (tf *TForMethod) A2(){}
-func (tf *TForMethod) A3(){}
-func (tf *TForMethod) a4(){}
-func Test_ForMethod(t *testing.T){
-	var tForMethod = &TForMethod{}
+
+func (tf *TForMethod) A1() {}
+func (tf *TForMethod) A2() {}
+func (tf *TForMethod) A3() {}
+func (tf *TForMethod) a4() {}
+func Test_ForMethod(t *testing.T) {
+	tForMethod := &TForMethod{}
 	t.Logf("\n%s", ForMethod(tForMethod))
 }
 
-type TForType struct{
-	a	int
-	b	string
-	c	float32
+type TForType struct {
+	a int
+	b string
+	c float32
 }
-func Test_ForType(t *testing.T){
-	var tForType = &TForType{}
+
+func Test_ForType(t *testing.T) {
+	tForType := &TForType{}
 	t.Logf("\n%s", ForType(tForType, false))
 }
 
-
-func Test_TypeSelect(t *testing.T){
+func Test_TypeSelect(t *testing.T) {
 	var i int = 19
 	t.Logf("%#v", typeSelect(reflect.ValueOf(i)))
 }
 
-func Test_InDirect(t *testing.T){
+func Test_InDirect(t *testing.T) {
 	var i int = 11
 	j := &i
 	b := &j
 	t.Logf("%#v", inDirect(reflect.ValueOf(&b)))
 }
-
 
 type A struct {
 	B
@@ -51,120 +53,70 @@ type B struct {
 type C struct {
 	D int
 }
+
 func Test_DepthField(t *testing.T) {
-    a := A{}
+	as := assert.New(t, true)
+	a := A{}
 	v, err := DepthField(a, "B", "C", "D")
-    if err == nil {
-    	t.Fatalf("错误：由于 *C 默认是空，不可能正确读取到该值(%v)。", v )
-    }
+	as.Error(err).Nil(v)
 
 	v, err = DepthField(a, "B", "C")
-    if err != nil {
-    	t.Fatal(err)
-    }
-    
-    a.B.F = map[string]string{"1":"a"}
+	as.NotError(err).Nil(v)
+
+	a.B.F = map[string]string{"1": "a"}
 	v, err = DepthField(a, "B", "F", "1")
-    if err != nil {
-    	t.Fatal(err)
-    }
-    
-    a.B.G = []string{"1"}
+	as.NotError(err).Equal(v, "a")
+
+	a.B.G = []string{"1"}
 	v, err = DepthField(a, "B", "G", 0)
-    if err != nil {
-    	t.Fatal(err)
-    }
+	as.NotError(err).Equal(v, "1")
 }
 
-func Test_CopyStruct(t *testing.T){
+func Test_CopyStruct(t *testing.T) {
+	as := assert.New(t, true)
 	a := A{
-		B:B{
-			F:map[string]string{"2":"2"},
+		B: B{
+			F: map[string]string{"2": "2"},
 		},
 	}
 	b := A{
-		B:B{
-			C:&C{D:1},
-			F:map[string]string{"1":"1"},
+		B: B{
+			C: &C{D: 1},
+			F: map[string]string{"1": "1"},
 		},
 	}
-	if err := CopyStruct(&a, &b, nil); err != nil {
-		t.Fatal(err)
-	}
-	
-	if !reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败")
-	}
+	err := CopyStruct(&a, &b, nil)
+	as.NotError(err).Equal(&a, &b)
+
+	as.NotEqual(a.B.F["2"], "2")
+
 	delete(b.B.F, "1")
-	
-	if a.B.C != b.B.C {
-		t.Fatal("复制失败")
-	}
-	
-	if !reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败")
-	}
-	
-	delete(a.B.F, "1")
-	a.B.C.D=2
-	if !reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败")
-	}
+	as.Equal(&a, &b)
+
+	a.D = 2
+	as.Equal(&a, &b)
 }
 
-func Test_CopyStructDeep(t *testing.T){
+func Test_CopyStructDeep(t *testing.T) {
+	as := assert.New(t, true)
 	a := A{
-		B:B{
-			F:map[string]string{"2":"2"},
+		B: B{
+			F: map[string]string{"2": "2"},
 		},
 	}
 	b := A{
-		B:B{
-			C:&C{D:1},
-			F:map[string]string{"1":"1"},
+		B: B{
+			C: &C{D: 1},
+			F: map[string]string{"1": "1"},
 		},
 	}
-	if err := CopyStructDeep(&a, &b, nil); err != nil {
-		t.Fatal(err)
-	}
-	
-	if len(a.B.F) != 2 {
-		t.Fatal("复制失败")
-	}
-	delete(a.B.F, "2")
-	
-	if !reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败")
-	}
-	delete(b.B.F, "1")
-	
-	if reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败")
-	}
-	
+	err := CopyStructDeep(&a, &b, nil)
+	as.NotError(err).Length(a.B.F, 2)
+
 	delete(a.B.F, "1")
-	a.B.C.D=2
-	if reflect.DeepEqual(&a, &b) {
-		t.Fatal("复制失败")
-	}
+	as.NotEqual(a, b)
+	as.Equal(a.B.C, b.B.C).NotEqual(unsafe.Pointer(a.B.C), unsafe.Pointer(b.B.C))
+
+	a.D = 2
+	as.NotEqual(a.C, b.C)
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

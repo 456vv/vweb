@@ -1,98 +1,127 @@
 package builtin
 
 import (
-	"reflect"
 	"fmt"
+	"reflect"
 )
 
-//Compute(1, "+", 2)
+// Compute(1, "+", 2)
 func Compute(x interface{}, symbol string, y interface{}) (i interface{}, err error) {
-    xx := reflect.ValueOf(x)
-    yy := reflect.ValueOf(y)
-    xx = inDirect(xx)
-    yy = inDirect(yy)
-    es := "Algorithms not supported by this type(%s)?"
-    if xx.Kind() != yy.Kind() {
-       	return 0, fmt.Errorf("Two types are not equal? %v != %v", xx.Kind(), yy.Kind())
-    }
-    switch xx.Kind() {
-    case reflect.String:
-    	XS := xx.String()
-        YS := yy.String()
-        var XYS string
-        switch symbol {
-            case "+":XYS = XS+YS
-            default:
-                err = fmt.Errorf(es, symbol)
-        }
-        return XYS, err
-    case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-        XI := xx.Int()
-        YI := yy.Int()
-        var XYI int64
-        switch symbol {
-            case "+":XYI = XI+YI
-            case "-":XYI = XI-YI
-            case "*":XYI = XI*YI
-            case "/":XYI = XI/YI
-            case "%":XYI = XI%YI
-            case "&":XYI = XI&YI
-            case "|":XYI = XI|YI
-            case "^":XYI = XI^YI
-            case "&^":XYI = XI&^YI
-            default:
-                err = fmt.Errorf(es, symbol)
-        }
-        return XYI, err
-    case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-        XU := xx.Uint()
-        YU := yy.Uint()
-        var XYU uint64
-        switch symbol {
-            case "+":XYU = XU+YU
-            case "-":XYU = XU-YU
-            case "*":XYU = XU*YU
-            case "/":XYU = XU/YU
-            case "%":XYU = XU%YU
-            case "&":XYU = XU&YU
-            case "|":XYU = XU|YU
-            case "^":XYU = XU^YU
-            case "&^":XYU = XU&^YU
-            case "<<":XYU = XU<<YU
-            case ">>":XYU = XU>>YU
-            default:
-                err = fmt.Errorf(es, symbol)
-        }
-        return XYU, err
-    case reflect.Float32, reflect.Float64:
-        XF := xx.Float()
-        YF := yy.Float()
-        var XYF float64
-        switch symbol {
-            case "+":XYF = XF+YF
-            case "-":XYF = XF-YF
-            case "*":XYF = XF*YF
-            case "/":XYF = XF/YF
-            default:
-                err = fmt.Errorf(es, symbol)
-        }
-        return XYF, err
-    case reflect.Uintptr:
-        XP := xx.UnsafeAddr()
-        YP := yy.UnsafeAddr()
-        var XYP uintptr
-        switch symbol {
-            case "+":XYP = XP+YP
-            case "-":XYP = XP-YP
-            case "*":XYP = XP*YP
-            case "/":XYP = XP/YP
-            default:
-                err = fmt.Errorf(es, symbol)
-        }
-        return XYP, err
-   	default:
-   		 return nil, fmt.Errorf("This is a type that does not match the calculation(%v)？", xx.Kind())
-    }
+	xx := reflect.ValueOf(x)
+	yy := reflect.ValueOf(y)
+	xx = inDirect(xx)
+	yy = inDirect(yy)
+	es := "Algorithms not supported by this type(%s)?"
+	if xx.Kind() != yy.Kind() {
+		return 0, fmt.Errorf("two types are not equal? %v != %v", xx.Kind(), yy.Kind())
+	}
+	switch xx.Kind() {
+	case reflect.String:
+		XS := xx.String()
+		YS := yy.String()
+		var XYS string
+		switch symbol {
+		case "+":
+			XYS = XS + YS
+		default:
+			err = fmt.Errorf(es, symbol)
+		}
+		return XYS, err
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		XI := xx.Int()
+		YI := yy.Int()
+		var XYI int64
+		switch symbol {
+		case "+":
+			XYI = XI + YI
+		case "-":
+			XYI = XI - YI
+		case "*":
+			XYI = XI * YI
+		case "/":
+			XYI = XI / YI
+		case "%":
+			XYI = XI % YI
+		case "&":
+			XYI = XI & YI
+		case "|":
+			XYI = XI | YI
+		case "^":
+			XYI = XI ^ YI
+		case "&^":
+			XYI = XI &^ YI
+		default:
+			err = fmt.Errorf(es, symbol)
+		}
+		return XYI, err
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		XU := xx.Uint()
+		YU := yy.Uint()
+		var XYU uint64
+		switch symbol {
+		case "+":
+			XYU = XU + YU
+		case "-":
+			XYU = XU - YU
+		case "*":
+			XYU = XU * YU
+		case "/":
+			XYU = XU / YU
+		case "%":
+			XYU = XU % YU
+		case "&":
+			XYU = XU & YU
+		case "|":
+			XYU = XU | YU
+		case "^":
+			XYU = XU ^ YU
+		case "&^":
+			XYU = XU &^ YU
+		case "<<":
+			XYU = XU << YU
+		case ">>":
+			XYU = XU >> YU
+		default:
+			err = fmt.Errorf(es, symbol)
+		}
+		return XYU, err
+	case reflect.Float32, reflect.Float64:
+		XF := xx.Float()
+		YF := yy.Float()
+		var XYF float64
+		switch symbol {
+		case "+":
+			XYF = XF + YF
+		case "-":
+			XYF = XF - YF
+		case "*":
+			XYF = XF * YF
+		case "/":
+			XYF = XF / YF
+		default:
+			err = fmt.Errorf(es, symbol)
+		}
+		return XYF, err
+	case reflect.Uintptr:
+		XP := xx.UnsafeAddr()
+		YP := yy.UnsafeAddr()
+		var XYP uintptr
+		switch symbol {
+		case "+":
+			XYP = XP + YP
+		case "-":
+			XYP = XP - YP
+		case "*":
+			XYP = XP * YP
+		case "/":
+			XYP = XP / YP
+		default:
+			err = fmt.Errorf(es, symbol)
+		}
+		return XYP, err
+	default:
+		return nil, fmt.Errorf("this is a type that does not match the calculation(%v)？", xx.Kind())
+	}
 }
 
 // a+1
@@ -151,7 +180,6 @@ func Dec(a interface{}) interface{} {
 
 // -a
 func Neg(a interface{}) interface{} {
-
 	switch a1 := a.(type) {
 	case int:
 		return -a1
@@ -295,7 +323,7 @@ func Add(a, b interface{}) interface{} {
 	return panicUnsupportedOp2("+", a, b)
 }
 
-//a-b
+// a-b
 func Sub(a, b interface{}) interface{} {
 	switch a1 := a.(type) {
 	case int:

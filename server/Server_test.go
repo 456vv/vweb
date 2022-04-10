@@ -1,18 +1,17 @@
 package server
 
 import (
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
-    "bytes"
-    "io/ioutil"
-    "time"
-    "net/url"
-    "net/http"
-    "os"
-    "path/filepath"
+	"time"
+
 	"github.com/456vv/vweb/v2"
 	"github.com/456vv/vweb/v2/server/config"
+	"github.com/issue9/assert/v2"
 )
-
 
 var testCert = `
 -----BEGIN CERTIFICATE-----
@@ -37,7 +36,7 @@ roQdgLT7Y3RbckYOMWHMStzs2EFQUZCBUthpFhfGKmyPrCDzZiuZHFzD1VHzwlVl
 AJ7GzUT9TKQDHvXP5tNWCkvPSEbMLCKd0w1HkQofhxMdbOlqs94N
 -----END CERTIFICATE-----
 `
-	
+
 var testKey = `
 -----BEGIN PRIVATE KEY-----
 MIICXQIBAAKBgQDgub8JGiKkjhASuCIir+xSBlK1AHXmAWPfdObb3MwowZ41Qawg
@@ -56,360 +55,265 @@ LzeIJd6AClByowsdS5v/DeZQnfDaW68OB3+vqKQbMbei
 -----END PRIVATE KEY-----
 `
 
-
-func Test_NewServerGroup_1(t *testing.T){
+func Test_NewServerGroup_1(t *testing.T) {
+	as := assert.New(t, true)
 	sg := NewServerGroup()
-	go func(t *testing.T){
-		time.AfterFunc(time.Second, func(){
-	        sg.Close()
-	    })
-	    file := "./config/test/config.json"
-	    _, err := sg.LoadConfigFile(file)
-	    if(err != nil){
-	        t.Fatalf("挂载文件失败：%v", err)
-	    }
-	}(t)
-    err := sg.Start()
-    if(err != nil){
-        t.Fatalf("启动失败：%v", err)
-    }
-}
-
-func Test_NewServerGroup_2(t *testing.T){
-
-    sg := NewServerGroup()
-    osFile, err := os.Open("./config/test/config.json")
-    if err != nil {
-    	t.Fatal(err)
-    }
-    b, err := ioutil.ReadAll(osFile)
-    if err != nil {
-    	t.Fatal(err)
-    }
-    buf := bytes.NewBuffer(b)
-    conf    := &config.Config{}
-    err = conf.ParseReader(buf)
-    if(err != nil){
-        t.Fatal(err)
-    }
-    err = sg.UpdateConfig(conf)
-    if err == nil && sg.config == nil {
-        t.Fatalf("失败，配置文件无法保存到sg.config")
-    }
-
-	time.AfterFunc(time.Second, func(){
-        sg.Close()
-    })
-    sg.Start()
-
-}
-
-func Test_NewServerGroup_3(t *testing.T){
-	sg := NewServerGroup()
-	serv := sg.newServer("127.0.0.1:0")
-	serv.init()
-	
-	var forward = map[string]config.ConfigSiteForward{
-		"127.0.0.1:1234":config.ConfigSiteForward{
-			List:[]config.ConfigSiteForwards{
-				{
-				Status: true,
-				Path:[]string{".*"},
-				ExcludePath:[]string{},
-				RePath:"http://www.baidu.com/",
-			    RedirectCode:301,
-				End:true,
-				},
-			},
-		},
-		"11.0.0.1:11":config.ConfigSiteForward{
-			List:[]config.ConfigSiteForwards{
-				{
-				Status: true,
-				Path:[]string{".*"},
-				ExcludePath:[]string{},
-				RePath:"http://www.baidu.com/",
-			    RedirectCode:301,
-				End:true,
-				},
-			},
-		},
-	}
-	
-	
-	serv.Server.Handler=http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request){
-		
-	    urlPath	:= r.URL.Path
-	    if  len(forward) != 0 {
-	        var forwardC config.ConfigSiteForward
-	        derogatoryDomain(r.Host, func(h string) (ok bool){
-	        	forwardC, ok = forward[h]
-	            return
-	        })
-	        for _, fc := range forwardC.List {
-	        	if !fc.Status {
-	        		//跳过禁止的
-	        		continue
-	        	}
-	        	rpath, rewried, err := fc.Rewrite(urlPath)
-	        	if err != nil {
-	        		t.Logf("server: host(%s) 进行重写URL规则发发生错误：%s\n", r.Host, err.Error())
-	        		continue
-	        	}
-	        	if rewried {
-	            	if fc.RedirectCode != 0 {
-	            		//重定向,并退出
-	            		http.Redirect(rw, r, rpath, fc.RedirectCode)
-	            		return
-	            	}
-	            	
-					urlPath = rpath
-					
-	            	if fc.End {
-	            		return
-	            	}
-				}
-	        }
-	    }
-		
-		http.Error(rw, "1234567", 200)
+	time.AfterFunc(2*time.Second, func() {
+		err := sg.Close()
+		as.NotError(err)
 	})
+	_, err := sg.LoadConfigFile("./config/test/config.json")
+	as.NotError(err)
 
-	go func(){
-		time.Sleep(time.Second)
-		serv.Close()
-	}()
-	sg.serve(serv)
+	err = sg.Start()
+	as.NotError(err)
 }
 
-func Test_ServerGroup_LoadConfigFile(t *testing.T){
+func Test_NewServerGroup_2(t *testing.T) {
+	as := assert.New(t, true)
 	sg := NewServerGroup()
-    defer sg.Close()
-    file := "./config/test/config.json"
-    _, err := sg.LoadConfigFile(file)
-    if err == nil && sg.config == nil {
-        t.Fatalf("加载配置文件错误：%s", file)
-    }
+	osFile, err := os.Open("./config/test/config.json")
+	as.NotError(err)
+	defer osFile.Close()
+
+	conf := new(config.Config)
+	err = conf.ParseReader(osFile)
+	as.NotError(err)
+
+	err = sg.UpdateConfig(conf)
+	as.NotError(err)
+
+	time.AfterFunc(2*time.Second, func() {
+		sg.Close()
+	})
+	sg.Start()
 }
 
-func Test_ServerGroup_httpIsDynamic1(t *testing.T){
-    var tests = []struct{
-        fileExt string
-        allowExt []string
-        result  bool
-    }{
-        {
-        fileExt:".html",
-        allowExt:[]string{".bw", ".go"},
-        result:false,
-        },
-        {
-        fileExt:".go",
-        allowExt:[]string{".bw", ".go"},
-        result:true,
-        },
-        {
-        fileExt:".bw",
-        allowExt:[]string{".bw", ".go"},
-        result:true,
-        },
-    }
-
-    //服务器
-    for _, test := range tests {
-        if strSliceContains(test.allowExt, test.fileExt) != test.result{
-            t.Fatalf("该文件后缀（%s）是无法从（%s）识别。", test.fileExt, test.allowExt)
-        }
-    }
-}
-
-func Test_ServerGroup_httpTypeByExtension1(t *testing.T){
-    var tests = []struct{
-        ext         string
-        MIME        map[string]string
-        result      string
-    }{
-        {
-            ext:    ".txt",
-            MIME:   map[string]string{".txt":"application/text",".html":"text/html", ".go":"application/go", ".bw":"text/html"},
-            result: "application/text",
-        },{
-            ext:    ".txt",
-            MIME:   map[string]string{".txt":"",".html":"text/html", ".go":"application/go", ".bw":"text/html"},
-            result: "",
-        },{
-            ext:    ".bw",
-            MIME:   map[string]string{".txt":"",".html":"text/html", ".go":"application/go", ".bw":"text/html"},
-            result: "text/html",
-        },{
-            ext:    ".htm",
-            MIME:   map[string]string{".txt":"",".html":"text/html", ".go":"application/go", ".bw":"text/html"},
-            result: "text/html; charset=utf-8",//MIME中没有定义，默认向系统中的MIME表读取。
-        },
-
-    }
-    //服务器
-    for _, test := range tests {
-        extType := httpTypeByExtension(test.ext, test.MIME)
-        if test.result != extType{
-            t.Logf("该文件后缀(%s), 扩展类型是（%s）。\r\n", test.ext, extType)
-        }
-    }
-}
-
-func Test_ConfigSiteDirectory_RootDir(t *testing.T){
-    tests := []struct {
-        r       *http.Request
-    	conf    *config.ConfigSiteDirectory
-        root    string
-    }{
-        {
-            r:&http.Request{URL:&url.URL{Path:"/A/B/C"}},
-            conf:&config.ConfigSiteDirectory{
-            	Root:"G:/123/456/789",
-                Virtual:[]string{"D:/123/456/A","G:/abc", "C:/abc"},
-            },
-            root:"D:/123/456",
-        },{
-            r:&http.Request{URL:&url.URL{Path:"/abc"}},
-            conf:&config.ConfigSiteDirectory{
-            	Root:"/123/456/789",
-                Virtual:[]string{"/abc"},
-            },
-            root:"/",
-        },{
-            r:&http.Request{URL:&url.URL{Path:"/abc"}},
-            conf:&config.ConfigSiteDirectory{
-            	Root:"/123/456/789",
-                Virtual:[]string{"aaa/bbbb/abc"},
-            },
-            root:"aaa/bbbb",
-        },{
-            r:&http.Request{URL:&url.URL{Path:"/"}},
-            conf:&config.ConfigSiteDirectory{
-            	Root:"G:/123/456/789",
-                Virtual:[]string{"G:/abc", "C:/abc"},
-            },
-            root:"G:/123/456/789",
-        },{
-            r:&http.Request{URL:&url.URL{Path:"/A/B/C"}},
-            conf:&config.ConfigSiteDirectory{
-            	Root:"G:/123/456/789",
-                Virtual:[]string{"G:/abc", "C:/abc", "D:/123/456/A"},
-            },
-            root:"D:/123/456",
-        },{
-            r:&http.Request{URL:&url.URL{Path:"/A/B/C/"}},
-            conf:&config.ConfigSiteDirectory{
-            	Root:"G:/123/456/789",
-                Virtual:[]string{"G:/abc", "C:/abc", "D:/123/456/A"},
-            },
-            root:"D:/123/456",
-        },{
-            r:&http.Request{URL:&url.URL{Path:"/B/C/"}},
-            conf:&config.ConfigSiteDirectory{
-            	Root:"G:/123/456/789",
-                Virtual:[]string{":/abc", "C:/abc", "D:/123/---/B"},
-            },
-            root:"D:/123/---",
-        },{
-            r:&http.Request{URL:&url.URL{Path:"/B/C/"}},
-            conf:&config.ConfigSiteDirectory{
-            	Root:"",
-                Virtual:[]string{},
-            },
-            root:"",
-        },
-    }
-    for i, test := range tests {
-        root := test.conf.RootDir(test.r.URL.Path)
-        if root != filepath.FromSlash(test.root) {
-        	t.Fatalf("%d,返回根目录和预先设定的不匹配。返回（%s），预先（%s）", i, root,filepath.FromSlash(test.root))
-        }
-    }
-}
-
-func Test_Server_ConfigServer(t *testing.T){
-    tempDir := os.TempDir()
-    fileCert := filepath.Join(tempDir, "fileCert.pem")
-    
-    filec, err := os.OpenFile(fileCert, os.O_CREATE|os.O_RDWR, 0777)
-    if err != nil {
-    	t.Fatal(err)
-    }
-    filec.Write([]byte(testCert))
-    filec.Close()
-    defer os.RemoveAll(fileCert)
-
-    fileKey := filepath.Join(tempDir, "fileCert.key")
-    filec, err = os.OpenFile(fileKey, os.O_CREATE|os.O_RDWR, 0777)
-    if err != nil {
-    	t.Fatal(err)
-    }
-    filec.Write([]byte(testKey))
-    filec.Close()
-    defer os.RemoveAll(fileKey)
-
-	var srv = new(Server)
-    cstlsf1 := config.ConfigServerTLSFile{
-        CertFile    : fileCert,
-        KeyFile     : fileKey,
-    }
-    cstlsf2 := config.ConfigServerTLSFile{
-        CertFile    : fileCert,
-        KeyFile     : fileKey,
-    }
-	CS := &config.ConfigServer{
-        TLS:&config.ConfigServerTLS{
-            RootCAs:[]config.ConfigServerTLSFile{cstlsf1,cstlsf2},
-         },
-    }
-    err = srv.ConfigServer(CS)
-    if err != nil {
-    	t.Fatal(err)
-    }
-	defer srv.Close()
-    if d := len(srv.l.tlsconf.NameToCertificate); d != 3 {
-    	t.Fatalf("证书绑定host 失败，预定3个数量，不正确数量：%d",  d)
-    }
-    
-	CS = &config.ConfigServer{
-        TLS:&config.ConfigServerTLS{
-            RootCAs:[]config.ConfigServerTLSFile{},
-         },
+func Test_ServerGroup_LoadConfigFile(t *testing.T) {
+	sg := NewServerGroup()
+	defer sg.Close()
+	_, err := sg.LoadConfigFile("./config/test/config.json")
+	if err == nil && sg.config == nil {
+		t.Fatalf("加载配置文件错误")
 	}
-    err = srv.ConfigServer(CS)
-    if err != nil {
-    	t.Fatal(err)
-    }
-    if d := len(srv.l.tlsconf.NameToCertificate); d != 0 {
-    	t.Fatalf("证书绑定host 失败，预定0个数量，不正确数量：%d",  d)
-    }
 }
 
-func Test_Server_updateSitePoolAdd(t *testing.T){
-	var sg = NewServerGroup()
-	sg.sitePool = vweb.DefaultSitePool
-    conf := config.ConfigSite{
-        Identity:"A",
-        Session:config.ConfigSiteSession{
-            Name         : "BB",
-            Expired      : 0,
-            Size         : 128,
-            ActivationID : true,
-        },
-    }
-    sg.updateSitePoolAdd(conf)
-    
-    site := vweb.DefaultSitePool.NewSite(conf.Identity)
-    
-    if conf.Session.Expired != int64(site.Sessions.Expired) {
-    	t.Fatal("无法增加站点池")
-    }
-    
-    sg.updateSitePoolDel([]string{})
-    if int64(vweb.DefaultSitePool.NewSite(conf.Identity).Sessions.Expired) == conf.Session.Expired {
-    	t.Fatal("无法删除站点池")
-    }
+func Test_ServerGroup_httpIsDynamic1(t *testing.T) {
+	tests := []struct {
+		fileExt  string
+		allowExt []string
+		result   bool
+	}{
+		{
+			fileExt:  ".html",
+			allowExt: []string{".bw", ".go"},
+			result:   false,
+		},
+		{
+			fileExt:  ".go",
+			allowExt: []string{".bw", ".go"},
+			result:   true,
+		},
+		{
+			fileExt:  ".bw",
+			allowExt: []string{".bw", ".go"},
+			result:   true,
+		},
+	}
 
+	// 服务器
+	for _, test := range tests {
+		if strSliceContains(test.allowExt, test.fileExt) != test.result {
+			t.Fatalf("该文件后缀（%s）是无法从（%s）识别。", test.fileExt, test.allowExt)
+		}
+	}
+}
+
+func Test_ServerGroup_httpTypeByExtension1(t *testing.T) {
+	tests := []struct {
+		ext    string
+		MIME   map[string]string
+		result string
+	}{
+		{
+			ext:    ".txt",
+			MIME:   map[string]string{".txt": "application/text", ".html": "text/html", ".go": "application/go", ".bw": "text/html"},
+			result: "application/text",
+		}, {
+			ext:    ".txt",
+			MIME:   map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"},
+			result: "",
+		}, {
+			ext:    ".bw",
+			MIME:   map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"},
+			result: "text/html",
+		}, {
+			ext:    ".htm",
+			MIME:   map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"},
+			result: "text/html; charset=utf-8", // MIME中没有定义，默认向系统中的MIME表读取。
+		},
+	}
+	// 服务器
+	for _, test := range tests {
+		extType := httpTypeByExtension(test.ext, test.MIME)
+		if test.result != extType {
+			t.Logf("该文件后缀(%s), 扩展类型是（%s）。\r\n", test.ext, extType)
+		}
+	}
+}
+
+func Test_ConfigSiteDirectory_RootDir(t *testing.T) {
+	tests := []struct {
+		r    *http.Request
+		conf *config.ConfigSiteDirectory
+		root string
+	}{
+		{
+			r: &http.Request{URL: &url.URL{Path: "/A/B/C"}},
+			conf: &config.ConfigSiteDirectory{
+				Root:    "G:/123/456/789",
+				Virtual: []string{"D:/123/456/A", "G:/abc", "C:/abc"},
+			},
+			root: "D:/123/456",
+		}, {
+			r: &http.Request{URL: &url.URL{Path: "/abc"}},
+			conf: &config.ConfigSiteDirectory{
+				Root:    "/123/456/789",
+				Virtual: []string{"/abc"},
+			},
+			root: "/",
+		}, {
+			r: &http.Request{URL: &url.URL{Path: "/abc"}},
+			conf: &config.ConfigSiteDirectory{
+				Root:    "/123/456/789",
+				Virtual: []string{"aaa/bbbb/abc"},
+			},
+			root: "aaa/bbbb",
+		}, {
+			r: &http.Request{URL: &url.URL{Path: "/"}},
+			conf: &config.ConfigSiteDirectory{
+				Root:    "G:/123/456/789",
+				Virtual: []string{"G:/abc", "C:/abc"},
+			},
+			root: "G:/123/456/789",
+		}, {
+			r: &http.Request{URL: &url.URL{Path: "/A/B/C"}},
+			conf: &config.ConfigSiteDirectory{
+				Root:    "G:/123/456/789",
+				Virtual: []string{"G:/abc", "C:/abc", "D:/123/456/A"},
+			},
+			root: "D:/123/456",
+		}, {
+			r: &http.Request{URL: &url.URL{Path: "/A/B/C/"}},
+			conf: &config.ConfigSiteDirectory{
+				Root:    "G:/123/456/789",
+				Virtual: []string{"G:/abc", "C:/abc", "D:/123/456/A"},
+			},
+			root: "D:/123/456",
+		}, {
+			r: &http.Request{URL: &url.URL{Path: "/B/C/"}},
+			conf: &config.ConfigSiteDirectory{
+				Root:    "G:/123/456/789",
+				Virtual: []string{":/abc", "C:/abc", "D:/123/---/B"},
+			},
+			root: "D:/123/---",
+		}, {
+			r: &http.Request{URL: &url.URL{Path: "/B/C/"}},
+			conf: &config.ConfigSiteDirectory{
+				Root:    "",
+				Virtual: []string{},
+			},
+			root: "",
+		},
+	}
+	for i, test := range tests {
+		root := test.conf.RootDir(test.r.URL.Path)
+		if root != filepath.FromSlash(test.root) {
+			t.Fatalf("%d,返回根目录和预先设定的不匹配。返回（%s），预先（%s）", i, root, filepath.FromSlash(test.root))
+		}
+	}
+}
+
+func Test_Server_ConfigServer(t *testing.T) {
+	tempDir := os.TempDir()
+	fileCert := filepath.Join(tempDir, "fileCert.pem")
+
+	filec, err := os.OpenFile(fileCert, os.O_CREATE|os.O_RDWR, 0o777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filec.Write([]byte(testCert))
+	filec.Close()
+	defer os.RemoveAll(fileCert)
+
+	fileKey := filepath.Join(tempDir, "fileCert.key")
+	filec, err = os.OpenFile(fileKey, os.O_CREATE|os.O_RDWR, 0o777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filec.Write([]byte(testKey))
+	filec.Close()
+	defer os.RemoveAll(fileKey)
+
+	srv := new(Server)
+	cstlsf1 := config.ConfigServerTLSFile{
+		CertFile: fileCert,
+		KeyFile:  fileKey,
+	}
+	cstlsf2 := config.ConfigServerTLSFile{
+		CertFile: fileCert,
+		KeyFile:  fileKey,
+	}
+	CS := &config.ConfigServer{
+		TLS: &config.ConfigServerTLS{
+			RootCAs: []config.ConfigServerTLSFile{cstlsf1, cstlsf2},
+		},
+	}
+	err = srv.ConfigServer(CS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	if d := len(srv.l.tlsconf.NameToCertificate); d != 3 {
+		t.Fatalf("证书绑定host 失败，预定3个数量，不正确数量：%d", d)
+	}
+
+	CS = &config.ConfigServer{
+		TLS: &config.ConfigServerTLS{
+			RootCAs: []config.ConfigServerTLSFile{},
+		},
+	}
+	err = srv.ConfigServer(CS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := len(srv.l.tlsconf.NameToCertificate); d != 0 {
+		t.Fatalf("证书绑定host 失败，预定0个数量，不正确数量：%d", d)
+	}
+}
+
+func Test_Server_updateSitePoolAdd(t *testing.T) {
+	sg := NewServerGroup()
+	sg.sitePool = vweb.DefaultSitePool
+	conf := config.ConfigSite{
+		Identity: "A",
+		Session: config.ConfigSiteSession{
+			Name:         "BB",
+			Expired:      0,
+			Size:         128,
+			ActivationID: true,
+		},
+	}
+	sg.updateSitePoolAdd(conf)
+
+	site := vweb.DefaultSitePool.NewSite(conf.Identity)
+
+	if conf.Session.Expired != int64(site.Sessions.Expired) {
+		t.Fatal("无法增加站点池")
+	}
+
+	sg.updateSitePoolDel([]string{})
+	if int64(vweb.DefaultSitePool.NewSite(conf.Identity).Sessions.Expired) == conf.Session.Expired {
+		t.Fatal("无法删除站点池")
+	}
 }
