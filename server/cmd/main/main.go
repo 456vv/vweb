@@ -26,9 +26,9 @@ var (
 )
 
 func main() {
-	log.Printf("程序版本：%s | %s | %s\n", vweb.Version, server.Version, version)
+	log.Printf("程序版本：%s | %s\n", server.Version, version)
 
-	//文件行参数
+	// 文件行参数
 	flag.Parse()
 	if flag.NFlag() == 0 {
 		flag.PrintDefaults()
@@ -40,7 +40,7 @@ func main() {
 		exitCall vweb.ExitCall
 	)
 
-	//非法结束退出
+	// 非法结束退出
 	base.StartSigHandlers()
 	go func() {
 		<-base.Interrupted
@@ -48,7 +48,7 @@ func main() {
 	}()
 	defer exitCall.Free()
 
-	//程序根目录
+	// 程序根目录
 	if err = os.Chdir(*fRootDir); err != nil {
 		panic(err)
 	}
@@ -58,18 +58,18 @@ func main() {
 	}
 	log.Printf("根目录：%s\n", dir)
 
-	//日志文件对象
-	if err := os.MkdirAll(filepath.Dir(*fLogFile), 0644); err != nil {
+	// 日志文件对象
+	if err := os.MkdirAll(filepath.Dir(*fLogFile), 0o644); err != nil {
 		panic(err)
 	}
-	logFile, err := os.OpenFile(*fLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0755)
+	logFile, err := os.OpenFile(*fLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY|os.O_SYNC, 0o755)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	exitCall.Defer(logFile.Close)
 
-	//服务器
+	// 服务器
 	serverGroup := server.NewServerGroup()
 	serverGroup.ErrorLog.SetOutput(logFile)
 	serverGroup.DynamicModule = vweb_dynamic.WEBModule()
@@ -88,7 +88,7 @@ func main() {
 		}
 	})
 
-	//文件看守
+	// 文件看守
 	watcher, err := watch.NewWatch()
 	if err != nil {
 		log.Println(err)
@@ -96,7 +96,7 @@ func main() {
 	}
 	exitCall.Defer(watcher.Close)
 
-	//监听配置文件
+	// 监听配置文件
 	watcher.Monitor(*fConfigFile, func(event fsnotify.Event) {
 		switch event.Op {
 		case fsnotify.Create, fsnotify.Write:
@@ -109,6 +109,6 @@ func main() {
 	if err := serverGroup.Start(); err != nil {
 		log.Printf("启动失败：%s\n", err)
 	}
-	//非法结束进程，留给另一个线程处理退出
+	// 非法结束进程，留给另一个线程处理退出
 	time.Sleep(time.Second)
 }

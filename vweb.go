@@ -7,7 +7,6 @@ import(
 
 //其它
 const (
-    Version                 string = "VWEB/v2.4.x"                     					// 版本号
     defaultDataBufioSize    int = 32*1024           									// 默认数据缓冲32MB
 )
 
@@ -20,4 +19,10 @@ func (T *atomicBool) setFalse() bool{ return atomic.CompareAndSwapInt32((*int32)
 
 //随机数的可用字符
 const encodeStd = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._"
+
+//上下文的Key，在请求中可以使用
+type contextKey struct {
+	name string
+}
+func (T *contextKey) String() string { return "vweb context value " + T.name }
 

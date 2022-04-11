@@ -6,20 +6,20 @@ export version="App/`date +%Y%m%d%H%M%S`"
 
 export GOOS=linux
 export GOARCH=386
-go build -o bin/V-WEB-Server-linux-386 -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib" ./
+go build -o bin/V-WEB-Server-linux-386 -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib gossa_lib" ./
 export GOARCH=amd64
-go build -o bin/V-WEB-Server-linux-amd64 -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib" ./
+go build -o bin/V-WEB-Server-linux-amd64 -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib gossa_lib" ./
 export GOARCH=arm
 export GOARM=6
-go build -o bin/V-WEB-Server-linux-armv6 -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib" ./
+go build -o bin/V-WEB-Server-linux-armv6 -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib gossa_lib" ./
 export GOARCH=arm64
-go build -o bin/V-WEB-Server-linux-arm64 -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib" ./
+go build -o bin/V-WEB-Server-linux-arm64 -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib gossa_lib" ./
 export GOARCH=mips
-go build -o bin/V-WEB-Server-linux-mips -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib" ./
+go build -o bin/V-WEB-Server-linux-mips -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib gossa_lib" ./
 
 export GOOS=windows
 export GOARCH=amd64
-go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib" ./
+go build -o bin/V-WEB-Server-win-amd64.exe -ldflags="-s -w -X main.version=$version" -tags="vweb_lib yaegi_lib gossa_lib" ./
 
 #export CGO_ENABLED=1
 #
