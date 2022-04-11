@@ -2,7 +2,7 @@ vweb.ListenerContextKey		net.TCPListener
 vweb.ConnContextKey			*net.Conn
 http.LocalAddrContextKey	net.Conn.LocalAddr()
 http.ServerContextKey		*http.Server
-vweb.PluginContextKey		*server.Pluginer
+vweb.PluginContextKey		*vweb.Pluginer
 Template					*vweb_dynamic.TemplateExtend
 								//创建/调用
 								f = t.NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)
