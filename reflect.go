@@ -3,18 +3,19 @@ package vweb
 import (
 	"fmt"
 	"reflect"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/456vv/verror"
 	"github.com/456vv/vweb/v2/builtin"
-	//"unsafe"
 )
 
-//ForMethod	遍历方法
+// ForMethod	遍历方法
 //	x interface{}	  类型
 //	all	bool		  true不可导出一样可以打印出来
 //	string			  字符串
 func ForMethod(x interface{}) string {
-	var t = reflect.TypeOf(x)
+	t := reflect.TypeOf(x)
 	var s string
 	for i := 0; i < t.NumMethod(); i++ {
 		tm := t.Method(i)
@@ -23,49 +24,73 @@ func ForMethod(x interface{}) string {
 	return s
 }
 
-//ForType 遍历字段
-//	x interface{}	  类型
-//	all	bool		  true不可导出一样可以打印出来
-//	string			  字符串
-func ForType(x interface{}, all bool) string {
-	return forType(x, "", "", 0, all)
+// ForType 遍历字段
+//	x interface{}	类型
+//	lower bool		打印出小写字段
+//	depth int		打印深度
+func ForType(x interface{}, lower bool, depth int) string {
+	return forType(x, 0, lower, depth)
 }
-func forType(x interface{}, str string, flx string, floor int, all bool) string {
+
+func forType(x interface{}, floor int, lower bool, depth int) string {
 	var (
 		v, z reflect.Value
-		f    reflect.StructField
-		t    reflect.Type
+		tf   reflect.StructField
 		s    string
+		flx  = strings.Repeat("\t", floor)
+		k    interface{}
 	)
+
 	v, ok := x.(reflect.Value)
 	if !ok {
 		v = reflect.ValueOf(x)
 	}
-	v = inDirect(v)
-	if v.Kind() != reflect.Struct {
-		s += fmt.Sprintf("无法解析(%s):	%#v\r\n", v.Kind(), x)
-		return s
-	}
-	t = v.Type()
-	for i := 0; i < t.NumField(); i++ {
-		f = t.Field(i)
-		if f.Name != "" && (f.Name[0] < 65 || f.Name[0] > 90){
-			if !all || (all && floor != 0) {
+	rv := inDirect(v)
+	rt := rv.Type()
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		if rv.IsValid() && rv.CanInterface() {
+			k = rv.Interface()
+		}
+		s += fmt.Sprintf("%s L%d %v\t%v = %#v\r\n", flx, rv.Len(), rt.PkgPath(), v.Type(), k)
+		for i := 0; i < rv.Len(); i++ {
+			irv := inDirect(rv.Index(i))
+			s += forType(irv, floor+1, lower, depth)
+		}
+	case reflect.Struct:
+		for i := 0; i < rt.NumField(); i++ {
+			tf = rt.Field(i)
+			if tf.Name != "" && (tf.Name[0] < 65 || tf.Name[0] > 90) && !lower || (lower && floor != 0) {
+				// 小写字段
 				continue
 			}
-		}
-		var k interface{}
-		z = inDirect(v.Field(i))
-		if z.IsValid() {
-			k = z
-			if z.CanInterface() {
-				k = typeSelect(z)
+			z = inDirect(rv.Field(i))
+			var ks string
+			if z.IsValid() && z.CanInterface() {
+				k = z.Interface()
+				if z.Kind() == reflect.Slice && z.Type().Elem().Kind() == reflect.Uint8 && utf8.Valid(z.Bytes()){
+					ks = fmt.Sprintf("//%s", z.Bytes())
+				}
+			}
+			s += fmt.Sprintf("%s %v	%v %v\t%v `%v` = %#v %s\r\n", flx, tf.Index, tf.PkgPath, tf.Name, tf.Type, tf.Tag, k, ks)
+			if floor+1 != depth {
+				s += forTypeSub(z, floor+1, lower, depth)
 			}
 		}
-		s += fmt.Sprintf("%s %v	%v %v\t%v `%v` = %#v\r\n", flx+str, f.Index, f.PkgPath, f.Name, f.Type, f.Tag, k)
-		if z.Kind() == reflect.Struct {
-			floor++
-			s += forType(z, str, flx+"	", floor, all)
+	default:
+		return fmt.Sprintf("%#v", v.String())
+	}
+	return s
+}
+
+func forTypeSub(node reflect.Value, floor int, lower bool, depth int) (s string) {
+	switch node.Kind() {
+	case reflect.Struct:
+		s = forType(node, floor, lower, depth)
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < node.Len(); i++ {
+			irv := inDirect(node.Index(i))
+			s += forTypeSub(irv, floor, lower, depth)
 		}
 	}
 	return s
@@ -103,12 +128,12 @@ func typeSelect(v reflect.Value) interface{} {
 		}
 		return cv.Interface()
 	default:
-		//Interface
-		//Map
-		//Struct
-		//Chan
-		//Func
-		//Ptr
+		// Interface
+		// Map
+		// Struct
+		// Chan
+		// Func
+		// Ptr
 		if v.CanInterface() {
 			return v.Interface()
 		}
@@ -117,19 +142,20 @@ func typeSelect(v reflect.Value) interface{} {
 	panic(fmt.Errorf("vweb: 该类型 %s，无法转换为	interface 类型", v.Kind()))
 }
 
-//InDirect 指针到内存
+// InDirect 指针到内存
 //	v reflect.Value		   映射引用为真实内存地址
 //	reflect.Value		   真实内存地址
 func InDirect(v reflect.Value) reflect.Value {
 	return inDirect(v)
 }
+
 func inDirect(v reflect.Value) reflect.Value {
 	for ; v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface; v = v.Elem() {
 	}
 	return v
 }
 
-//DepthField 快速深入读取字段
+// DepthField 快速深入读取字段
 //	s interface{}		 Struct
 //	ndex ... interface{} 字段
 //	field interface{}	 字段
@@ -193,7 +219,7 @@ func depthField(s interface{}, index interface{}) (interface{}, error) {
 	return nil, verror.TrackErrorf("vweb: 该字段不是有效。错误的字段名为（%#v）", index)
 }
 
-//CopyStruct 结构字段从src 复制 dsc，不需要相同的结构。他只复制相同类型的字段。
+// CopyStruct 结构字段从src 复制 dsc，不需要相同的结构。他只复制相同类型的字段。
 //	dsc, src interface{}									目标，源结构
 //	handle func(name string, dsc, src reflect.Value) bool	排除处理函数，返回true跳过
 //	error	错误
@@ -206,7 +232,6 @@ func CopyStructDeep(dsc, src interface{}, handle func(name string, dsc, src refl
 }
 
 func copyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool, deep bool) error {
-
 	va, ok := dsc.(reflect.Value)
 	if !ok {
 		va = reflect.ValueOf(dsc)
@@ -233,16 +258,16 @@ func copyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.
 
 		avf := va.FieldByName(info.Name)
 
-		//排除字段
+		// 排除字段
 		if handle != nil && handle(info.Name, avf, bvf) {
 			continue
 		}
 		if !avf.IsValid() {
-			//目标结构不存在该字段
+			// 目标结构不存在该字段
 			continue
 		}
 
-		//初始化指针
+		// 初始化指针
 		avfi := inDirect(avf)
 		bvfi := inDirect(bvf)
 		if !avfi.IsValid() && bvfi.IsValid() {
@@ -253,16 +278,16 @@ func copyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.
 		afk := avfi.Kind()
 		bfk := bvfi.Kind()
 
-		//深度复制
+		// 深度复制
 		if deep && afk == bfk && afk == reflect.Struct {
 			copyStruct(avf, bvf, handle, deep)
 			continue
 		}
 
-		//Map
+		// Map
 		if afk == bfk && afk == reflect.Map {
 			if bvfi.IsNil() {
-				//源是空的
+				// 源是空的
 				continue
 			}
 
@@ -270,7 +295,7 @@ func copyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.
 			atf := avfi.Type()
 
 			if !btf.Key().ConvertibleTo(atf.Key()) || !btf.Elem().ConvertibleTo(atf.Elem()) {
-				//不可以转换
+				// 不可以转换
 				continue
 			}
 
