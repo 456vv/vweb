@@ -27,7 +27,7 @@ type TForType struct {
 
 func Test_ForType(t *testing.T) {
 	tForType := &TForType{}
-	t.Logf("\n%s", ForType(tForType, false))
+	t.Logf("\n%s", ForType(tForType, false, 3))
 }
 
 func Test_TypeSelect(t *testing.T) {

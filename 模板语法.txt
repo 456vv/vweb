@@ -25,6 +25,8 @@
         (.StructValuedMethod "arg").Field
     $variable := pipeline
     range $index, $element := pipeline
+    {{break}}
+    {{continue}}
     {{"\"output\""}}
     {{`"output"`}}
     {{printf "%q" "output"}}
