@@ -11,19 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/456vv/vbody"
-	"github.com/456vv/vcipher"
-	"github.com/456vv/verifycode"
-	"github.com/456vv/vforward"
-	"github.com/456vv/vweb/v2/builtin"
 	"github.com/456vv/vweb/v2/server/config"
 )
-
-var _ = builtin.Init
-var _ = vcipher.AES
-var _ *verifycode.Color
-var _ *vforward.Addr
-var _ *vbody.Reader
 
 //derogatoryDomain 贬域名
 //	host string             host地址
