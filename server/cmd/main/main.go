@@ -10,13 +10,13 @@ import (
 	"github.com/456vv/vweb/v2"
 	"github.com/456vv/vweb/v2/server"
 	"github.com/456vv/vweb/v2/server/cmd/main/internal/base"
+	"github.com/456vv/vweb/v2/server/cmd/main/internal/dynamic"
 	"github.com/456vv/x/ticker"
-	"github.com/456vv/x/vweb_dynamic"
 	"github.com/456vv/x/watch"
 	"github.com/fsnotify/fsnotify"
 )
 
-var version = "App/v1.0.0"
+var version = "App/v1.0.1"
 
 var (
 	fRootDir           = flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
@@ -72,7 +72,7 @@ func main() {
 	// 服务器
 	serverGroup := server.NewServerGroup()
 	serverGroup.ErrorLog.SetOutput(logFile)
-	serverGroup.DynamicModule = vweb_dynamic.WEBModule()
+	serverGroup.DynamicModule = dynamic.Module()
 	exitCall.Defer(serverGroup.Close)
 
 	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
