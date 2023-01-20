@@ -589,23 +589,25 @@ func configRPCClient(c *vweb.PluginRPCClient, conf *ConfigSitePlugin) error {
     if c.ConnPool == nil {
     	c.ConnPool = &vconnpool.ConnPool{}
     }
+    if c.ConnPool.Dialer  == nil {
+	    c.ConnPool.Dialer = new(net.Dialer)
+	}
     c.ConnPool.IdeConn 				= conf.IdeConn
     c.ConnPool.MaxConn 				= conf.MaxConn
     
-    if c.ConnPool.Dialer  == nil {
-	    c.ConnPool.Dialer = &net.Dialer{}
-	}
-   	if conf.LocalAddr != "" {
-		//设置本地拨号地址
-		netTCPAddr, err := net.ResolveTCPAddr("tcp", conf.LocalAddr)
-		if err != nil {
-   	    	return verror.TrackErrorf("ConfigSitePlugin.LocalAddr 地址无法解析这个(%s)。格式应该是 111.222.444.555:0 或者 www.xxx.com:0", conf.LocalAddr)
+	if d, ok := c.ConnPool.Dialer.(*net.Dialer); ok {
+	   	if conf.LocalAddr != "" {
+			//设置本地拨号地址
+			netTCPAddr, err := net.ResolveTCPAddr("tcp", conf.LocalAddr)
+			if err != nil {
+	   	    	return verror.TrackErrorf("ConfigSitePlugin.LocalAddr 地址无法解析这个(%s)。格式应该是 111.222.444.555:0 或者 www.xxx.com:0", conf.LocalAddr)
+			}
+			d.LocalAddr = netTCPAddr
 		}
-		c.ConnPool.Dialer.LocalAddr = netTCPAddr
+	    d.Timeout 		= time.Duration(conf.Timeout) * time.Millisecond
+	    d.KeepAlive   	= time.Duration(conf.KeepAlive) * time.Millisecond
+	    d.FallbackDelay	= time.Duration(conf.FallbackDelay) * time.Millisecond
+	    d.DualStack		= conf.DualStack
 	}
-    c.ConnPool.Dialer.Timeout 		= time.Duration(conf.Timeout) * time.Millisecond
-    c.ConnPool.Dialer.KeepAlive   	= time.Duration(conf.KeepAlive) * time.Millisecond
-    c.ConnPool.Dialer.FallbackDelay	= time.Duration(conf.FallbackDelay) * time.Millisecond
-    c.ConnPool.Dialer.DualStack		= conf.DualStack
 	return nil
 }

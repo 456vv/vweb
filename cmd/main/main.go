@@ -9,8 +9,8 @@ import (
 
 	"github.com/456vv/vweb/v2"
 	"github.com/456vv/vweb/v2/server"
-	"github.com/456vv/vweb/v2/server/cmd/main/internal/base"
-	"github.com/456vv/vweb/v2/server/cmd/main/internal/dynamic"
+	"github.com/456vv/vweb/v2/cmd/main/internal/base"
+	"github.com/456vv/vweb/v2/cmd/main/internal/dynamic"
 	"github.com/456vv/x/ticker"
 	"github.com/456vv/x/watch"
 	"github.com/fsnotify/fsnotify"
