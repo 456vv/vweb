@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -28,8 +29,19 @@ import (
 )
 
 // 默认4K
-var defaultDataBufioSize int = 4096
-var Version string = "Server/2.2.0"
+var (
+	defaultDataBufioSize int    = 4096
+	Version              string = "Server/2.2.1"
+)
+
+// 上下文的Key, 在请求中可以使用
+type contextKey struct {
+	name string
+}
+
+func (T *contextKey) String() string { return "server context value " + T.name }
+
+var ServerContextKey = &contextKey{"Server"}
 
 // 响应完成设置
 type atomicBool int32
@@ -40,8 +52,8 @@ func (T *atomicBool) setTrue() bool  { return !atomic.CompareAndSwapInt32((*int3
 func (T *atomicBool) setFalse() bool { return !atomic.CompareAndSwapInt32((*int32)(T), 1, 0) }
 
 type siteExtend struct {
-	config       *config.ConfigSite
-	plugin       *plugin
+	config       *config.Site
+	plugin       plugin
 	dynamicCache vmap.Map // 缓存动态文件对象
 }
 
@@ -49,22 +61,26 @@ type siteExtend struct {
 type Server struct {
 	*http.Server // http服务器
 	Addr         string
-	tlsconf      *tls.Config
+	TLSConfig    *tls.Config
 	l            listener
 	status       atomicBool
-	cs           *config.ConfigServer
-	cc           *config.ConfigConn
+	cServer      *config.Server // 用于服务器
+	cConn        *config.Conn   // 用于连接
 }
 
 func (T *Server) init() {
 	if T.Server == nil {
 		T.Server = new(http.Server)
 		T.Server.BaseContext = func(l net.Listener) context.Context {
-			return context.WithValue(context.Background(), vweb.ListenerContextKey, l)
+			ctx := context.WithValue(context.Background(), ServerContextKey, T)
+			return context.WithValue(ctx, vweb.ListenerContextKey, l)
 		}
 		T.Server.ConnContext = func(ctx context.Context, rwc net.Conn) context.Context {
 			return context.WithValue(ctx, vweb.ConnContextKey, rwc)
 		}
+	}
+	if T.l.server == nil {
+		T.l.server = T
 	}
 }
 
@@ -81,8 +97,6 @@ func (T *Server) Serve(l net.Listener) error {
 }
 
 func (T *Server) ListenAndServe() error {
-	T.init()
-
 	if T.Addr == "" {
 		T.Addr = ":http"
 	}
@@ -93,26 +107,25 @@ func (T *Server) ListenAndServe() error {
 	return T.Serve(l)
 }
 
-func (T *Server) ConfigConn(cc *config.ConfigConn) error {
+func (T *Server) ConfigConn(cc *config.Conn) error {
 	if cc == nil {
 		return verror.TrackError("server: *config.ConfigConn不可以为nil")
 	}
-	if T.cc == nil {
-		T.cc = new(config.ConfigConn)
+	if T.cConn == nil {
+		T.cConn = new(config.Conn)
 	}
-	*T.cc = *cc
-	T.l.cc = T.cc
+	*T.cConn = *cc
 	return nil
 }
 
-func (T *Server) ConfigServer(cs *config.ConfigServer) error {
+func (T *Server) ConfigServer(cs *config.Server) error {
 	if cs == nil {
 		return verror.TrackError("server: *config.ConfigServer不可以为nil")
 	}
-	if T.cs == nil {
-		T.cs = new(config.ConfigServer)
+	if T.cServer == nil {
+		T.cServer = new(config.Server)
 	}
-	*T.cs = *cs
+	*T.cServer = *cs
 
 	T.init()
 
@@ -126,20 +139,20 @@ func (T *Server) ConfigServer(cs *config.ConfigServer) error {
 
 	// TLS设置
 	if cs.TLS != nil {
-		if T.l.tlsconf == nil {
-			T.l.tlsconf = new(tls.Config)
+		if T.TLSConfig == nil {
+			T.TLSConfig = new(tls.Config)
 		}
-		if err := configTLSFile(T.l.tlsconf, cs.TLS); err != nil {
+		if err := configTLSFile(T.TLSConfig, cs.TLS); err != nil {
 			return err
 		}
 	} else {
-		T.l.tlsconf = nil
+		T.TLSConfig = nil
 	}
 	return nil
 }
 
 // TLS文件配置
-func configTLSFile(c *tls.Config, conf *config.ConfigServerTLS) error {
+func configTLSFile(c *tls.Config, conf *config.ServerTLS) error {
 	c.NextProtos = conf.NextProtos
 	c.PreferServerCipherSuites = conf.PreferServerCipherSuites
 	c.SessionTicketsDisabled = conf.SessionTicketsDisabled
@@ -167,7 +180,7 @@ func configTLSFile(c *tls.Config, conf *config.ConfigServerTLS) error {
 				// 系统证书
 				c.ClientCAs = certPool
 			} else {
-				// 如果读取系统根证书失败，则创建新的证书
+				// 如果读取系统根证书失败, 则创建新的证书
 				c.ClientCAs = x509.NewCertPool()
 			}
 		}
@@ -201,7 +214,7 @@ func configTLSFile(c *tls.Config, conf *config.ConfigServerTLS) error {
 				}
 			default:
 				{
-					errClientCA = fmt.Sprintf("TLS.RootCAs[\"%s\"], the file type is not supported，only support \".cer/.crt/.pem\" file type", path)
+					errClientCA = fmt.Sprintf("TLS.RootCAs[\"%s\"], the file type is not supported, only support \".cer/.crt/.pem\" file type", path)
 				}
 			}
 		}
@@ -239,7 +252,7 @@ type ServerGroup struct {
 
 	Route *vweb.Route // 地址路由
 
-	// srvMan 存储值类型是 *Server，读取时需要转换类型
+	// srvMan 存储值类型是 *Server, 读取时需要转换类型
 	srvMan   vmap.Map       // map[ip:port]*Server	服务器集
 	sitePool *vweb.SitePool // 站点的池
 	siteMan  *vweb.SiteMan  // 站点管理
@@ -248,8 +261,8 @@ type ServerGroup struct {
 	run atomicBool // 服务器启动了
 
 	// 用于 .UpdateConfigFile 方法
-	backConfigDate []byte         // 备份配置数据。如果是相同数据，则不更新
-	config         *config.Config // 配置
+	backConf []byte         // 备份配置数据。如果是相同数据, 则不更新
+	config   *config.Config // 配置
 }
 
 func NewServerGroup() *ServerGroup {
@@ -260,19 +273,20 @@ func NewServerGroup() *ServerGroup {
 }
 
 // 增加一个服务器
+//
 //	laddr string	监听地址
-//	srv *Server		服务器，如果为nil，则删除已存在的记录
+//	srv *Server		服务器, 如果为nil, 则删除已存在的记录
 func (T *ServerGroup) SetServer(laddr string, srv *Server) error {
 	if srv == nil {
 		T.srvMan.Del(laddr)
 		return nil
 	}
-	T.defaultHandler(srv)
+	T.defaultRoute(srv)
 	T.srvMan.Set(laddr, srv)
 	return nil
 }
 
-func (T *ServerGroup) defaultHandler(srv *Server) {
+func (T *ServerGroup) defaultRoute(srv *Server) {
 	if srv.Handler == nil {
 		if T.Route != nil {
 			srv.Handler = http.HandlerFunc(T.Route.ServeHTTP)
@@ -286,9 +300,10 @@ func (T *ServerGroup) defaultHandler(srv *Server) {
 }
 
 // 读取一个服务器
+//
 //	laddr string	监听地址
 //	*Server			服务器
-//	bool			如果存在服务器，返回true。否则返回false
+//	bool			如果存在服务器, 返回true。否则返回false
 func (T *ServerGroup) GetServer(laddr string) (*Server, bool) {
 	if inf, ok := T.srvMan.GetHas(laddr); ok {
 		return inf.(*Server), true
@@ -296,39 +311,48 @@ func (T *ServerGroup) GetServer(laddr string) (*Server, bool) {
 	return nil, false
 }
 
-// 设置一个站点池，随配置文件变动，pool 原来的保存内容可能会被删除或增加。
+// 设置一个站点池, 随配置文件变动, pool 原来的保存内容可能会被删除或增加。
+//
 //	pool *vweb.SitePool	池
 //	error				错误
 func (T *ServerGroup) SetSitePool(pool *vweb.SitePool) error {
+	if pool == nil {
+		return errors.New("disallow setting up an empty site pool")
+	}
 	T.sitePool = pool
 	return nil
 }
 
-// 设置一个站点管理，随配置文件变动，man 原来的保存内容可能会被删除或增加。
+// 设置一个站点管理, 随配置文件变动, man 原来的保存内容可能会被删除或增加。
+//
 //	man *vweb.SiteMan	站点管理
 //	error				错误
 func (T *ServerGroup) SetSiteMan(man *vweb.SiteMan) error {
+	if man == nil {
+		return errors.New("disallow setting up an empty site manage")
+	}
 	T.siteMan = man
 	return nil
 }
 
 // serveHTTP 处理HTTP
+//
 //	rw http.ResponseWriter	响应
 //	r *http.Request			请求
 func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 	//** 检查Host是否存在
 	site, ok := T.siteMan.Get(r.Host)
 	if !ok {
-		// 如果在站点集中没有找到存在的Host，则关闭连接。
+		// 如果在站点集中没有找到存在的Host, 则关闭连接。
 		hj, ok := rw.(http.Hijacker)
 		if !ok {
-			// 500 服务器遇到了意料不到的情况，不能完成客户的请求。
+			// 500 服务器遇到了意料不到的情况, 不能完成客户的请求。
 			http.Error(rw, "Not supported Hijacker", http.StatusInternalServerError)
 			return
 		}
 		conn, _, err := hj.Hijack()
 		if err != nil {
-			// 500 服务器遇到了意料不到的情况，不能完成客户的请求。
+			// 500 服务器遇到了意料不到的情况, 不能完成客户的请求。
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -338,13 +362,15 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	//** 配置
-	se, ok := site.Extend.(*siteExtend)
-	if !ok || se.config == nil {
-		// 500 服务器遇到了意料不到的情况，不能完成客户的请求。
+	se := getSiteExtend(site)
+	conf := se.config
+	dCache := se.dynamicCache
+	plugin := se.plugin
+	if conf == nil {
+		// 500 服务器遇到了意料不到的情况, 不能完成客户的请求。
 		http.Error(rw, "The configuration is nil\n", http.StatusInternalServerError)
 		return
 	}
-	conf := se.config
 
 	//** 静态文件
 	var (
@@ -357,7 +383,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		findStatic        bool
 	)
 	if rootDir == nil {
-		// 没有设置外部根目录调用，将使用默认的
+		// 没有设置外部根目录调用, 将使用默认的
 		rootDir = conf.Directory.RootDir
 	}
 
@@ -392,7 +418,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		forward := conf.Forward
 		urlPath := r.URL.Path
 		if len(forward) != 0 {
-			var forwardC config.ConfigSiteForward
+			var forwardC config.SiteForwards
 			derogatoryDomain(r.Host, func(h string) (ok bool) {
 				forwardC, ok = forward[h]
 				return
@@ -444,12 +470,12 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 	var (
 		buffSize = conf.Property.BuffSize
 		wh       = rw.Header()
-		th       config.ConfigSiteHeaderType
+		th       config.SiteHeaderType
 	)
 	wh.Set("Content-Type", contentType)
 	wh.Set("Server", Version)
 
-	// 如果配置默认为0，则使用内置默认缓冲块大小
+	// 如果配置默认为0, 则使用内置默认缓冲块大小
 	if buffSize == 0 {
 		buffSize = defaultDataBufioSize
 	}
@@ -469,16 +495,15 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 
 		// 处理动态格式
 		var handlerDynamic *vweb.ServerHandlerDynamic
-		inf, ok := se.dynamicCache.GetHas(pagePath)
-		if ok && conf.Dynamic.Cache {
+		if inf, ok := dCache.GetHas(pagePath); ok && conf.Dynamic.Cache {
 			handlerDynamic = inf.(*vweb.ServerHandlerDynamic)
 			if conf.Dynamic.CacheParseTimeout != 0 {
-				se.dynamicCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
+				dCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
 			}
 		} else {
 			if ok {
 				// 释放缓存
-				se.dynamicCache.Del(pagePath)
+				dCache.Del(pagePath)
 			}
 			handlerDynamic = &vweb.ServerHandlerDynamic{
 				PagePath: pagePath,
@@ -486,9 +511,9 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 			}
 			if conf.Dynamic.Cache {
 				// 时效
-				se.dynamicCache.Set(pagePath, handlerDynamic)
+				dCache.Set(pagePath, handlerDynamic)
 				if conf.Dynamic.CacheParseTimeout != 0 {
-					se.dynamicCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
+					dCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
 				}
 				// 转存静态
 				handlerDynamic.StaticAt = cacheStaticAtFunc
@@ -497,7 +522,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		handlerDynamic.RootPath = rootPath
 		handlerDynamic.BuffSize = buffSize
 		handlerDynamic.Site = site
-		handlerDynamic.Context = context.WithValue(r.Context(), vweb.PluginContextKey, (vweb.Pluginer)(se.plugin))
+		handlerDynamic.Context = context.WithValue(r.Context(), vweb.PluginContextKey, plugin)
 
 		handlerDynamic.ServeHTTP(rw, r)
 	} else {
@@ -522,22 +547,15 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 }
 
 // 更新插件
-func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite) {
+func (T *ServerGroup) updatePluginConn(cSite config.Site) {
 	site := T.sitePool.NewSite(cSite.Identity)
-	if site.Extend == nil {
-		site.Extend = new(siteExtend)
-	}
-	se, ok := site.Extend.(*siteExtend)
-	if !ok {
-		return
-	}
-	if se.plugin == nil {
-		se.plugin = new(plugin)
-	}
+	se := getSiteExtend(site)
+	dCache := se.dynamicCache
+	plugin := se.plugin
 
 	var (
-		httpEffectiveNames []string
-		rpcEffectiveNames  []string
+		httpEffectiveNames []string // 存放有效的http插件名称
+		rpcEffectiveNames  []string // 存放有效的rpc插件名称
 	)
 	// 配置插件
 	if cSite.Status {
@@ -549,23 +567,20 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite) {
 			httpEffectiveNames = append(httpEffectiveNames, name)
 
 			if p.Addr == "" {
-				T.ErrorLog.Println(fmt.Sprintf("server: 名称 %s 的HTTP插件配 Addr 字段不可以为空", name))
+				T.ErrorLog.Printf("server: 名称 %s 的HTTP插件配 Addr 字段不可以为空", name)
 				continue
 			}
 
-			var httpC *vweb.PluginHTTPClient
-			if inf, ok := se.plugin.http.Load(name); ok {
+			httpC := new(vweb.PluginHTTPClient)
+			if inf, ok := plugin.http.Load(name); ok {
 				httpC = inf.(*vweb.PluginHTTPClient)
-			}
-			if httpC == nil {
-				httpC = new(vweb.PluginHTTPClient)
 			}
 
 			if err := p.ConfigPluginHTTPClient(httpC); err != nil {
-				T.ErrorLog.Printf("server: 名称 %s 的HTTP插件配错误，%s", name, err.Error())
+				T.ErrorLog.Printf("server: 名称 %s 的HTTP插件配错误, %s\n", name, err.Error())
 				continue
 			}
-			se.plugin.http.Store(name, httpC)
+			plugin.http.Store(name, httpC)
 		}
 		for name, p := range cSite.Plugin.RPC {
 			if !p.Status {
@@ -574,55 +589,51 @@ func (T *ServerGroup) updatePluginConn(cSite config.ConfigSite) {
 			rpcEffectiveNames = append(rpcEffectiveNames, name)
 
 			if p.Addr == "" {
-				T.ErrorLog.Println(fmt.Sprintf("server: 名称 %s 的RPC插件配 Addr 字段不可以为空", name))
+				T.ErrorLog.Printf("server: 名称 %s 的RPC插件配 Addr 字段不可以为空\n", name)
 				continue
 			}
 
-			var rpcC *vweb.PluginRPCClient
-			if inf, ok := se.plugin.rpc.Load(name); ok {
+			rpcC := new(vweb.PluginRPCClient)
+			if inf, ok := plugin.rpc.Load(name); ok {
 				rpcC = inf.(*vweb.PluginRPCClient)
 			}
-			if rpcC == nil {
-				rpcC = &vweb.PluginRPCClient{}
-			}
 			if err := p.ConfigPluginRPCClient(rpcC); err != nil {
-				T.ErrorLog.Printf("server: 名称 %s 的HTTP插件配错误，%s", name, err.Error())
+				T.ErrorLog.Printf("server: 名称 %s 的HTTP插件配错误, %s", name, err.Error())
 				continue
 			}
-			se.plugin.rpc.Store(name, rpcC)
+			plugin.rpc.Store(name, rpcC)
 		}
 	} else {
 		// 清除动态文件缓存
-		se.dynamicCache.Range(func(ninf, vinf interface{}) bool {
-			se.dynamicCache.Del(ninf)
+		dCache.Range(func(ninf, vinf any) bool {
+			dCache.Del(ninf)
 			return true
 		})
 	}
 
 	// 关闭无效的插件
-	se.plugin.http.Range(func(ninf, hinf interface{}) bool {
+	plugin.http.Range(func(ninf, hinf any) bool {
 		if !strSliceContains(httpEffectiveNames, ninf.(string)) {
-			se.plugin.http.Delete(ninf)
+			plugin.http.Delete(ninf)
 
-			httpC := hinf.(*vweb.PluginHTTPClient)
-			httpC.Tr.CloseIdleConnections()
+			hinf.(*vweb.PluginHTTPClient).Tr.CloseIdleConnections()
 		}
 		return true
 	})
-	se.plugin.rpc.Range(func(ninf, rinf interface{}) bool {
+	plugin.rpc.Range(func(ninf, rinf any) bool {
 		if !strSliceContains(rpcEffectiveNames, ninf.(string)) {
-			se.plugin.rpc.Delete(ninf)
+			plugin.rpc.Delete(ninf)
 
-			rpcC := rinf.(*vweb.PluginRPCClient)
-			rpcC.ConnPool.Close()
+			rinf.(*vweb.PluginRPCClient).ConnPool.Close()
 		}
 		return true
 	})
 }
 
-// updateSitePoolAdd 更新站点池或增加
+// 更新站点池或增加
+//
 //	cSite config.ConfigSite     配置
-func (T *ServerGroup) updateSitePoolAdd(cSite config.ConfigSite) {
+func (T *ServerGroup) updateSitePoolAdd(cSite config.Site) {
 	site := T.sitePool.NewSite(cSite.Identity)
 	for _, host := range cSite.Host {
 		T.siteMan.Add(host, site)
@@ -632,19 +643,24 @@ func (T *ServerGroup) updateSitePoolAdd(cSite config.ConfigSite) {
 	vweb.CopyStruct(site.Sessions, &cSite.Session, func(name string, dsc, src reflect.Value) bool {
 		return name == "Expired"
 	})
+
 	site.Sessions.Expired = time.Duration(cSite.Session.Expired) * time.Second
 	site.RootDir = cSite.Directory.RootDir
 
-	if site.Extend == nil {
-		site.Extend = new(siteExtend)
-	}
-	// 备份站点配置
-	if se, ok := site.Extend.(*siteExtend); ok {
-		se.config = &cSite
-	}
+	getSiteExtend(site).config = &cSite
 }
 
-// updateSitePoolDel 更新站点池删除，过滤并删除无效的站点池。
+func getSiteExtend(site *vweb.Site) *siteExtend {
+	se, ok := site.Extend.Get("se").(*siteExtend)
+	if !ok {
+		se = new(siteExtend)
+		site.Extend.Set("se", se)
+	}
+	return se
+}
+
+// 更新站点池删除, 过滤并删除无效的站点池。
+//
 //	siteEffectiveIdent []string      现有的站点列表
 func (T *ServerGroup) updateSitePoolDel(siteEffectiveIdent []string) {
 	T.sitePool.RangeSite(func(name string, site *vweb.Site) bool {
@@ -661,14 +677,14 @@ func (T *ServerGroup) updateSitePoolDel(siteEffectiveIdent []string) {
 	})
 }
 
-func (T *ServerGroup) updateConfigSites(conf *config.ConfigSites) error {
+func (T *ServerGroup) updateConfigSites(conf config.Sites) error {
 	var (
 		siteEffectiveIdent []string
 		siteEffectiveHosts []string
 	)
 	for _, cSite := range conf.Site {
 		if cSite.Identity == "" {
-			return verror.TrackErrorf("server: 配置中出现站点惟一名(Identity)为 \"\"，需要设定一个名称。")
+			return verror.TrackErrorf("server: 配置中出现站点惟一名(Identity)为 \"\", 需要设定一个名称。")
 		}
 
 		if cSite.Status {
@@ -753,19 +769,19 @@ func (T *ServerGroup) updateConfigSites(conf *config.ConfigSites) error {
 			if cSite.Dynamic.CacheStaticTimeout != 0 {
 				cSite.Dynamic.CacheStaticTimeout *= int64(time.Second)
 			}
-			// 预选分配池，初始化站点
+			// 预选分配池, 初始化站点
 			T.updateSitePoolAdd(cSite)
 
 			// 集中名称
 			siteEffectiveIdent = append(siteEffectiveIdent, cSite.Identity)
 
 			// 集中站点Host
-			// 可能有多个站点绑定了同一个Host，只有最后一个是有效的
+			// 可能有多个站点绑定了同一个Host, 只有最后一个是有效的
 			siteEffectiveHosts = append(siteEffectiveHosts, cSite.Host...)
 		}
 
 		// 插件不关网站是否开启
-		// 网站不开启，否关闭插件
+		// 网站不开启, 否关闭插件
 		T.updatePluginConn(cSite)
 	}
 
@@ -792,28 +808,26 @@ func (T *ServerGroup) newServer(laddr string) *Server {
 	return srv
 }
 
-// listenStart 启动监听端口
-func (T *ServerGroup) listenStart(laddr string, conf config.ConfigListen) error {
+// 启动监听端口
+func (T *ServerGroup) listenStart(laddr string, conf config.Listen) error {
 	srv := T.newServer(laddr)
-	err := srv.ConfigConn(&conf.CC)
-	if err != nil {
+	if err := srv.ConfigConn(&conf.CC); err != nil {
 		return err
 	}
-	err = srv.ConfigServer(&conf.CS)
-	if err != nil {
+	if err := srv.ConfigServer(&conf.CS); err != nil {
 		return err
 	}
-	T.defaultHandler(srv)
+	T.defaultRoute(srv)
 	go T.serve(srv)
 	return nil
 }
 
-// listenStop 关闭监听
+// 关闭监听
 func (T *ServerGroup) listenStop(laddr string) (err error) {
 	if inf, ok := T.srvMan.GetHas(laddr); ok {
 		if srv, ok := inf.(*Server); ok {
 			if srv.Server != nil {
-				if srv.cs != nil && srv.cs.ShutdownConn {
+				if srv.cServer != nil && srv.cServer.ShutdownConn {
 					// 不要即时关闭正在下载的连接
 					return srv.Server.Shutdown(context.Background())
 				} else {
@@ -825,10 +839,10 @@ func (T *ServerGroup) listenStop(laddr string) (err error) {
 	return nil
 }
 
-// 监听决定，区分是开启还是关闭监听。
-func (T *ServerGroup) updateConfigServers(conf *config.ConfigServers) {
-	// 如果在新的IP例表中没有找到已经存在的开放监听端口IP，而停止监听此IP
-	T.srvMan.Range(func(key, val interface{}) bool {
+// 监听决定, 区分是开启还是关闭监听。
+func (T *ServerGroup) updateConfigServers(conf config.Servers) {
+	// 如果在新的IP例表中没有找到已经存在的开放监听端口IP, 而停止监听此IP
+	T.srvMan.Range(func(key, val any) bool {
 		ip := key.(string)
 		if _, ok := conf.Listen[ip]; !ok {
 			if err := T.listenStop(ip); err != nil {
@@ -838,7 +852,7 @@ func (T *ServerGroup) updateConfigServers(conf *config.ConfigServers) {
 		return true
 	})
 
-	// 如果还没开启监听，则启动他
+	// 如果还没开启监听, 则启动他
 	for laddr, cl := range conf.Listen {
 		if cl.Status {
 			// 复制的配置
@@ -857,11 +871,12 @@ func (T *ServerGroup) updateConfigServers(conf *config.ConfigServers) {
 			if cl.CS.PublicName != "" && !conf.Public.ConfigServer(&cl.CS, merge) {
 				T.ErrorLog.Printf("server: %s 地址的私有CS与公共CS合并失败\n", laddr)
 			}
-
+			// 启动监听
 			if err := T.listenStart(laddr, cl); err != nil {
 				T.ErrorLog.Println(err.Error())
 			}
 		} else {
+			// 停止监听
 			if err := T.listenStop(laddr); err != nil {
 				T.ErrorLog.Println(err.Error())
 			}
@@ -869,9 +884,10 @@ func (T *ServerGroup) updateConfigServers(conf *config.ConfigServers) {
 	}
 }
 
-// LoadConfigFile 挂载本地配置文件。
+// 挂载本地配置文件。
+//
 //	p string        文件路径
-//	ok bool			true配置文件被修改过，false没有变动
+//	ok bool			true配置文件被修改过, false没有变动
 //	err error       错误
 func (T *ServerGroup) LoadConfigFile(p string) (ok bool, err error) {
 	b, err := ioutil.ReadFile(p)
@@ -879,10 +895,10 @@ func (T *ServerGroup) LoadConfigFile(p string) (ok bool, err error) {
 		return
 	}
 	// 判断文件是否有改动
-	if bytes.Equal(b, T.backConfigDate) {
+	if bytes.Equal(b, T.backConf) {
 		return false, nil
 	}
-	T.backConfigDate = b
+	T.backConf = b
 
 	// 解析配置文件
 	conf := new(config.Config)
@@ -897,21 +913,22 @@ func (T *ServerGroup) LoadConfigFile(p string) (ok bool, err error) {
 	return true, nil
 }
 
-// UpdateConfig 更新配置并把配置分配到各个地方。不检查改动，直接更新。更新配置需要调用 .Start 方法之后才生效。
+// 更新配置并把配置分配到各个地方。不检查改动, 直接更新。更新配置需要调用 .Start 方法之后才生效。
+//
 //	conf *config.Config        配置
 //	error               错误
 func (T *ServerGroup) UpdateConfig(conf *config.Config) error {
 	if conf == nil {
-		return verror.TrackErrorf("server: conf 为 nil，无法更新。")
+		return verror.TrackErrorf("server: conf 为 nil, 无法更新。")
 	}
 	T.config = conf
 	if T.run.isTrue() {
 		// 更新网站配置
-		if err := T.updateConfigSites(&conf.Sites); err != nil {
+		if err := T.updateConfigSites(conf.Sites); err != nil {
 			T.ErrorLog.Println(err.Error())
 		}
 		// 更新服务器配置
-		T.updateConfigServers(&conf.Servers)
+		T.updateConfigServers(conf.Servers)
 	}
 	return nil
 }
@@ -930,7 +947,8 @@ func (T *ServerGroup) serve(srv *Server) {
 	}
 }
 
-// Start 启动服务集群
+// 启动服务集群
+//
 //	error   错误
 func (T *ServerGroup) Start() error {
 	if T.run.setTrue() {
@@ -961,7 +979,8 @@ func (T *ServerGroup) Start() error {
 	return nil
 }
 
-// Close 关闭服务集群
+// 关闭服务集群
+//
 //	error   错误
 func (T *ServerGroup) Close() error {
 	if T.run.setFalse() {
@@ -969,7 +988,7 @@ func (T *ServerGroup) Close() error {
 	}
 
 	// 关闭监听
-	T.srvMan.Range(func(k, v interface{}) bool {
+	T.srvMan.Range(func(k, v any) bool {
 		if srv, ok := v.(*Server); ok {
 			if srv.Server != nil {
 				srv.Server.Close()
@@ -991,11 +1010,12 @@ func (T *ServerGroup) Close() error {
 	return nil
 }
 
-// httpError 返回错误到客户端
+// 返回错误到客户端
+//
 //	w http.ResponseWriter           响应
 //	rootDir string					根目录
 //	errorPage map[string]string     错误页地址
-//	e string                        错误内容，如果错误页不存在，将使用内容
+//	e string                        错误内容, 如果错误页不存在, 将使用内容
 //	code int                        错误代码
 func httpError(w http.ResponseWriter, rootDir string, errorPage map[string]string, e string, code int) error {
 	if errorPage != nil {
@@ -1016,7 +1036,8 @@ func httpError(w http.ResponseWriter, rootDir string, errorPage map[string]strin
 	return nil
 }
 
-// httpTypeByExtension 文件类型扩展，如果自定义列表不存在扩展类型，则使用系统默认扩展类型。如果自定义列表扩展类型是空“”的类型，说明是用户设置拒绝访问该类型。
+// httpTypeByExtension 文件类型扩展, 如果自定义列表不存在扩展类型, 则使用系统默认扩展类型。如果自定义列表扩展类型是空“”的类型, 说明是用户设置拒绝访问该类型。
+//
 //	ext string              文件后缀
 //	me map[string]string    自定义扩展列表
 //	string                  文件类型

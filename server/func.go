@@ -14,15 +14,16 @@ import (
 	"github.com/456vv/vweb/v2/server/config"
 )
 
-//derogatoryDomain 贬域名
+// derogatoryDomain 贬域名
+//
 //	host string             host地址
 //	f func(string) bool     调用 f 函数，并传入贬域名
 func derogatoryDomain(host string, f func(string) bool) {
-	//先全字匹配
+	// 先全字匹配
 	if f(host) {
 		return
 	}
-	//后通配符匹配
+	// 后通配符匹配
 	pos := strings.Index(host, ":")
 	var port string
 	if pos >= 0 {
@@ -39,7 +40,8 @@ func derogatoryDomain(host string, f func(string) bool) {
 	}
 }
 
-//equalDomain 贬域名
+// equalDomain 贬域名
+//
 //	host string             host地址
 //	domain string			贬域名
 //	ok bool					如果相等，返回true
@@ -51,7 +53,7 @@ func equalDomain(host, domain string) (ok bool) {
 	return
 }
 
-//strSliceContains 从切片中查找匹配的字符串
+// strSliceContains 从切片中查找匹配的字符串
 func strSliceContains(ss []string, c string) bool {
 	for _, v := range ss {
 		if v == c {
@@ -92,17 +94,17 @@ func isTrue(val reflect.Value) bool {
 	return false
 }
 
-func staticAt(T *ServerGroup, cacheStaticFileDir string, dynamic config.ConfigSiteDynamic) func(u *url.URL, r io.Reader, l int) (int, error) {
+func staticAt(T *ServerGroup, cacheStaticFileDir string, dynamic config.SiteDynamic) func(u *url.URL, r io.Reader, l int) (int, error) {
 	return func(u *url.URL, r io.Reader, l int) (int, error) {
-		//存储路径
+		// 存储路径
 		var (
 			fileDir  string
 			filePath string
 		)
 		if fileExt := path.Ext(u.Path); fileExt != "" {
-			//这是文件
+			// 这是文件
 
-			//后缀名称是动态扩展名称，不支持保存
+			// 后缀名称是动态扩展名称，不支持保存
 			for _, ext := range dynamic.Ext {
 				if ext == fileExt {
 					return 0, nil
@@ -112,12 +114,12 @@ func staticAt(T *ServerGroup, cacheStaticFileDir string, dynamic config.ConfigSi
 			fileDir = path.Dir(u.Path)
 			filePath = u.Path
 		} else {
-			//这是目录
+			// 这是目录
 			fileDir = u.Path
 			filePath = path.Join(fileDir, "index.html")
 		}
 
-		//判断有没有符合的路径
+		// 判断有没有符合的路径
 		var (
 			matched bool
 			err     error
@@ -136,21 +138,21 @@ func staticAt(T *ServerGroup, cacheStaticFileDir string, dynamic config.ConfigSi
 			return 0, nil
 		}
 
-		//目录创建
+		// 目录创建
 		fileDir = filepath.Join(cacheStaticFileDir, fileDir)
-		if err = os.MkdirAll(fileDir, 0644); err != nil {
+		if err = os.MkdirAll(fileDir, 0o644); err != nil {
 			T.ErrorLog.Printf("server: 创建静态文件目录失败，路径：%s, 错误：%s\n", fileDir, err.Error())
 			return 0, nil
 		}
 
-		//文件保存
+		// 文件保存
 		filePath = filepath.Join(cacheStaticFileDir, filePath)
 		if fi, err := os.Stat(filePath); err == nil {
 			currTime := time.Now()
 			mTime := fi.ModTime()
 			cSecond := time.Duration(dynamic.CacheStaticTimeout)
-			//文件修改时间+允许缓存时间 大于 当时时间，跳过
-			//文件大小一样，跳过
+			// 文件修改时间+允许缓存时间 大于 当时时间，跳过
+			// 文件大小一样，跳过
 			if mTime.Add(cSecond).After(currTime) && fi.Size() == int64(l) {
 				return 0, nil
 			}
@@ -170,8 +172,8 @@ func staticAt(T *ServerGroup, cacheStaticFileDir string, dynamic config.ConfigSi
 	}
 }
 
-func headerAdd(wh http.Header, mht map[string]config.ConfigSiteHeaderType, fileExt string) {
-	var ht config.ConfigSiteHeaderType
+func headerAdd(wh http.Header, mht map[string]config.SiteHeaderType, fileExt string) {
+	var ht config.SiteHeaderType
 	if h, ok := mht[fileExt]; ok {
 		ht = h
 	} else if h, ok := mht["*"]; ok {
