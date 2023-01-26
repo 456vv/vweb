@@ -165,61 +165,61 @@ func Test_ServerGroup_httpTypeByExtension1(t *testing.T) {
 func Test_ConfigSiteDirectory_RootDir(t *testing.T) {
 	tests := []struct {
 		r    *http.Request
-		conf *config.ConfigSiteDirectory
+		conf *config.SiteDirectory
 		root string
 	}{
 		{
 			r: &http.Request{URL: &url.URL{Path: "/A/B/C"}},
-			conf: &config.ConfigSiteDirectory{
+			conf: &config.SiteDirectory{
 				Root:    "G:/123/456/789",
 				Virtual: []string{"D:/123/456/A", "G:/abc", "C:/abc"},
 			},
 			root: "D:/123/456",
 		}, {
 			r: &http.Request{URL: &url.URL{Path: "/abc"}},
-			conf: &config.ConfigSiteDirectory{
+			conf: &config.SiteDirectory{
 				Root:    "/123/456/789",
 				Virtual: []string{"/abc"},
 			},
 			root: "/",
 		}, {
 			r: &http.Request{URL: &url.URL{Path: "/abc"}},
-			conf: &config.ConfigSiteDirectory{
+			conf: &config.SiteDirectory{
 				Root:    "/123/456/789",
 				Virtual: []string{"aaa/bbbb/abc"},
 			},
 			root: "aaa/bbbb",
 		}, {
 			r: &http.Request{URL: &url.URL{Path: "/"}},
-			conf: &config.ConfigSiteDirectory{
+			conf: &config.SiteDirectory{
 				Root:    "G:/123/456/789",
 				Virtual: []string{"G:/abc", "C:/abc"},
 			},
 			root: "G:/123/456/789",
 		}, {
 			r: &http.Request{URL: &url.URL{Path: "/A/B/C"}},
-			conf: &config.ConfigSiteDirectory{
+			conf: &config.SiteDirectory{
 				Root:    "G:/123/456/789",
 				Virtual: []string{"G:/abc", "C:/abc", "D:/123/456/A"},
 			},
 			root: "D:/123/456",
 		}, {
 			r: &http.Request{URL: &url.URL{Path: "/A/B/C/"}},
-			conf: &config.ConfigSiteDirectory{
+			conf: &config.SiteDirectory{
 				Root:    "G:/123/456/789",
 				Virtual: []string{"G:/abc", "C:/abc", "D:/123/456/A"},
 			},
 			root: "D:/123/456",
 		}, {
 			r: &http.Request{URL: &url.URL{Path: "/B/C/"}},
-			conf: &config.ConfigSiteDirectory{
+			conf: &config.SiteDirectory{
 				Root:    "G:/123/456/789",
 				Virtual: []string{":/abc", "C:/abc", "D:/123/---/B"},
 			},
 			root: "D:/123/---",
 		}, {
 			r: &http.Request{URL: &url.URL{Path: "/B/C/"}},
-			conf: &config.ConfigSiteDirectory{
+			conf: &config.SiteDirectory{
 				Root:    "",
 				Virtual: []string{},
 			},
@@ -256,17 +256,17 @@ func Test_Server_ConfigServer(t *testing.T) {
 	defer os.RemoveAll(fileKey)
 
 	srv := new(Server)
-	cstlsf1 := config.ConfigServerTLSFile{
+	cstlsf1 := config.ServerTLSFile{
 		CertFile: fileCert,
 		KeyFile:  fileKey,
 	}
-	cstlsf2 := config.ConfigServerTLSFile{
+	cstlsf2 := config.ServerTLSFile{
 		CertFile: fileCert,
 		KeyFile:  fileKey,
 	}
-	CS := &config.ConfigServer{
-		TLS: &config.ConfigServerTLS{
-			RootCAs: []config.ConfigServerTLSFile{cstlsf1, cstlsf2},
+	CS := &config.Server{
+		TLS: &config.ServerTLS{
+			RootCAs: []config.ServerTLSFile{cstlsf1, cstlsf2},
 		},
 	}
 	err = srv.ConfigServer(CS)
@@ -274,20 +274,20 @@ func Test_Server_ConfigServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer srv.Close()
-	if d := len(srv.l.tlsconf.NameToCertificate); d != 3 {
+	if d := len(srv.TLSConfig.NameToCertificate); d != 3 {
 		t.Fatalf("证书绑定host 失败，预定3个数量，不正确数量：%d", d)
 	}
 
-	CS = &config.ConfigServer{
-		TLS: &config.ConfigServerTLS{
-			RootCAs: []config.ConfigServerTLSFile{},
+	CS = &config.Server{
+		TLS: &config.ServerTLS{
+			RootCAs: []config.ServerTLSFile{},
 		},
 	}
 	err = srv.ConfigServer(CS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := len(srv.l.tlsconf.NameToCertificate); d != 0 {
+	if d := len(srv.TLSConfig.NameToCertificate); d != 0 {
 		t.Fatalf("证书绑定host 失败，预定0个数量，不正确数量：%d", d)
 	}
 }
@@ -295,9 +295,9 @@ func Test_Server_ConfigServer(t *testing.T) {
 func Test_Server_updateSitePoolAdd(t *testing.T) {
 	sg := NewServerGroup()
 	sg.sitePool = vweb.DefaultSitePool
-	conf := config.ConfigSite{
+	conf := config.Site{
 		Identity: "A",
-		Session: config.ConfigSiteSession{
+		Session: config.SiteSession{
 			Name:         "BB",
 			Expired:      0,
 			Size:         128,
