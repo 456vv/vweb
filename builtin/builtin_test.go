@@ -78,7 +78,7 @@ func Test_Convert(t *testing.T) {
 		},
 		func() bool{
 			t1 := &toT1{i:1}
-			var t2 interface{} = nil
+			var t2 any = nil
 			//nil 不可以转换到 struct
 			//t1 没有改变
 			if Convert(&t1, &t2) {return false}

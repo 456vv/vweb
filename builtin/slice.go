@@ -4,7 +4,7 @@ import (
 )
 
 //Max(a1, a2, ...)
-func Max(args ...interface{}) (max interface{}) {
+func Max(args ...any) (max any) {
 	if len(args) == 0 {
 		return 0
 	}
@@ -18,7 +18,7 @@ func Max(args ...interface{}) (max interface{}) {
 }
 
 //Min(a1, a2, ...)
-func Min(args ...interface{}) (min interface{}) {
+func Min(args ...any) (min any) {
 	if len(args) == 0 {
 		return 0
 	}

@@ -8,15 +8,15 @@ import (
 //Sessioner 用户独立的内存存储接口
 type Sessioner interface {
     Token() string																									// 编号
-    Set(key, val interface{})																						// 设置
-    Has(key interface{}) bool																						// 判断
-    Get(key interface{}) interface{}																				// 读取
-    GetHas(key interface{}) (val interface{}, ok bool)																// 读取判断
-    Del(key interface{})																							// 删除
-    SetExpired(key interface{}, d time.Duration)																	// 过期
-    SetExpiredCall(key interface{}, d time.Duration, f func(interface{}))											// 过期调用
+    Set(key, val any)																						// 设置
+    Has(key any) bool																						// 判断
+    Get(key any) any																				// 读取
+    GetHas(key any) (val any, ok bool)																// 读取判断
+    Del(key any)																							// 删除
+    SetExpired(key any, d time.Duration)																	// 过期
+    SetExpiredCall(key any, d time.Duration, f func(any))											// 过期调用
     Reset()																											// 重置
-    Defer(call interface{}, args ...interface{}) error																// 退出调用
+    Defer(call any, args ...any) error																// 退出调用
     Free()																											// 释放调用
 }
 
@@ -36,13 +36,13 @@ func (T *Session) Token() string {
 }
 
 // Defer 在用户会话时间过期后，将被调用。
-//	call interface{}            函数
-//	args ... interface{}        参数或更多个函数是函数的参数
+//	call any            函数
+//	args ... any        参数或更多个函数是函数的参数
 //	error                       错误
 //  例：
 //	.Defer(fmt.Println, "1", "2")
 //	.Defer(fmt.Printf, "%s", "汉字")
-func (T *Session) Defer(call interface{}, args ... interface{}) error {
+func (T *Session) Defer(call any, args ... any) error {
 	return T.ExitCall.Defer(call, args...)
 }
 

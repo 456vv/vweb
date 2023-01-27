@@ -10,19 +10,19 @@ import (
 var zeroVal reflect.Value
 
 // Value(v)
-func Value(v interface{}) reflect.Value {
+func Value(v any) reflect.Value {
 	t := builtinType(v)
 	return reflect.New(t)
 }
 
 // Type(v)
-func Type(v interface{}) reflect.Type {
+func Type(v any) reflect.Type {
 	t := builtinType(v)
 	return reflect.PtrTo(t)
 }
 
 // Panic(v)
-func Panic(v interface{}) {
+func Panic(v any) {
 	panic(v)
 }
 
@@ -30,20 +30,20 @@ func Panic(v interface{}) {
 // Make([T]T, length)
 // Make(Chan, length)
 // Make(func, func([]reflect.Value)[]reflect.Value)
-func Make(typ interface{}, args ...interface{}) interface{} {
+func Make(typ any, args ...any) any {
 	v := Value(typ)
 	typeInit(v.Elem(), true, args...)
 	return v.Elem().Interface()
 }
 
 // MapFrom(M, T1, V1, T2, V2, ...)
-func MapFrom(m interface{}, args ...interface{}) interface{} {
+func MapFrom(m any, args ...any) any {
 	n := len(args)
 	if (n & 1) != 0 {
 		panic("please use `MapFrom(T, key1, val1, key2, val2, ...)`")
 	}
 	if n == 0 {
-		return make(map[string]interface{})
+		return make(map[string]any)
 	}
 	if m != nil {
 		tt := reflect.TypeOf(m)
@@ -52,8 +52,8 @@ func MapFrom(m interface{}, args ...interface{}) interface{} {
 		}
 
 		// 默认接口类型
-		mkey := reflect.TypeOf((*interface{})(nil)).Elem()
-		mval := reflect.TypeOf((*interface{})(nil)).Elem()
+		mkey := reflect.TypeOf((*any)(nil)).Elem()
+		mval := reflect.TypeOf((*any)(nil)).Elem()
 
 		mrkey := kind2Args(args, 0)
 		if mrkey != reflect.Invalid {
@@ -120,7 +120,7 @@ func MapFrom(m interface{}, args ...interface{}) interface{} {
 			}
 			return ret
 		default:
-			ret := make(map[string]interface{}, n>>1)
+			ret := make(map[string]any, n>>1)
 			for i := 0; i < n; i += 2 {
 				key, _ := args[i].(string)
 				if key == "" {
@@ -152,7 +152,7 @@ func MapFrom(m interface{}, args ...interface{}) interface{} {
 			}
 			return ret
 		default:
-			ret := make(map[int]interface{}, n>>1)
+			ret := make(map[int]any, n>>1)
 			for i := 0; i < n; i += 2 {
 				ret[asInt(args[i])] = args[i+1]
 			}
@@ -164,10 +164,10 @@ func MapFrom(m interface{}, args ...interface{}) interface{} {
 }
 
 // SliceFrom(T, 值0, 值1,...)
-func SliceFrom(t interface{}, args ...interface{}) interface{} {
+func SliceFrom(t any, args ...any) any {
 	n := len(args)
 	if n == 0 {
-		return []interface{}(nil)
+		return []any(nil)
 	}
 
 	if t != nil {
@@ -190,19 +190,19 @@ func SliceFrom(t interface{}, args ...interface{}) interface{} {
 	case reflect.Uint8:
 		return appendBytes(make([]byte, 0, n), args...)
 	default:
-		return append(make([]interface{}, 0, n), args...)
+		return append(make([]any, 0, n), args...)
 	}
 }
 
 // Delete(map[T]T, "key")
-func Delete(m interface{}, key interface{}) {
+func Delete(m any, key any) {
 	reflect.ValueOf(m).SetMapIndex(reflect.ValueOf(key), zeroVal)
 }
 
 // Set([]T, 位置0,值1, 位置1,值2, 位置2,值3)
 // Set(map[T]T, 键名0,值1, 键名1,值2, 键名2,值3)
 // Set(struct{}, 名称0,值1, 名称1,值2, 名称2,值3)
-func Set(m interface{}, args ...interface{}) {
+func Set(m any, args ...any) {
 	n := len(args)
 	if (n & 1) != 0 {
 		panic("call with invalid argument count: please use Set(obj, member1, val1, ...)")
@@ -232,7 +232,7 @@ func Set(m interface{}, args ...interface{}) {
 // Get(struct{}, key)
 // Get(string, index)
 // Get(number, index)
-func Get(m interface{}, key interface{}) interface{} {
+func Get(m any, key any) any {
 	o := reflect.ValueOf(m)
 	o = reflect.Indirect(o)
 	var s string
@@ -274,7 +274,7 @@ func Get(m interface{}, key interface{}) interface{} {
 // Len([]T)
 // Len(string)
 // Len(map[T]T)
-func Len(a interface{}) int {
+func Len(a any) int {
 	if a == nil {
 		return 0
 	}
@@ -292,7 +292,7 @@ func Len(a interface{}) int {
 }
 
 // Cap([]T)
-func Cap(a interface{}) int {
+func Cap(a any) int {
 	if a == nil {
 		return 0
 	}
@@ -309,7 +309,7 @@ func Cap(a interface{}) int {
 }
 
 // GetSlice([]T, 1, 5)
-func GetSlice(a, i, j interface{}) interface{} {
+func GetSlice(a, i, j any) any {
 	va := reflect.ValueOf(a)
 	var i1, j1 int
 	if i != nil {
@@ -324,7 +324,7 @@ func GetSlice(a, i, j interface{}) interface{} {
 }
 
 // GetSlice3([]T, 1, 5, 6)
-func GetSlice3(a, i, j, c interface{}) interface{} {
+func GetSlice3(a, i, j, c any) any {
 	va := reflect.ValueOf(a)
 	var i1, j1, c1 int
 	if i != nil {
@@ -344,16 +344,16 @@ func GetSlice3(a, i, j, c interface{}) interface{} {
 }
 
 // Copy([]T, []T)
-func Copy(a, b interface{}) int {
+func Copy(a, b any) int {
 	return reflect.Copy(reflect.ValueOf(a), reflect.ValueOf(b))
 }
 
 // Append([]T, value...)
-func Append(a interface{}, vals ...interface{}) interface{} {
+func Append(a any, vals ...any) any {
 	switch arr := a.(type) {
 	case []int:
 		return appendInts(arr, vals...)
-	case []interface{}:
+	case []any:
 		return append(arr, vals...)
 	case []string:
 		return appendStrings(arr, vals...)
@@ -368,7 +368,7 @@ func Append(a interface{}, vals ...interface{}) interface{} {
 }
 
 // Float64 returns float64(a)
-func Float64(a interface{}) float64 {
+func Float64(a any) float64 {
 	switch a1 := a.(type) {
 	case float32:
 		return float64(a1)
@@ -401,7 +401,7 @@ func Float64(a interface{}) float64 {
 }
 
 // Float32 returns float32(a)
-func Float32(a interface{}) float32 {
+func Float32(a any) float32 {
 	switch a1 := a.(type) {
 	case float32:
 		return float32(a1)
@@ -434,7 +434,7 @@ func Float32(a interface{}) float32 {
 }
 
 // Int returns int(a)
-func Int(a interface{}) int {
+func Int(a any) int {
 	switch a1 := a.(type) {
 	case float32:
 		return int(a1)
@@ -467,7 +467,7 @@ func Int(a interface{}) int {
 }
 
 // Int8 returns int8(a)
-func Int8(a interface{}) int8 {
+func Int8(a any) int8 {
 	switch a1 := a.(type) {
 	case float32:
 		return int8(a1)
@@ -500,7 +500,7 @@ func Int8(a interface{}) int8 {
 }
 
 // Int16 returns int16(a)
-func Int16(a interface{}) int16 {
+func Int16(a any) int16 {
 	switch a1 := a.(type) {
 	case float32:
 		return int16(a1)
@@ -533,7 +533,7 @@ func Int16(a interface{}) int16 {
 }
 
 // Int32 returns int32(a)
-func Int32(a interface{}) int32 {
+func Int32(a any) int32 {
 	switch a1 := a.(type) {
 	case float32:
 		return int32(a1)
@@ -566,7 +566,7 @@ func Int32(a interface{}) int32 {
 }
 
 // rune returns rune(a)
-func Rune(a interface{}) rune {
+func Rune(a any) rune {
 	switch a1 := a.(type) {
 	case float32:
 		return rune(a1)
@@ -600,7 +600,7 @@ func Rune(a interface{}) rune {
 }
 
 // Int64 returns int64(a)
-func Int64(a interface{}) int64 {
+func Int64(a any) int64 {
 	switch a1 := a.(type) {
 	case float32:
 		return int64(a1)
@@ -633,7 +633,7 @@ func Int64(a interface{}) int64 {
 }
 
 // Uint returns uint(a)
-func Uint(a interface{}) uint {
+func Uint(a any) uint {
 	switch a1 := a.(type) {
 	case float32:
 		return uint(a1)
@@ -666,7 +666,7 @@ func Uint(a interface{}) uint {
 }
 
 // Uint8 returns uint8(a)
-func Uint8(a interface{}) uint8 {
+func Uint8(a any) uint8 {
 	switch a1 := a.(type) {
 	case float32:
 		return uint8(a1)
@@ -699,7 +699,7 @@ func Uint8(a interface{}) uint8 {
 }
 
 // Byte returns byte(a)
-func Byte(a interface{}) byte {
+func Byte(a any) byte {
 	switch a1 := a.(type) {
 	case float32:
 		return byte(a1)
@@ -733,7 +733,7 @@ func Byte(a interface{}) byte {
 }
 
 // Uint16 returns uint16(a)
-func Uint16(a interface{}) uint16 {
+func Uint16(a any) uint16 {
 	switch a1 := a.(type) {
 	case float32:
 		return uint16(a1)
@@ -766,7 +766,7 @@ func Uint16(a interface{}) uint16 {
 }
 
 // Uint32 returns uint32(a)
-func Uint32(a interface{}) uint32 {
+func Uint32(a any) uint32 {
 	switch a1 := a.(type) {
 	case float32:
 		return uint32(a1)
@@ -799,7 +799,7 @@ func Uint32(a interface{}) uint32 {
 }
 
 // Uint64 returns uint64(a)
-func Uint64(a interface{}) uint64 {
+func Uint64(a any) uint64 {
 	switch a1 := a.(type) {
 	case float32:
 		return uint64(a1)
@@ -832,7 +832,7 @@ func Uint64(a interface{}) uint64 {
 }
 
 // Complex64 returns complex64(a)
-func Complex64(a interface{}) complex64 {
+func Complex64(a any) complex64 {
 	switch a1 := a.(type) {
 	case complex64:
 		return a1
@@ -845,7 +845,7 @@ func Complex64(a interface{}) complex64 {
 }
 
 // Complex128 returns complex128(a)
-func Complex128(a interface{}) complex128 {
+func Complex128(a any) complex128 {
 	switch a1 := a.(type) {
 	case complex64:
 		return complex128(a1)
@@ -858,7 +858,7 @@ func Complex128(a interface{}) complex128 {
 }
 
 // Uintptr returns uintptr(a)
-func Uintptr(a interface{}) uintptr {
+func Uintptr(a any) uintptr {
 	switch a1 := a.(type) {
 	case uintptr:
 		return a1
@@ -867,7 +867,7 @@ func Uintptr(a interface{}) uintptr {
 }
 
 // Uintptr returns uintptr(a)
-func Pointer(a interface{}) unsafe.Pointer {
+func Pointer(a any) unsafe.Pointer {
 	switch a1 := a.(type) {
 	case unsafe.Pointer:
 		return a1
@@ -878,7 +878,7 @@ func Pointer(a interface{}) unsafe.Pointer {
 }
 
 // String returns string(a)
-func String(a interface{}) string {
+func String(a any) string {
 	switch a1 := a.(type) {
 	case []byte:
 		return string(a1)
@@ -895,7 +895,7 @@ func String(a interface{}) string {
 }
 
 // Bool returns bool(a)
-func Bool(a interface{}) bool {
+func Bool(a any) bool {
 	switch a1 := a.(type) {
 	case bool:
 		return a1
@@ -903,7 +903,7 @@ func Bool(a interface{}) bool {
 	return isTrue(inDirect(reflect.ValueOf(a)))
 }
 
-func Bytes(inf interface{}) []byte {
+func Bytes(inf any) []byte {
 	switch s := inf.(type) {
 	case string:
 		return []byte(s)
@@ -913,7 +913,7 @@ func Bytes(inf interface{}) []byte {
 	return []byte(fmt.Sprintf("%s", inf))
 }
 
-func Runs(inf interface{}) []rune {
+func Runs(inf any) []rune {
 	switch s := inf.(type) {
 	case string:
 		return []rune(s)
@@ -924,8 +924,8 @@ func Runs(inf interface{}) []rune {
 }
 
 // 该函数暂时测试，可能会改动。
-//	a,b interface{}		b转换到a类型
-func Convert(a, b interface{}) bool {
+//	a,b any		b转换到a类型
+func Convert(a, b any) bool {
 	av, ok := a.(reflect.Value)
 	if !ok {
 		av = reflect.ValueOf(a)
@@ -940,8 +940,8 @@ func Convert(a, b interface{}) bool {
 }
 
 // 初始化一个类型
-//	v interface{}		未初始化的类型
-func Init(v interface{}) {
+//	v any		未初始化的类型
+func Init(v any) {
 	rv, ok := v.(reflect.Value)
 	if !ok {
 		rv = reflect.ValueOf(v)

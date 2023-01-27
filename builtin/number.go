@@ -6,7 +6,7 @@ import (
 )
 
 // Compute(1, "+", 2)
-func Compute(x interface{}, symbol string, y interface{}) (i interface{}, err error) {
+func Compute(x any, symbol string, y any) (i any, err error) {
 	xx := reflect.ValueOf(x)
 	yy := reflect.ValueOf(y)
 	xx = inDirect(xx)
@@ -125,7 +125,7 @@ func Compute(x interface{}, symbol string, y interface{}) (i interface{}, err er
 }
 
 // a+1
-func Inc(a interface{}) interface{} {
+func Inc(a any) any {
 	switch v := a.(type) {
 	case int:
 		return v + 1
@@ -152,7 +152,7 @@ func Inc(a interface{}) interface{} {
 }
 
 // a-1
-func Dec(a interface{}) interface{} {
+func Dec(a any) any {
 	switch v := a.(type) {
 	case int:
 		return v - 1
@@ -179,7 +179,7 @@ func Dec(a interface{}) interface{} {
 }
 
 // -a
-func Neg(a interface{}) interface{} {
+func Neg(a any) any {
 	switch a1 := a.(type) {
 	case int:
 		return -a1
@@ -190,7 +190,7 @@ func Neg(a interface{}) interface{} {
 }
 
 // a*b
-func Mul(a, b interface{}) interface{} {
+func Mul(a, b any) any {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -214,7 +214,7 @@ func Mul(a, b interface{}) interface{} {
 }
 
 // a/b
-func Quo(a, b interface{}) interface{} {
+func Quo(a, b any) any {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -238,7 +238,7 @@ func Quo(a, b interface{}) interface{} {
 }
 
 // a%b
-func Mod(a, b interface{}) interface{} {
+func Mod(a, b any) any {
 	if a1, ok := a.(int); ok {
 		if b1, ok := b.(int); ok {
 			return a1 % b1
@@ -251,7 +251,7 @@ func Mod(a, b interface{}) interface{} {
 }
 
 // a+b
-func Add(a, b interface{}) interface{} {
+func Add(a, b any) any {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -324,7 +324,7 @@ func Add(a, b interface{}) interface{} {
 }
 
 // a-b
-func Sub(a, b interface{}) interface{} {
+func Sub(a, b any) any {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {

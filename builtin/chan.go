@@ -9,7 +9,7 @@ type Chan struct{
 
 //不阻塞
 //TrySend(*Chan, value)
-func TrySend(a interface{}, v interface{}) bool {
+func TrySend(a any, v any) bool {
 	if v == nil {
 		panic("can't nil value to a channel")
 	}
@@ -23,7 +23,7 @@ func TrySend(a interface{}, v interface{}) bool {
 
 //不阻塞
 //TryRecv(*Chan)
-func TryRecv(a interface{}) interface{} {
+func TryRecv(a any) any {
 	var v reflect.Value
 	if p, ok := a.(*Chan); ok {
 		v = p.Data
@@ -40,7 +40,7 @@ func TryRecv(a interface{}) interface{} {
 }
 
 //Send(*Chan, value)
-func Send(a interface{}, v interface{}) {
+func Send(a any, v any) {
 	if v == nil {
 		panic("can't nil value to a channel")
 	}
@@ -52,7 +52,7 @@ func Send(a interface{}, v interface{}) {
 }
 
 //Recv(*Chan)
-func Recv(a interface{}) interface{} {
+func Recv(a any) any {
 	
 	var v reflect.Value
 	if p, ok := a.(*Chan); ok {
@@ -70,7 +70,7 @@ func Recv(a interface{}) interface{} {
 }
 
 //Close(*Chan)
-func Close(a interface{}) {
+func Close(a any) {
 	
 	if p, ok := a.(*Chan); ok {
 		p.Data.Close()
@@ -80,12 +80,12 @@ func Close(a interface{}) {
 }
 
 //ChanOf(T)
-func ChanOf(typ interface{}) reflect.Type {
+func ChanOf(typ any) reflect.Type {
 	return reflect.ChanOf(reflect.BothDir, builtinType(typ))
 }
 
 //MakeChan(T, size)
-func MakeChan(typ interface{}, buffer ...interface{}) *Chan {
+func MakeChan(typ any, buffer ...any) *Chan {
 	n := 0
 	if len(buffer) > 0 {
 		n = buffer[0].(int)

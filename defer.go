@@ -12,7 +12,7 @@ type ExecCall struct {
     arg         []reflect.Value                                                             // 参数
     argVariadic bool                                                                        // 有可变参数
 }
-func (T *ExecCall) Func(call interface{}, args ... interface{}) error {
+func (T *ExecCall) Func(call any, args ... any) error {
     var (
 		
         fn          reflect.Value
@@ -65,14 +65,14 @@ func (T *ExecCall) Func(call interface{}, args ... interface{}) error {
 			//2，类型相等
 			//3，类型可以转换
     		if argIndex.Kind() == reflect.Interface || argIndex.Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex) {
-				//适用func(a interface{}, b ...interface{}) => call(interface{}, []interface{})
-        		T.arg = append(T.arg, argv)//argv.Elem() 是将参数 interface{} 转为 原类型
+				//适用func(a any, b ...any) => call(any, []any)
+        		T.arg = append(T.arg, argv)//argv.Elem() 是将参数 any 转为 原类型
             	continue
     		}
     		
 			//最后一个是切片
 			if index == fnInLen && variadic && (argIndex.Elem().Kind() == reflect.Interface || argv.Type().ConvertibleTo(argIndex.Elem())) {
-				//适用func(a interface{}, b ...interface{}) => call(interface{}, interface{})
+				//适用func(a any, b ...any) => call(any, any)
 				varArgs = reflect.MakeSlice(argIndex, 0, 0)
 				varArgs = reflect.Append(varArgs, argv)
 				continue
@@ -86,7 +86,7 @@ func (T *ExecCall) Func(call interface{}, args ... interface{}) error {
         if !typeErr {
         	if varArgs.Kind() != reflect.Invalid {
 	        	if argIndex.Elem().Kind() == reflect.Interface || (argIndex.Elem().Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex.Elem())) {
-		        		//适用func(a interface{}, b ...interface{}) => call(interface{}, interface{}, interface{})
+		        		//适用func(a any, b ...any) => call(any, any, any)
 		         		varArgs = reflect.Append(varArgs, argv)
 	         			continue
 	        	}
@@ -114,7 +114,7 @@ func (T *ExecCall) Func(call interface{}, args ... interface{}) error {
     T.argVariadic = variadic
     return nil
 }
-func (T *ExecCall) Exec() (ret []interface{}) {
+func (T *ExecCall) Exec() (ret []any) {
 	var rvs []reflect.Value
 	if T.argVariadic {
 		rvs = T.fun.CallSlice(T.arg)
@@ -138,13 +138,13 @@ type ExitCall struct {
 }
 
 // Defer 在用户会话时间过期后，将被调用。
-//	call interface{}            函数
-//	args ... interface{}        参数或更多个函数是函数的参数
+//	call any            函数
+//	args ... any        参数或更多个函数是函数的参数
 //	error                       错误
 //  例：
 //	.Defer(fmt.Println, "1", "2")
 //	.Defer(fmt.Printf, "%s", "汉字")
-func (T *ExitCall) Defer(call interface{}, args ... interface{}) error {
+func (T *ExitCall) Defer(call any, args ... any) error {
 	T.m.Lock()
 	defer T.m.Unlock()
 	

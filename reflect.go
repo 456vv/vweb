@@ -11,10 +11,10 @@ import (
 )
 
 // ForMethod	遍历方法
-//	x interface{}	  类型
+//	x any	  类型
 //	all	bool		  true不可导出一样可以打印出来
 //	string			  字符串
-func ForMethod(x interface{}) string {
+func ForMethod(x any) string {
 	t := reflect.TypeOf(x)
 	var s string
 	for i := 0; i < t.NumMethod(); i++ {
@@ -25,20 +25,20 @@ func ForMethod(x interface{}) string {
 }
 
 // ForType 遍历字段
-//	x interface{}	类型
+//	x any	类型
 //	lower bool		打印出小写字段
 //	depth int		打印深度
-func ForType(x interface{}, lower bool, depth int) string {
+func ForType(x any, lower bool, depth int) string {
 	return forType(x, 0, lower, depth)
 }
 
-func forType(x interface{}, floor int, lower bool, depth int) string {
+func forType(x any, floor int, lower bool, depth int) string {
 	var (
 		v, z reflect.Value
 		tf   reflect.StructField
 		s    string
 		flx  = strings.Repeat("\t", floor)
-		k    interface{}
+		k    any
 	)
 
 	v, ok := x.(reflect.Value)
@@ -96,7 +96,7 @@ func forTypeSub(node reflect.Value, floor int, lower bool, depth int) (s string)
 	return s
 }
 
-func typeSelect(v reflect.Value) interface{} {
+func typeSelect(v reflect.Value) any {
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return v.Int()
@@ -156,9 +156,9 @@ func inDirect(v reflect.Value) reflect.Value {
 }
 
 // DepthField 快速深入读取字段
-//	s interface{}		 Struct
-//	ndex ... interface{} 字段
-//	field interface{}	 字段
+//	s any		 Struct
+//	ndex ... any 字段
+//	field any	 字段
 //	err	error			 错误
 //	例：
 //	type A struct {
@@ -178,7 +178,7 @@ func inDirect(v reflect.Value) reflect.Value {
 //		fmt.Println(fidld, err)
 //		//0	<nil>
 //	   }
-func DepthField(s interface{}, index ...interface{}) (field interface{}, err error) {
+func DepthField(s any, index ...any) (field any, err error) {
 	field = s
 	for _, i := range index {
 		field, err = depthField(field, i)
@@ -189,7 +189,7 @@ func DepthField(s interface{}, index ...interface{}) (field interface{}, err err
 	return field, nil
 }
 
-func depthField(s interface{}, index interface{}) (interface{}, error) {
+func depthField(s any, index any) (any, error) {
 	sv := reflect.ValueOf(s)
 	sid := InDirect(sv)
 	var v reflect.Value
@@ -220,18 +220,18 @@ func depthField(s interface{}, index interface{}) (interface{}, error) {
 }
 
 // CopyStruct 结构字段从src 复制 dsc，不需要相同的结构。他只复制相同类型的字段。
-//	dsc, src interface{}									目标，源结构
+//	dsc, src any									目标，源结构
 //	handle func(name string, dsc, src reflect.Value) bool	排除处理函数，返回true跳过
 //	error	错误
-func CopyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool) error {
+func CopyStruct(dsc, src any, handle func(name string, dsc, src reflect.Value) bool) error {
 	return copyStruct(dsc, src, handle, false)
 }
 
-func CopyStructDeep(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool) error {
+func CopyStructDeep(dsc, src any, handle func(name string, dsc, src reflect.Value) bool) error {
 	return copyStruct(dsc, src, handle, true)
 }
 
-func copyStruct(dsc, src interface{}, handle func(name string, dsc, src reflect.Value) bool, deep bool) error {
+func copyStruct(dsc, src any, handle func(name string, dsc, src reflect.Value) bool, deep bool) error {
 	va, ok := dsc.(reflect.Value)
 	if !ok {
 		va = reflect.ValueOf(dsc)

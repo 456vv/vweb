@@ -31,11 +31,11 @@ func (T *Sessions) Len() int {
 
 //ProcessDeadAll 定时来处理过期的Session
 //	[]string	过期的ID名称
-func (T *Sessions) ProcessDeadAll() []interface{} {
-    var expId   []interface{}
+func (T *Sessions) ProcessDeadAll() []any {
+    var expId   []any
 	if T.Expired != 0 {
 	    currTime := time.Now()
-		T.ss.Range(func(id, mse interface{}) bool{
+		T.ss.Range(func(id, mse any) bool{
 			ms := mse.(*manageSession)
 	        recentTime := ms.recent.Add(T.Expired)
 	        if currTime.After(recentTime) {

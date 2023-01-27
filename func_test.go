@@ -5,12 +5,12 @@ import (
 	"errors"
 )
 
-func testExecFunc(a *testing.T, b ...interface{}) *testing.T{
+func testExecFunc(a *testing.T, b ...any) *testing.T{
 	return a
 }
 
 func Test_ExecFunc1(t *testing.T){
-	args := []interface{}{t, t, t}
+	args := []any{t, t, t}
 	rets, err := ExecFunc(testExecFunc, t, args)
 	if err != nil {
 		t.Fatal(err)

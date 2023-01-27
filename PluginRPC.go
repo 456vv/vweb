@@ -16,8 +16,8 @@ import (
 //rpc插件接口
 type PluginRPC interface{
     Type() PluginType																								// 类型
-    Register(value interface{})																						// 注册struct类型
-    Call(name string, arg interface{}) (interface{}, error)															// 调用
+    Register(value any)																						// 注册struct类型
+    Call(name string, arg any) (any, error)															// 调用
     Discard() error																									// 废弃连接
     Close() error																									// 关闭
 }
@@ -91,19 +91,19 @@ func (T *pluginRPC) Type() PluginType {
 	return PluginTypeRPC
 }
 //Register RPC注册类型，仅用于RPC客户端。默认gob编码
-//	value interface{}     注册类型
-func (prpc *pluginRPC) Register(value interface{}){
+//	value any     注册类型
+func (prpc *pluginRPC) Register(value any){
     gob.Register(value)
 }
 
 //Call 调用RPC，连接TCP，等待远程返回数据。
 //	name string           远程函数名，格式如：admin.Add 。有关于rpc调用知识，请阅读官方标准库 net/rpc
-//	arg interface{}       参数，发送至远程的参数
+//	arg any       参数，发送至远程的参数
 //	*Map, error           结果，远程返回来的结果
-func (prpc *pluginRPC) Call(name string, arg interface{}) (interface{}, error) {
+func (prpc *pluginRPC) Call(name string, arg any) (any, error) {
 	
     //调用RPC函数
-    var result interface{}
+    var result any
     err := prpc.Client.Call(name, arg, result)
     if err != nil {
         return nil, err

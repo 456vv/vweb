@@ -85,7 +85,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var handleFunc http.Handler
-		T.rt.Range(func(k, v interface{}) bool {
+		T.rt.Range(func(k, v any) bool {
 			pattern := k.(string)
 			// 正则
 			if strings.HasPrefix(pattern, "^") || strings.HasSuffix(pattern, "$") {

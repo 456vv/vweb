@@ -22,12 +22,12 @@ import (
 type DynamicTemplater interface {
 	SetPath(rootPath, pagePath string)            // 设置路径
 	Parse(r io.Reader) (err error)                // 解析
-	Execute(out io.Writer, dot interface{}) error // 执行
+	Execute(out io.Writer, dot any) error // 执行
 }
 type DynamicTemplateFunc func(*ServerHandlerDynamic) DynamicTemplater
 
 // web错误调用
-func webError(rw http.ResponseWriter, v ...interface{}) {
+func webError(rw http.ResponseWriter, v ...any) {
 	// 500 服务器遇到了意料不到的情况，不能完成客户的请求。
 	http.Error(rw, fmt.Sprint(v...), http.StatusInternalServerError)
 }
@@ -239,9 +239,9 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 // Execute 执行模板
 //
 //	bufw *bytes.Buffer	模板返回数据
-//	dock interface{}	与模板对接接口
+//	dock any	与模板对接接口
 //	error				错误
-func (T *ServerHandlerDynamic) Execute(bufw io.Writer, dock interface{}) (err error) {
+func (T *ServerHandlerDynamic) Execute(bufw io.Writer, dock any) (err error) {
 	if T.exec == nil {
 		return errors.New("vweb: Parse the template content first and then call the Execute")
 	}

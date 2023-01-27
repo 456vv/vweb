@@ -21,16 +21,16 @@ func NewServerRPC() *ServerRPC {
 }
 
 //Register 注册解析类型
-//	value interface{}     注册类型
-func (T *ServerRPC) Register(value interface{}) {
+//	value any     注册类型
+func (T *ServerRPC) Register(value any) {
     gob.Register(value)
 }
 
 //RegisterName 注册一个struct，让客户端进行访问。
 //	name string       包名
-//	rcvr interface{}  结构对象
+//	rcvr any  结构对象
 //	error             错误
-func (T *ServerRPC) RegisterName(name string, rcvr interface{}) error {
+func (T *ServerRPC) RegisterName(name string, rcvr any) error {
     return T.Server.RegisterName(name, rcvr)
 }
 

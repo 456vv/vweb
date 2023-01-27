@@ -1,7 +1,7 @@
 package builtin
 	
 // a << b
-func BitLshr(a, b interface{}) int {
+func BitLshr(a, b any) int {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -14,7 +14,7 @@ func BitLshr(a, b interface{}) int {
 }
 
 // a >> b
-func BitRshr(a, b interface{}) int {
+func BitRshr(a, b any) int {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -27,7 +27,7 @@ func BitRshr(a, b interface{}) int {
 }
 
 // a ^ b
-func BitXor(a, b interface{}) int {
+func BitXor(a, b any) int {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -39,7 +39,7 @@ func BitXor(a, b interface{}) int {
 	return 0
 }
 // a & b
-func BitAnd(a, b interface{}) int {
+func BitAnd(a, b any) int {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -51,7 +51,7 @@ func BitAnd(a, b interface{}) int {
 	return 0
 }
 // a | b
-func BitOr(a, b interface{}) int {
+func BitOr(a, b any) int {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -63,7 +63,7 @@ func BitOr(a, b interface{}) int {
 	return 0
 }
 // ^a
-func BitNot(a interface{}) int {
+func BitNot(a any) int {
 	switch a1 := a.(type) {
 	case int:
 		return ^a1
@@ -72,7 +72,7 @@ func BitNot(a interface{}) int {
 	return 0
 }
 // a &^ b
-func BitAndNot(a, b interface{}) int {
+func BitAndNot(a, b any) int {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {

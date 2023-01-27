@@ -21,7 +21,7 @@ type TemplateDoter interface{
     Global() Globaler                                                                       // 全站缓存
     Cookie() Cookier                                                                        // 用户的Cookie
     Swap() *vmap.Map                                                                        // 信息交换
-    Defer(call interface{}, args ... interface{}) error										// 退回调用
+    Defer(call any, args ... any) error										// 退回调用
     DotContexter																			// 上下文
 }
 
@@ -120,13 +120,13 @@ func (T *TemplateDot) Swap() *vmap.Map {
 }
 
 //Defer 在用户会话时间过期后，将被调用。
-//	call interface{}            函数
-//	args ... interface{}        参数或更多个函数是函数的参数
+//	call any            函数
+//	args ... any        参数或更多个函数是函数的参数
 //	error                       错误
 //  例：
 //	.Defer(fmt.Println, "1", "2")
 //	.Defer(fmt.Printf, "%s", "汉字")
-func (T *TemplateDot) Defer(call interface{}, args ... interface{}) error {
+func (T *TemplateDot) Defer(call any, args ... any) error {
     return T.ec.Defer(call, args...)
 }
 

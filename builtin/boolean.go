@@ -1,7 +1,7 @@
 package builtin
 
 // &&
-func And(arg0 interface{}, args ...interface{}) bool {
+func And(arg0 any, args ...any) bool {
 	ok := Bool(arg0)
 	if !ok {
 		return ok
@@ -16,7 +16,7 @@ func And(arg0 interface{}, args ...interface{}) bool {
 }
 
 // ||
-func Or(arg0 interface{}, args ...interface{}) bool {
+func Or(arg0 any, args ...any) bool {
 	ok := Bool(arg0)
 	if ok {
 		return ok
@@ -31,7 +31,7 @@ func Or(arg0 interface{}, args ...interface{}) bool {
 }
 
 // !1
-func Not(a interface{}) bool {
+func Not(a any) bool {
 	switch  a1 := a.(type) {
 	case bool:
 		return !a1
@@ -43,7 +43,7 @@ func Not(a interface{}) bool {
 }
 
 // a < b
-func LT(a, b interface{}) bool {
+func LT(a, b any) bool {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -69,7 +69,7 @@ func LT(a, b interface{}) bool {
 }
 
 // a > b
-func GT(a, b interface{}) bool {
+func GT(a, b any) bool {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -95,7 +95,7 @@ func GT(a, b interface{}) bool {
 }
 
 // a <= b
-func LE(a, b interface{}) bool {
+func LE(a, b any) bool {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -121,7 +121,7 @@ func LE(a, b interface{}) bool {
 }
 
 // a >= b
-func GE(a, b interface{}) bool {
+func GE(a, b any) bool {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
@@ -147,11 +147,11 @@ func GE(a, b interface{}) bool {
 }
 
 // a == b
-func EQ(a, b interface{}) bool {
+func EQ(a, b any) bool {
 	return a == b
 }
 
 // a != b
-func NE(a, b interface{}) bool {
+func NE(a, b any) bool {
 	return a != b
 }

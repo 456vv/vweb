@@ -55,7 +55,7 @@ func (T *SitePool) DelSite(name string) {
 //
 //	f func(name string, site *Site) bool
 func (T *SitePool) RangeSite(f func(name string, site *Site) bool) {
-	T.pool.Range(func(key, value interface{}) bool {
+	T.pool.Range(func(key, value any) bool {
 		return f(key.(string), value.(*Site))
 	})
 }
@@ -91,7 +91,7 @@ L:
 	for {
 		select {
 		case <-T.tick.C:
-			T.pool.Range(func(host, inf interface{}) bool {
+			T.pool.Range(func(host, inf any) bool {
 				if site, ok := inf.(*Site); ok {
 					go site.Sessions.ProcessDeadAll()
 				}
@@ -163,14 +163,14 @@ func (T *SiteMan) Get(host string) (*Site, bool) {
 //
 //	f func(host string, site *Site) bool
 func (T *SiteMan) Range(f func(host string, site *Site) bool) {
-	T.site.Range(func(key, value interface{}) bool {
+	T.site.Range(func(key, value any) bool {
 		return f(key.(string), value.(*Site))
 	})
 }
 
 // 读出站点，支持贬域名。
 func (T *SiteMan) derogatoryDomain(host string) (s *Site, ok bool) {
-	var inf interface{}
+	var inf any
 	derogatoryDomain(host, func(domain string) bool {
 		inf, ok = T.site.Load(domain)
 		return ok

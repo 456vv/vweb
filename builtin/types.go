@@ -24,7 +24,7 @@ var builtinTypes = map[string]reflect.Type{
 	"string":		reflect.TypeOf(""),
 	"byte":			reflect.TypeOf(byte(0)),
 	"rune":			reflect.TypeOf(rune(0)),
-	"interface":	reflect.TypeOf((*interface{})(nil)).Elem(),
+	"interface":	reflect.TypeOf((*any)(nil)).Elem(),
 	"value":		reflect.TypeOf((*reflect.Value)(nil)).Elem(),
 	"type":			reflect.TypeOf((*reflect.Type)(nil)).Elem(),
 	"error":        reflect.TypeOf((*error)(nil)).Elem(),
@@ -35,7 +35,7 @@ var builtinTypes = map[string]reflect.Type{
 //string				生成string
 //string:string			生成map[string]string
 //:string				生成[]string
-func builtinType(typ interface{}) reflect.Type {
+func builtinType(typ any) reflect.Type {
 	if t, ok := typ.(string); ok {
 		ts := strings.Split(t,":")
 		v0, ok0 := builtinTypes[ts[0]]
@@ -62,14 +62,14 @@ func builtinType(typ interface{}) reflect.Type {
 	}
 	return reflect.TypeOf(typ)
 }
-func rkind(a interface{}) reflect.Kind {
+func rkind(a any) reflect.Kind {
 	return reflect.TypeOf(a).Kind()
 }
 
 //[string,int,string,float64,...]
 //判断可转换的值是int还是float64
 //这个常用于map类型
-func kind2Args(args []interface{}, idx int) reflect.Kind {
+func kind2Args(args []any, idx int) reflect.Kind {
 	kind := rkind(args[idx])
 	for i := 2; i < len(args); i += 2 {
 		if t := rkind(args[i+idx]); t != kind {
@@ -91,7 +91,7 @@ func kind2Args(args []interface{}, idx int) reflect.Kind {
 //[int,float64,...]
 //判断可转换的值是int还是float64
 //这个常用于array类型
-func kindArgs(args []interface{}) reflect.Kind {
+func kindArgs(args []any) reflect.Kind {
 	kind := rkind(args[0])
 	for i := 1; i < len(args); i++ {
 		if t := rkind(args[i]); t != kind {
@@ -112,7 +112,7 @@ func kindArgs(args []interface{}) reflect.Kind {
 }
 
 //判断类型
-func asInt(a interface{}) int {
+func asInt(a any) int {
 	switch v := a.(type) {
 	case int:
 		return v
@@ -121,7 +121,7 @@ func asInt(a interface{}) int {
 }
 
 //判断类型
-func asFloat(a interface{}) float64 {
+func asFloat(a any) float64 {
 	switch v := a.(type) {
 	case float64:
 		return v
@@ -132,7 +132,7 @@ func asFloat(a interface{}) float64 {
 }
 
 //判断v类型是否能转为telem类型
-func autoConvert(telem reflect.Type, v interface{}) reflect.Value {
+func autoConvert(telem reflect.Type, v any) reflect.Value {
 	if v == nil {
 		return reflect.Zero(telem)
 	}
@@ -164,7 +164,7 @@ func convertible(kind, tkind reflect.Kind) bool {
 }
 
 //设置map
-func setMapMember(m interface{}, args ...interface{}) interface{} {
+func setMapMember(m any, args ...any) any {
 	var val reflect.Value
 	o := reflect.ValueOf(m)
 	telem := o.Type().Elem()
@@ -182,7 +182,7 @@ func setMapMember(m interface{}, args ...interface{}) interface{} {
 }
 
 //设置struct，支持接口
-func setMember(m interface{}, args ...interface{}) {
+func setMember(m any, args ...any) {
 	o := reflect.ValueOf(m)
 	for ; o.Kind() == reflect.Ptr || o.Kind() == reflect.Interface; o = o.Elem() {}
 	
@@ -194,7 +194,7 @@ func setMember(m interface{}, args ...interface{}) {
 }
 
 //设置struct
-func setStructMember(o reflect.Value, args ...interface{}) {
+func setStructMember(o reflect.Value, args ...any) {
 	var field reflect.Value
 	for i := 0; i < len(args); i += 2 {
 		switch t := args[i].(type) {
@@ -215,7 +215,7 @@ func setStructMember(o reflect.Value, args ...interface{}) {
 }
 
 //读取struct，支持接口
-func getMember(m interface{}, key interface{}) interface{} {
+func getMember(m any, key any) any {
 	o := reflect.ValueOf(m)
 	for ; o.Kind() == reflect.Ptr || o.Kind() == reflect.Interface; o = o.Elem() {}
 	
@@ -227,7 +227,7 @@ func getMember(m interface{}, key interface{}) interface{} {
 }
 
 //读取struct
-func getStructMember(o reflect.Value, key interface{}) interface{} {
+func getStructMember(o reflect.Value, key any) any {
 	var field reflect.Value
 	switch t := key.(type) {
 	case string:
@@ -239,7 +239,7 @@ func getStructMember(o reflect.Value, key interface{}) interface{} {
 }
 
 //追加Interface
-func appendInterface(a interface{}, vals... interface{}) interface{}{
+func appendInterface(a any, vals... any) any{
 	va := reflect.ValueOf(a)
 	telem := va.Type().Elem()
 	x := make([]reflect.Value, len(vals))
@@ -250,7 +250,7 @@ func appendInterface(a interface{}, vals... interface{}) interface{}{
 }
 
 //追加Float
-func appendFloats(a []float64, vals ...interface{}) interface{} {
+func appendFloats(a []float64, vals ...any) any {
 	for _, v := range vals {
 		switch val := v.(type) {
 		case float64:
@@ -277,7 +277,7 @@ func appendFloats(a []float64, vals ...interface{}) interface{} {
 }
 
 //追加Int
-func appendInts(a []int, vals ...interface{}) interface{} {
+func appendInts(a []int, vals ...any) any {
 	for _, v := range vals {
 		switch val := v.(type) {
 		case int:
@@ -304,7 +304,7 @@ func appendInts(a []int, vals ...interface{}) interface{} {
 }
 
 //追加Byte
-func appendBytes(a []byte, vals ...interface{}) interface{} {
+func appendBytes(a []byte, vals ...any) any {
 	for _, v := range vals {
 		switch val := v.(type) {
 		case byte:
@@ -327,7 +327,7 @@ func appendBytes(a []byte, vals ...interface{}) interface{} {
 }
 
 //追加Rune
-func appendRunes(a []rune, vals ...interface{}) interface{} {
+func appendRunes(a []rune, vals ...any) any {
 	for _, v := range vals {
 		switch val := v.(type) {
 		case rune:
@@ -350,7 +350,7 @@ func appendRunes(a []rune, vals ...interface{}) interface{} {
 }
 
 //追加String
-func appendStrings(a []string, vals ...interface{}) interface{} {
+func appendStrings(a []string, vals ...any) any {
 	for _, v := range vals {
 		switch val := v.(type) {
 		case string:
@@ -363,25 +363,25 @@ func appendStrings(a []string, vals ...interface{}) interface{} {
 }
 
 
-func typeString(a interface{}) string {
+func typeString(a any) string {
 	if a == nil {
 		return "nil"
 	}
 	return reflect.TypeOf(a).String()
 }
 
-func panicUnsupportedOp1(op string, a interface{}) interface{} {
+func panicUnsupportedOp1(op string, a any) any {
 	ta := typeString(a)
 	panic("unsupported operator: " + op + ta)
 }
 
-func panicUnsupportedOp2(op string, a, b interface{}) interface{} {
+func panicUnsupportedOp2(op string, a, b any) any {
 	ta := typeString(a)
 	tb := typeString(b)
 	panic("unsupported operator: " + ta + op + tb)
 }
 
-func panicUnsupportedFn(fn string, args ...interface{}) interface{} {
+func panicUnsupportedFn(fn string, args ...any) any {
 	targs := make([]string, len(args))
 	for i, a := range args {
 		targs[i] = typeString(a)
@@ -390,7 +390,7 @@ func panicUnsupportedFn(fn string, args ...interface{}) interface{} {
 }
 
 //找出最大Int
-func maxInt(args []interface{}) (max int) {
+func maxInt(args []any) (max int) {
 	max = args[0].(int)
 	for i := 1; i < len(args); i++ {
 		if t := args[i].(int); t > max {
@@ -401,7 +401,7 @@ func maxInt(args []interface{}) (max int) {
 }
 
 //找出最大Float
-func maxFloat(args []interface{}) (max float64) {
+func maxFloat(args []any) (max float64) {
 	max = asFloat(args[0])
 	for i := 1; i < len(args); i++ {
 		if t := asFloat(args[i]); t > max {
@@ -412,7 +412,7 @@ func maxFloat(args []interface{}) (max float64) {
 }
 
 //找出最小Int
-func minInt(args []interface{}) (min int) {
+func minInt(args []any) (min int) {
 	min = args[0].(int)
 	for i := 1; i < len(args); i++ {
 		if t := args[i].(int); t < min {
@@ -423,7 +423,7 @@ func minInt(args []interface{}) (min int) {
 }
 
 //找出最小Float
-func minFloat(args []interface{}) (min float64) {
+func minFloat(args []any) (min float64) {
 	min = asFloat(args[0])
 	for i := 1; i < len(args); i++ {
 		if t := asFloat(args[i]); t < min {
@@ -466,7 +466,7 @@ func isTrue(val reflect.Value) bool {
 }
 
 //读出真实类型数据
-func typeSelect(v reflect.Value) interface{} {
+func typeSelect(v reflect.Value) any {
     switch v.Kind() {
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
         return v.Int()
@@ -544,7 +544,7 @@ func typeConvert(av, bv reflect.Value) bool {
 	return false
 }
 
-func typeInit(v reflect.Value, isZero bool, args ...interface{}) {
+func typeInit(v reflect.Value, isZero bool, args ...any) {
 	//无参数，仅初始化
 	pv := v
 	for ;v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface;{
