@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/456vv/vweb/v2"
+	"github.com/456vv/vweb/v2/server"
 )
 
 // ServerHTTP 服务器HTTP
@@ -26,7 +27,8 @@ func NewServerHTTP() *ServerHTTP {
 	}
 	ser.Server.Handler = http.HandlerFunc(ser.Route.ServeHTTP)
 	ser.Server.BaseContext = func(l net.Listener) context.Context {
-		return context.WithValue(context.Background(), vweb.ListenerContextKey, ser.l.TCPListener)
+		ctx := context.WithValue(context.Background(), server.ServerContextKey, ser)
+		return context.WithValue(ctx, vweb.ListenerContextKey, ser.l.TCPListener)
 	}
 
 	ser.Server.ConnContext = func(ctx context.Context, rwc net.Conn) context.Context {
