@@ -61,7 +61,6 @@ type siteExtend struct {
 type Server struct {
 	*http.Server // http服务器
 	Addr         string
-	TLSConfig    *tls.Config
 	l            listener
 	status       atomicBool
 	cServer      *config.Server // 用于服务器
@@ -72,15 +71,16 @@ func (T *Server) init() {
 	if T.Server == nil {
 		T.Server = new(http.Server)
 		T.Server.BaseContext = func(l net.Listener) context.Context {
-			ctx := context.WithValue(context.Background(), ServerContextKey, T)
-			return context.WithValue(ctx, vweb.ListenerContextKey, l)
+			return context.WithValue(context.Background(), vweb.ListenerContextKey, l)
 		}
+
 		T.Server.ConnContext = func(ctx context.Context, rwc net.Conn) context.Context {
 			return context.WithValue(ctx, vweb.ConnContextKey, rwc)
 		}
 	}
-	if T.l.server == nil {
-		T.l.server = T
+
+	if T.l.ser == nil {
+		T.l.ser = T
 	}
 }
 
@@ -109,24 +109,17 @@ func (T *Server) ListenAndServe() error {
 
 func (T *Server) ConfigConn(cc *config.Conn) error {
 	if cc == nil {
-		return verror.TrackError("server: *config.ConfigConn不可以为nil")
+		return verror.TrackError("server: *config.Conn 不可以为nil")
 	}
-	if T.cConn == nil {
-		T.cConn = new(config.Conn)
-	}
-	*T.cConn = *cc
+	T.cConn = cc
 	return nil
 }
 
 func (T *Server) ConfigServer(cs *config.Server) error {
 	if cs == nil {
-		return verror.TrackError("server: *config.ConfigServer不可以为nil")
+		return verror.TrackError("server: *config.Server 不可以为nil")
 	}
-	if T.cServer == nil {
-		T.cServer = new(config.Server)
-	}
-	*T.cServer = *cs
-
+	T.cServer = cs
 	T.init()
 
 	// 服务器配置
@@ -139,14 +132,15 @@ func (T *Server) ConfigServer(cs *config.Server) error {
 
 	// TLS设置
 	if cs.TLS != nil {
-		if T.TLSConfig == nil {
-			T.TLSConfig = new(tls.Config)
+		if T.Server.TLSConfig == nil {
+			T.Server.TLSConfig = new(tls.Config)
 		}
-		if err := configTLSFile(T.TLSConfig, cs.TLS); err != nil {
+		if err := configTLSFile(T.Server.TLSConfig, cs.TLS); err != nil {
 			return err
 		}
+		T.l.tlsconfig = T.Server.TLSConfig
 	} else {
-		T.TLSConfig = nil
+		T.l.tlsconfig = nil
 	}
 	return nil
 }

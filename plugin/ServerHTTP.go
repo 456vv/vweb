@@ -10,10 +10,6 @@ import (
 	"github.com/456vv/vweb/v2"
 )
 
-type ServerTLSFile struct {
-	CertFile, KeyFile string // 证书，key 文件地址
-}
-
 // ServerHTTP 服务器HTTP
 type ServerHTTP struct {
 	*http.Server                      // HTTP
@@ -32,6 +28,7 @@ func NewServerHTTP() *ServerHTTP {
 	ser.Server.BaseContext = func(l net.Listener) context.Context {
 		return context.WithValue(context.Background(), vweb.ListenerContextKey, ser.l.TCPListener)
 	}
+
 	ser.Server.ConnContext = func(ctx context.Context, rwc net.Conn) context.Context {
 		return context.WithValue(ctx, vweb.ConnContextKey, rwc)
 	}
@@ -40,24 +37,25 @@ func NewServerHTTP() *ServerHTTP {
 }
 
 // LoadTLS 加载证书文件
-//	config *tls.Config          证书配置
-//	files []ServerTLSFile       证书文件
-func (T *ServerHTTP) LoadTLS(config *tls.Config, files []ServerTLSFile) error {
-	for _, file := range files {
-		cert, err := tls.LoadX509KeyPair(file.CertFile, file.KeyFile)
-		if err != nil {
-			T.l.tlsconf = nil
-			return err
-		}
-		config.Certificates = append(config.Certificates, cert)
+//
+//	CertFile     证书公钥
+//	KeyFile      证书私钥
+func (T *ServerHTTP) LoadTLS(CertFile, KeyFile string) error {
+	cert, err := tls.LoadX509KeyPair(CertFile, KeyFile)
+	if err != nil {
+		return err
 	}
-	// 多证书
-	config.BuildNameToCertificate()
-	T.l.tlsconf = config
+	if T.Server.TLSConfig == nil {
+		T.Server.TLSConfig = new(tls.Config)
+	}
+	T.l.tlsconfig = T.Server.TLSConfig
+	T.Server.TLSConfig.Certificates = append(T.Server.TLSConfig.Certificates, cert)
+	T.Server.TLSConfig.BuildNameToCertificate()
 	return nil
 }
 
 // ListenAndServe 监听并启动
+//
 //	error 错误
 func (T *ServerHTTP) ListenAndServe() error {
 	if T.Addr == "" {
@@ -71,6 +69,7 @@ func (T *ServerHTTP) ListenAndServe() error {
 }
 
 // Serve 监听
+//
 //	error 错误
 func (T *ServerHTTP) Serve(l net.Listener) error {
 	addr := l.Addr().(*net.TCPAddr)
@@ -84,6 +83,7 @@ func (T *ServerHTTP) Serve(l net.Listener) error {
 }
 
 // Close 判断监听的连接
+//
 //	error 错误
 func (T *ServerHTTP) Close() error {
 	if T.Server != nil {
