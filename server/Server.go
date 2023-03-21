@@ -53,8 +53,15 @@ func (T *atomicBool) setFalse() bool { return !atomic.CompareAndSwapInt32((*int3
 
 type siteExtend struct {
 	config       *config.Site
-	plugin       plugin
+	plugin       *plugin
 	dynamicCache vmap.Map // 缓存动态文件对象
+}
+
+func newSiteExtend() *siteExtend {
+	return &siteExtend{
+		config: new(config.Site),
+		plugin: new(plugin),
+	}
 }
 
 // Server 服务器,使用在 ServerGroup.srvMan 字段。
@@ -356,10 +363,12 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	//** 配置
-	se := getSiteExtend(site)
-	conf := se.config
-	dCache := se.dynamicCache
-	plugin := se.plugin
+	var (
+		se     = getSiteExtend(site)
+		conf   = se.config
+		plugin = se.plugin
+		dCache = se.dynamicCache
+	)
 	if conf == nil {
 		// 500 服务器遇到了意料不到的情况, 不能完成客户的请求。
 		http.Error(rw, "The configuration is nil\n", http.StatusInternalServerError)
@@ -542,12 +551,12 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 
 // 更新插件
 func (T *ServerGroup) updatePluginConn(cSite config.Site) {
-	site := T.sitePool.NewSite(cSite.Identity)
-	se := getSiteExtend(site)
-	dCache := se.dynamicCache
-	plugin := se.plugin
-
 	var (
+		site   = T.sitePool.NewSite(cSite.Identity)
+		se     = getSiteExtend(site)
+		dCache = se.dynamicCache
+		plugin = se.plugin
+
 		httpEffectiveNames []string // 存放有效的http插件名称
 		rpcEffectiveNames  []string // 存放有效的rpc插件名称
 	)
@@ -647,7 +656,7 @@ func (T *ServerGroup) updateSitePoolAdd(cSite config.Site) {
 func getSiteExtend(site *vweb.Site) *siteExtend {
 	se, ok := site.Extend.Get("se").(*siteExtend)
 	if !ok {
-		se = new(siteExtend)
+		se = newSiteExtend()
 		site.Extend.Set("se", se)
 	}
 	return se
