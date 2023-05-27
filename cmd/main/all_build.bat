@@ -1,5 +1,6 @@
 go mod tidy -compat=1.17
 go mod download
+go get -u
 
 set /p tags=CGO_ENABLED=0/go:build tags: || set "tags=vweb_lib yaegi_lib igop_lib"
 set version=App/%date:~0,4%%date:~5,2%%date:~8,2%
