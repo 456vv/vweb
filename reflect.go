@@ -64,12 +64,19 @@ func forType(x any, floor int, lower bool, depth int) string {
 				// 小写字段
 				continue
 			}
-			z = inDirect(rv.Field(i))
+			
+			z = reflect.Indirect(rv.Field(i))
 			var ks string
-			if z.IsValid() && z.CanInterface() {
-				k = z.Interface()
-				if z.Kind() == reflect.Slice && z.Type().Elem().Kind() == reflect.Uint8 && utf8.Valid(z.Bytes()){
-					ks = fmt.Sprintf("//%s", z.Bytes())
+			if z.IsValid() {
+				if z.CanInterface() {
+					k = z.Interface()
+				}
+				if z.Kind() == reflect.Slice && z.Type().Elem().Kind() == reflect.Uint8{
+					if utf8.Valid(z.Bytes()) {
+						ks = fmt.Sprintf("//%s", z.Bytes())
+					}else{
+						ks = fmt.Sprintf("//%#v", z.Bytes())
+					}
 				}
 			}
 			s += fmt.Sprintf("%s %v	%v %v\t%v `%v` = %#v %s\r\n", flx, tf.Index, tf.PkgPath, tf.Name, tf.Type, tf.Tag, k, ks)

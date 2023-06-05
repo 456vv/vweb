@@ -135,6 +135,7 @@ func (T *Server) ConfigServer(cs *config.Server) error {
 	T.Server.ReadHeaderTimeout = time.Duration(cs.ReadHeaderTimeout) * time.Millisecond
 	T.Server.IdleTimeout = time.Duration(cs.IdleTimeout) * time.Millisecond
 	T.Server.MaxHeaderBytes = cs.MaxHeaderBytes
+	T.Server.DisableGeneralOptionsHandler = cs.DisableGeneralOptionsHandler
 	T.Server.SetKeepAlivesEnabled(cs.KeepAlivesEnabled)
 
 	// TLS设置

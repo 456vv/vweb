@@ -23,9 +23,8 @@ type ServerHTTP struct {
 func NewServerHTTP() *ServerHTTP {
 	ser := &ServerHTTP{
 		Server: new(http.Server),
-		Route:  &vweb.Route{},
+		Route:  new(vweb.Route),
 	}
-	ser.Server.Handler = http.HandlerFunc(ser.Route.ServeHTTP)
 	ser.Server.BaseContext = func(l net.Listener) context.Context {
 		ctx := context.WithValue(context.Background(), server.ServerContextKey, ser)
 		return context.WithValue(ctx, vweb.ListenerContextKey, ser.l.TCPListener)
@@ -40,10 +39,10 @@ func NewServerHTTP() *ServerHTTP {
 
 // LoadTLS 加载证书文件
 //
-//	CertFile     证书公钥
-//	KeyFile      证书私钥
-func (T *ServerHTTP) LoadTLS(CertFile, KeyFile string) error {
-	cert, err := tls.LoadX509KeyPair(CertFile, KeyFile)
+//	certFile     证书公钥
+//	keyFile      证书私钥
+func (T *ServerHTTP) LoadTLS(certFile, keyFile string) error {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return err
 	}
@@ -81,6 +80,7 @@ func (T *ServerHTTP) Serve(l net.Listener) error {
 	}
 	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
 	T.l.TCPListener = l.(*net.TCPListener)
+	T.Server.Handler = http.HandlerFunc(T.Route.ServeHTTP)
 	return T.Server.Serve(&T.l)
 }
 

@@ -381,6 +381,7 @@ type Server struct {
 	MaxHeaderBytes    int        // 如果0，最大请求头的大小，http.DefaultMaxHeaderBytes
 	KeepAlivesEnabled bool       // 支持客户端Keep-Alive
 	ShutdownConn      bool       // 服务器关闭监听，不会即时关闭正在下载的连接。空闲后再关闭。(默认即时关闭)
+	DisableGeneralOptionsHandler bool // 如果为真，将“OPTIONS *”请求传递给处理程序，否则响应 200 OK 和 Content-Length: 0。
 	TLS               *ServerTLS // TLS
 }
 type Conn struct {
