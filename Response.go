@@ -14,6 +14,7 @@ type Responser interface {
 	ReadFrom(io.Reader) (int64, error)                // 读取并写入
 	Redirect(string, int)                             // 转向
 	WriteHeader(int)                                  // 状态码
+	Header() http.Header							  // 标头
 	Error(string, int)                                // 错误
 	Flush()                                           // 刷新缓冲
 	Push(target string, opts *http.PushOptions) error // HTTP/2推送
@@ -98,6 +99,12 @@ func (T *response) Redirect(urlStr string, code int) {
 	http.Redirect(T.w, T.r, urlStr, code)
 }
 
+
+// Header 标头
+//	http.Header 标头
+func (T *response) Header() http.Header {
+	return T.w.Header()
+}
 // WriteHeader 状态码
 //	code int      状态码
 func (T *response) WriteHeader(code int) {

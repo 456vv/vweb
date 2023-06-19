@@ -21,7 +21,8 @@ type TemplateDoter interface{
     Global() Globaler                                                                       // 全站缓存
     Cookie() Cookier                                                                        // 用户的Cookie
     Swap() *vmap.Map                                                                        // 信息交换
-    Defer(call any, args ... any) error										// 退回调用
+    Defer(call any, args ... any) error														// 退回调用
+    SaveStatic(path string)																	// 保存为静态文件
     DotContexter																			// 上下文
 }
 
@@ -36,6 +37,7 @@ type TemplateDot struct {
     exchange       		vmap.Map                                                                    // 缓存映射
     ec					ExitCall																	// 退回调用函数
     ctx					context.Context																// 上下文
+    staticPath			string
 }
 
 //RootDir 网站的根目录
@@ -151,4 +153,10 @@ func (T *TemplateDot) WithContext(ctx context.Context) {
 		panic("nil context")
 	}
 	T.ctx = ctx
+}
+
+//SaveStatic 保存为静态文件
+//	path string	保存路径
+func (T *TemplateDot) SaveStatic(path string){
+	T.staticPath=path
 }

@@ -134,8 +134,9 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		}
 
 		if !dock.Writed {
-			if T.StaticAt != nil {
+			if T.StaticAt != nil && dock.staticPath != "" {
 				br := io.TeeReader(body, rw)
+				req.URL.Path = dock.staticPath
 				_, err = T.StaticAt(req.URL, br, body.Len())
 				if err != nil {
 					io.WriteString(rw, err.Error())

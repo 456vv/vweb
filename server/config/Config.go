@@ -393,7 +393,7 @@ type Conn struct {
 	KeepAlive       bool   // 即使没有任何通信，一个客户端可能希望保持连接到服务器的状态。
 	KeepAlivePeriod int64  // 保持连接超时(毫秒单位)
 	Linger          int    // 连接关闭后，等待发送或待确认的数据（秒单位)。如果 sec > 0，经过sec秒后，所有剩余的未发送数据都可能会被丢弃。则与sec < 0 一样在后台发送数据。
-	NoDelay         bool   // 设置操作系统是否延迟发送数据包,默认是无延迟的
+	NoDelay         bool   // 设置操作系统是否延迟发送数据包,建议设置为true(无延迟)
 	ReadBuffer      int    // 在缓冲区读取数据大小
 	WriteBuffer     int    // 写入数据到缓冲区大小
 }
