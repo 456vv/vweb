@@ -346,9 +346,7 @@ type ServerTLS struct {
 	RootCAs                     []ServerTLSFile // 服务端证书文件
 	NextProtos                  []string        // http版本
 	CipherSuites                []uint16        // 密码套件
-	PreferServerCipherSuites    bool            // 控制服务器是否选择客户端的最首选的密码套件
 	SessionTicketsDisabled      bool            // 设置为 true 可禁用会话票证 (恢复) 支持。
-	SessionTicketKey            [32]byte        // TLS服务器提供会话恢复
 	SetSessionTicketKeys        [][32]byte      // 会话恢复票证
 	DynamicRecordSizingDisabled bool            // 禁用TLS动态记录自适应大小
 	MinVersion                  uint16          // 最小SSL/TLS版本。如果为零，则SSLv3的被取为最小。
@@ -373,16 +371,16 @@ func (T *ServerTLS) CipherSuitesAuto() {
 
 type Server struct {
 	// 引用公共配置后，该以结构中的CC和CS如果也有设置，将会使用优先使用。
-	PublicName        string     // 引用公共配置的名字
-	ReadTimeout       int64      // 设置读取超时(毫秒单位)
-	WriteTimeout      int64      // 设置写入超时(毫秒单位)
-	ReadHeaderTimeout int64      // 读取标头超时(毫秒单位）
-	IdleTimeout       int64      // 保持连接空闲超时，如果为0，使用 ReadTimeout,(毫秒单位）
-	MaxHeaderBytes    int        // 如果0，最大请求头的大小，http.DefaultMaxHeaderBytes
-	KeepAlivesEnabled bool       // 支持客户端Keep-Alive
-	ShutdownConn      bool       // 服务器关闭监听，不会即时关闭正在下载的连接。空闲后再关闭。(默认即时关闭)
-	DisableGeneralOptionsHandler bool // 如果为真，将“OPTIONS *”请求传递给处理程序，否则响应 200 OK 和 Content-Length: 0。
-	TLS               *ServerTLS // TLS
+	PublicName                   string     // 引用公共配置的名字
+	ReadTimeout                  int64      // 设置读取超时(毫秒单位)
+	WriteTimeout                 int64      // 设置写入超时(毫秒单位)
+	ReadHeaderTimeout            int64      // 读取标头超时(毫秒单位）
+	IdleTimeout                  int64      // 保持连接空闲超时，如果为0，使用 ReadTimeout,(毫秒单位）
+	MaxHeaderBytes               int        // 如果0，最大请求头的大小，http.DefaultMaxHeaderBytes
+	KeepAlivesEnabled            bool       // 支持客户端Keep-Alive
+	ShutdownConn                 bool       // 服务器关闭监听，不会即时关闭正在下载的连接。空闲后再关闭。(默认即时关闭)
+	DisableGeneralOptionsHandler bool       // 如果为真，将“OPTIONS *”请求传递给处理程序，否则响应 200 OK 和 Content-Length: 0。
+	TLS                          *ServerTLS // TLS
 }
 type Conn struct {
 	// 引用公共配置后，该以结构中的CC和CS如果也有设置，将会使用优先使用。

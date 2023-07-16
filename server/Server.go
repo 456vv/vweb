@@ -156,11 +156,9 @@ func (T *Server) ConfigServer(cs *config.Server) error {
 // TLS文件配置
 func configTLSFile(c *tls.Config, conf *config.ServerTLS) error {
 	c.NextProtos = conf.NextProtos
-	c.PreferServerCipherSuites = conf.PreferServerCipherSuites
 	c.SessionTicketsDisabled = conf.SessionTicketsDisabled
 	c.MinVersion = conf.MinVersion
 	c.MaxVersion = conf.MaxVersion
-	c.SessionTicketKey = conf.SessionTicketKey
 	c.DynamicRecordSizingDisabled = conf.DynamicRecordSizingDisabled
 
 	if len(conf.CipherSuites) > 0 {
