@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -20,8 +19,8 @@ import (
 )
 
 type DynamicTemplater interface {
-	SetPath(rootPath, pagePath string)            // 设置路径
-	Parse(r io.Reader) (err error)                // 解析
+	SetPath(rootPath, pagePath string)    // 设置路径
+	Parse(r io.Reader) (err error)        // 解析
 	Execute(out io.Writer, dot any) error // 执行
 }
 type DynamicTemplateFunc func(*ServerHandlerDynamic) DynamicTemplater
@@ -43,8 +42,8 @@ type ServerHandlerDynamic struct {
 	Site         *Site                                                           // 网站配置
 	Context      context.Context                                                 // 上下文
 	Module       map[string]DynamicTemplateFunc                                  // 支持更动态文件类型
-	StaticAt     func(u *url.URL, r io.Reader, l int) (int, error)               // 静态结果。仅在 .ServeHTTP 方法中使用
-	ReadFile     func(u *url.URL, filePath string) (io.Reader, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
+	StaticAt     func(filePath string, r io.Reader, l int) (int, error)          // 静态结果。仅在 .ServeHTTP 方法中使用
+	ReadFile     func(filePath string, u *url.URL) (io.Reader, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
 	ReplaceParse func(name string, p []byte) []byte
 	exec         DynamicTemplater
 	modeTime     time.Time
@@ -66,7 +65,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		err      error
 	)
 	if T.ReadFile != nil {
-		tmplread, modeTime, err = T.ReadFile(req.URL, filePath)
+		tmplread, modeTime, err = T.ReadFile(filePath, req.URL)
 		if err != nil {
 			webError(rw, fmt.Sprintf("Failed to read the ReadFile! Error: %s", err.Error()))
 			return
@@ -136,8 +135,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		if !dock.Writed {
 			if T.StaticAt != nil && dock.staticPath != "" {
 				br := io.TeeReader(body, rw)
-				req.URL.Path = dock.staticPath
-				_, err = T.StaticAt(req.URL, br, body.Len())
+				_, err = T.StaticAt(dock.staticPath, br, body.Len())
 				if err != nil {
 					io.WriteString(rw, err.Error())
 					log.Println(err.Error())
@@ -194,7 +192,7 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 
 	bufr, ok := r.(*bytes.Buffer)
 	if T.ReplaceParse != nil {
-		allb, err := ioutil.ReadAll(r)
+		allb, err := io.ReadAll(r)
 		if err != nil {
 			return verror.TrackErrorf("vweb: ServerHandlerDynamic.ReplaceParse failed to read data: %s", err.Error())
 		}

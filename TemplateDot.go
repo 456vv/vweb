@@ -1,46 +1,49 @@
 package vweb
-import(
+
+import (
+	"context"
 	"net/http"
-    "github.com/456vv/vmap/v2"
-    "context"
+
+	"github.com/456vv/vmap/v2"
 )
 
-type DotContexter interface{
-    Context() context.Context                                             					// 上下文
-    WithContext(ctx context.Context)														// 替换上下文
+type DotContexter interface {
+	Context() context.Context        // 上下文
+	WithContext(ctx context.Context) // 替换上下文
 }
+
 // TemplateDoter 可以在模本中使用的方法
-type TemplateDoter interface{
-    RootDir(path string) string																// 网站的根目录
-    Request() *http.Request                                                                 // 用户的请求信息
-    RequestLimitSize(l int64) *http.Request                                                 // 请求限制大小
-    Header() http.Header                                                                    // 标头
-    Response() Responser                                                                    // 数据写入响应
-    ResponseWriter() http.ResponseWriter                                                    // 数据写入响应
-    Session() Sessioner                                                                     // 用户的会话缓存
-    Global() Globaler                                                                       // 全站缓存
-    Cookie() Cookier                                                                        // 用户的Cookie
-    Swap() *vmap.Map                                                                        // 信息交换
-    Defer(call any, args ... any) error														// 退回调用
-    SaveStatic(path string)																	// 保存为静态文件
-    DotContexter																			// 上下文
+type TemplateDoter interface {
+	RootDir(path string) string             // 网站的根目录
+	Request() *http.Request                 // 用户的请求信息
+	RequestLimitSize(l int64) *http.Request // 请求限制大小
+	Header() http.Header                    // 标头
+	Response() Responser                    // 数据写入响应
+	ResponseWriter() http.ResponseWriter    // 数据写入响应
+	Session() Sessioner                     // 用户的会话缓存
+	Global() Globaler                       // 全站缓存
+	Cookie() Cookier                        // 用户的Cookie
+	Swap() *vmap.Map                        // 信息交换
+	Defer(call any, args ...any) error      // 退回调用
+	SaveStatic(path string) error           // 保存为静态文件
+	DotContexter                            // 上下文
 }
 
-
-//模板点
+// 模板点
 type TemplateDot struct {
-    R     				*http.Request                                                               // 请求
-    W    				http.ResponseWriter                                                         // 响应
-    BuffSize			int																			// 缓冲块大小
-    Site       		 	*Site                                                                       // 网站配置
-    Writed      		bool                                                                        // 表示已经调用写入到客户端。这个是只读的
-    exchange       		vmap.Map                                                                    // 缓存映射
-    ec					ExitCall																	// 退回调用函数
-    ctx					context.Context																// 上下文
-    staticPath			string
+	R          *http.Request       // 请求
+	W          http.ResponseWriter // 响应
+	BuffSize   int                 // 缓冲块大小
+	Site       *Site               // 网站配置
+	Writed     bool                // 表示已经调用写入到客户端。这个是只读的
+	exchange   vmap.Map            // 缓存映射
+	ec         ExitCall            // 退回调用函数
+	ctx        context.Context     // 上下文
+	staticPath string
 }
 
-//RootDir 网站的根目录
+// RootDir 网站的根目录
+//
 //	upath string	页面路径
 //	string 			根目录
 func (T *TemplateDot) RootDir(upath string) string {
@@ -50,13 +53,15 @@ func (T *TemplateDot) RootDir(upath string) string {
 	return "."
 }
 
-//Request 用户的请求信息
+// Request 用户的请求信息
+//
 //	*http.Request 请求
 func (T *TemplateDot) Request() *http.Request {
-    return T.R
+	return T.R
 }
 
-//RequestLimitSize 请求限制大小
+// RequestLimitSize 请求限制大小
+//
 //	l int64         复制body大小
 //	*http.Request   请求
 func (T *TemplateDot) RequestLimitSize(l int64) *http.Request {
@@ -64,80 +69,89 @@ func (T *TemplateDot) RequestLimitSize(l int64) *http.Request {
 	return T.R
 }
 
-//Header 标头
+// Header 标头
+//
 //	http.Header   响应标头
 func (T *TemplateDot) Header() http.Header {
-    return T.W.Header()
+	return T.W.Header()
 }
 
-//Response 数据写入响应
+// Response 数据写入响应
+//
 //	Responser     响应
 func (T *TemplateDot) Response() Responser {
-    return &response{
-    	buffSize: T.BuffSize,
-        w		: T.W,
-        r		: T.R,
-        td		: T,
-    }
+	return &response{
+		buffSize: T.BuffSize,
+		w:        T.W,
+		r:        T.R,
+		td:       T,
+	}
 }
 
-//ResponseWriter 数据写入响应，http 的响应接口，调用这个接口后，模板中的内容就不会显示页客户端去
+// ResponseWriter 数据写入响应，http 的响应接口，调用这个接口后，模板中的内容就不会显示页客户端去
+//
 //	http.ResponseWriter      响应
 func (T *TemplateDot) ResponseWriter() http.ResponseWriter {
-    T.Writed = true
-    return T.W
+	T.Writed = true
+	return T.W
 }
 
-//Session 用户的会话缓存
+// Session 用户的会话缓存
+//
 //	Sessioner  会话缓存
-func (T *TemplateDot) Session() Sessioner {	
+func (T *TemplateDot) Session() Sessioner {
 	if T.Site == nil || T.Site.Sessions == nil {
 		return nil
 	}
-    return T.Site.Sessions.Session(T.W, T.R)
+	return T.Site.Sessions.Session(T.W, T.R)
 }
 
-//Global 全站缓存
+// Global 全站缓存
+//
 //	Globaler	公共缓存
 func (T *TemplateDot) Global() Globaler {
 	if T.Site == nil || T.Site.Global == nil {
 		return nil
 	}
-    return T.Site.Global
+	return T.Site.Global
 }
 
-//Cookie 用户的Cookie
+// Cookie 用户的Cookie
+//
 //	Cookier	接口
 func (T *TemplateDot) Cookie() Cookier {
-    return &Cookie{
-        W:T.W,
-        R:T.R,
-    }
+	return &Cookie{
+		W: T.W,
+		R: T.R,
+	}
 }
 
-//Swap 信息交换
+// Swap 信息交换
+//
 //	Swaper  映射
 func (T *TemplateDot) Swap() *vmap.Map {
-    return &T.exchange
+	return &T.exchange
 }
 
-//Defer 在用户会话时间过期后，将被调用。
-//	call any            函数
-//	args ... any        参数或更多个函数是函数的参数
-//	error                       错误
-//  例：
-//	.Defer(fmt.Println, "1", "2")
-//	.Defer(fmt.Printf, "%s", "汉字")
-func (T *TemplateDot) Defer(call any, args ... any) error {
-    return T.ec.Defer(call, args...)
+// Defer 在用户会话时间过期后，将被调用。
+//
+//		call any            函数
+//		args ... any        参数或更多个函数是函数的参数
+//		error                       错误
+//	 例：
+//		.Defer(fmt.Println, "1", "2")
+//		.Defer(fmt.Printf, "%s", "汉字")
+func (T *TemplateDot) Defer(call any, args ...any) error {
+	return T.ec.Defer(call, args...)
 }
 
-//Free 释放Defer
+// Free 释放Defer
 func (T *TemplateDot) Free() {
-    T.ec.Free()
+	T.ec.Free()
 }
 
-//Context 上下文
+// Context 上下文
+//
 //	context.Context 上下文
 func (T *TemplateDot) Context() context.Context {
 	if T.ctx != nil {
@@ -146,7 +160,8 @@ func (T *TemplateDot) Context() context.Context {
 	return context.Background()
 }
 
-//WithContext 替换上下文
+// WithContext 替换上下文
+//
 //	ctx context.Context 上下文
 func (T *TemplateDot) WithContext(ctx context.Context) {
 	if ctx == nil {
@@ -155,8 +170,10 @@ func (T *TemplateDot) WithContext(ctx context.Context) {
 	T.ctx = ctx
 }
 
-//SaveStatic 保存为静态文件
+// SaveStatic 保存为静态文件
+//
 //	path string	保存路径
-func (T *TemplateDot) SaveStatic(path string){
-	T.staticPath=path
+func (T *TemplateDot) SaveStatic(path string) error {
+	T.staticPath = path
+	return nil
 }

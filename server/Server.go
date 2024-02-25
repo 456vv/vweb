@@ -8,12 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"mime"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -187,7 +185,7 @@ func configTLSFile(c *tls.Config, conf *config.ServerTLS) error {
 		var errClientCA string
 		for _, path := range conf.ClientCAs {
 			// 打开文件
-			caData, err := ioutil.ReadFile(path)
+			caData, err := os.ReadFile(path)
 			if err != nil {
 				errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, err.Error())
 				continue
@@ -366,7 +364,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		se     = getSiteExtend(site)
 		conf   = se.config
 		plugin = se.plugin
-		dCache = se.dynamicCache
+		dCache = &se.dynamicCache
 	)
 	if conf == nil {
 		// 500 服务器遇到了意料不到的情况, 不能完成客户的请求。
@@ -381,7 +379,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		rootPath string
 		pagePath string
 
-		cacheStaticAtFunc func(*url.URL, io.Reader, int) (int, error)
+		cacheStaticAtFunc func(string, io.Reader, int) (int, error)
 		findStatic        bool
 	)
 	if rootDir == nil {
@@ -553,7 +551,7 @@ func (T *ServerGroup) updatePluginConn(cSite config.Site) {
 	var (
 		site   = T.sitePool.NewSite(cSite.Identity)
 		se     = getSiteExtend(site)
-		dCache = se.dynamicCache
+		dCache = &se.dynamicCache
 		plugin = se.plugin
 
 		httpEffectiveNames []string // 存放有效的http插件名称
@@ -892,7 +890,7 @@ func (T *ServerGroup) updateConfigServers(conf config.Servers) {
 //	ok bool			true配置文件被修改过, false没有变动
 //	err error       错误
 func (T *ServerGroup) LoadConfigFile(p string) (ok bool, err error) {
-	b, err := ioutil.ReadFile(p)
+	b, err := os.ReadFile(p)
 	if err != nil {
 		return
 	}
@@ -1025,7 +1023,7 @@ func httpError(w http.ResponseWriter, rootDir string, errorPage map[string]strin
 		ep, ok := errorPage[c]
 		if ok {
 			p := filepath.Join(rootDir, ep)
-			b, err := ioutil.ReadFile(p)
+			b, err := os.ReadFile(p)
 			if err != nil {
 				return err
 			} else {
