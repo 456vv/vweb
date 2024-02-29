@@ -34,7 +34,7 @@ Nil() interface{}
 NotNil(inf interface{}) bool
 IsNil(inf interface{}) bool
 Bytes(inf interface{}) []byte
-Runs(inf interface{}) []rune
+Runes(inf interface{}) []rune
 String(a interface{}) string
 Append([]T, value...)
 Pointer(a interface{}) unsafe.Pointer
