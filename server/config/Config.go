@@ -81,7 +81,6 @@ type SitePlugin struct {
 	Timeout       int64  // 拨号超时（毫秒单位）
 	KeepAlive     int64  // 保持连接超时（毫秒单位）
 	FallbackDelay int64  // 后退延时，等待双协议栈延时，（毫秒单位，默认300ms）。
-	DualStack     bool   // 尝试建立多个IPv4和IPv6的连接
 	IdeConn       int    // 空闲连接数
 
 	// RPC
@@ -488,7 +487,6 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 	c.Dialer.Timeout = time.Duration(conf.Timeout) * time.Millisecond
 	c.Dialer.KeepAlive = time.Duration(conf.KeepAlive) * time.Millisecond
 	c.Dialer.FallbackDelay = time.Duration(conf.FallbackDelay) * time.Millisecond
-	c.Dialer.DualStack = conf.DualStack
 
 	if c.Tr == nil {
 		c.Tr = new(http.Transport)
@@ -619,7 +617,6 @@ func configRPCClient(c *vweb.PluginRPCClient, conf *SitePlugin) error {
 		d.Timeout = time.Duration(conf.Timeout) * time.Millisecond
 		d.KeepAlive = time.Duration(conf.KeepAlive) * time.Millisecond
 		d.FallbackDelay = time.Duration(conf.FallbackDelay) * time.Millisecond
-		d.DualStack = conf.DualStack
 	}
 	return nil
 }

@@ -42,7 +42,7 @@ type ServerHandlerDynamic struct {
 	Site         *Site                                                           // 网站配置
 	Context      context.Context                                                 // 上下文
 	Module       map[string]DynamicTemplateFunc                                  // 支持更动态文件类型
-	StaticAt     func(filePath string, r io.Reader, l int) (int, error)          // 静态结果。仅在 .ServeHTTP 方法中使用
+	SaveStatic   func(filePath string, r io.Reader, l int) (int, error)          // 静态结果。仅在 .ServeHTTP 方法中使用
 	ReadFile     func(filePath string, u *url.URL) (io.Reader, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
 	ReplaceParse func(name string, p []byte) []byte
 	exec         DynamicTemplater
@@ -98,20 +98,20 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	}
 	if T.exec == nil {
 		// 解析模板内容
-		err = T.Parse(tmplread)
-		if err != nil {
+		if err = T.Parse(tmplread); err != nil {
 			webError(rw, err.Error())
 			return
 		}
 	}
 
 	// 模板点
-	dock := &TemplateDot{
+	dock := &Dot{
 		R:        req,
 		W:        rw,
 		BuffSize: T.BuffSize,
 		Site:     T.Site,
 	}
+	defer dock.Close()
 
 	ctx := T.Context
 	if ctx == nil {
@@ -119,37 +119,35 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	}
 	dock.WithContext(ctx)
 	body := new(bytes.Buffer)
-	defer func() {
-		dock.Free()
-		if err != nil {
-			if !dock.Writed {
-				webError(rw, err.Error())
-				return
-			}
 
-			io.WriteString(rw, err.Error())
-			log.Println(err.Error())
+	// 执行模板内容
+	if err = T.Execute(body, dock); err != nil {
+		if !dock.writed {
+			webError(rw, err.Error())
 			return
 		}
 
-		if !dock.Writed {
-			if T.StaticAt != nil && dock.staticPath != "" {
-				br := io.TeeReader(body, rw)
-				_, err = T.StaticAt(dock.staticPath, br, body.Len())
-				if err != nil {
-					io.WriteString(rw, err.Error())
-					log.Println(err.Error())
-					return
-				}
-			}
-			if body.Len() != 0 {
-				body.WriteTo(rw)
+		io.WriteString(rw, err.Error())
+		log.Println(err.Error())
+		return
+	}
+
+	if !dock.writed {
+		// 保存静态文件
+		if T.SaveStatic != nil && dock.staticPath != "" {
+			br := io.TeeReader(body, rw)
+			if _, err = T.SaveStatic(dock.staticPath, br, body.Len()); err != nil {
+				io.WriteString(rw, err.Error())
+				log.Println(err.Error())
+				return
 			}
 		}
-	}()
 
-	// 执行模板内容
-	err = T.Execute(body, (TemplateDoter)(dock))
+		// 写入到浏览器页面中去
+		if body.Len() != 0 {
+			body.WriteTo(rw)
+		}
+	}
 }
 
 // ParseText 解析模板
@@ -190,22 +188,26 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 		return verror.TrackError("vweb: ServerHandlerDynamic.PagePath is not a valid path")
 	}
 
-	bufr, ok := r.(*bytes.Buffer)
+	buf, ok := r.(*bytes.Buffer)
 	if T.ReplaceParse != nil {
-		allb, err := io.ReadAll(r)
+		b, err := io.ReadAll(r)
 		if err != nil {
 			return verror.TrackErrorf("vweb: ServerHandlerDynamic.ReplaceParse failed to read data: %s", err.Error())
 		}
-		allb = T.ReplaceParse(T.PagePath, allb)
-		bufr = bytes.NewBuffer(allb)
+		b = T.ReplaceParse(T.PagePath, b)
+		if ok {
+			buf.Write(b)
+		} else {
+			buf = bytes.NewBuffer(b)
+		}
 	} else if !ok {
-		bufr = bytes.NewBuffer(nil)
-		bufr.Grow(4096)
-		bufr.ReadFrom(r)
+		buf = bytes.NewBuffer(nil)
+		buf.Grow(4096)
+		buf.ReadFrom(r)
 	}
 
 	// 文件首行
-	firstLine, err := bufr.ReadBytes('\n')
+	firstLine, err := buf.ReadBytes('\n')
 	if err != nil || len(firstLine) == 0 {
 		return verror.TrackErrorf("vweb: Dynamic content is empty! Error: %s", err.Error())
 	}
@@ -228,7 +230,7 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 	}
 	shdt := m(T)
 	shdt.SetPath(T.RootPath, T.PagePath)
-	if err = shdt.Parse(bufr); err != nil {
+	if err = shdt.Parse(buf); err != nil {
 		return
 	}
 	T.exec = shdt

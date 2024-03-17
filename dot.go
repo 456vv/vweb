@@ -2,24 +2,45 @@ package vweb
 
 import (
 	"context"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/456vv/vmap/v2"
 )
+
+type HandleFunc []func(*Dot)
+
+func (T HandleFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	d := &Dot{
+		R:    r,
+		W:    w,
+		Site: r.Context().Value(SiteContextKey).(*Site),
+		ctx:  r.Context(),
+	}
+	defer d.Close()
+
+	for _, f := range T {
+		f(d)
+		if d.writed {
+			return
+		}
+	}
+}
 
 type DotContexter interface {
 	Context() context.Context        // 上下文
 	WithContext(ctx context.Context) // 替换上下文
 }
 
-// TemplateDoter 可以在模本中使用的方法
-type TemplateDoter interface {
+// Doter 可以在模本中使用的方法
+type Doter interface {
 	RootDir(path string) string             // 网站的根目录
 	Request() *http.Request                 // 用户的请求信息
 	RequestLimitSize(l int64) *http.Request // 请求限制大小
 	Header() http.Header                    // 标头
 	Response() Responser                    // 数据写入响应
-	ResponseWriter() http.ResponseWriter    // 数据写入响应
 	Session() Sessioner                     // 用户的会话缓存
 	Global() Globaler                       // 全站缓存
 	Cookie() Cookier                        // 用户的Cookie
@@ -30,23 +51,38 @@ type TemplateDoter interface {
 }
 
 // 模板点
-type TemplateDot struct {
+type Dot struct {
 	R          *http.Request       // 请求
 	W          http.ResponseWriter // 响应
 	BuffSize   int                 // 缓冲块大小
 	Site       *Site               // 网站配置
-	Writed     bool                // 表示已经调用写入到客户端。这个是只读的
+	writed     bool                // 表示已经调用写入到客户端。这个是只读的
 	exchange   vmap.Map            // 缓存映射
 	ec         ExitCall            // 退回调用函数
 	ctx        context.Context     // 上下文
-	staticPath string
+	staticPath string              // 静态路径
+	staticFile *os.File            // 静态文件
+}
+
+func (T *Dot) toStatic(b []byte) {
+	if T.staticPath != "" {
+		if T.staticFile != nil {
+			T.staticFile.Write(b)
+			return
+		}
+		var err error
+		T.staticFile, err = os.CreateTemp("", "*.temp")
+		if err != nil {
+			log.Println(err)
+		}
+	}
 }
 
 // RootDir 网站的根目录
 //
 //	upath string	页面路径
 //	string 			根目录
-func (T *TemplateDot) RootDir(upath string) string {
+func (T *Dot) RootDir(upath string) string {
 	if T.Site != nil && T.Site.RootDir != nil {
 		return T.Site.RootDir(upath)
 	}
@@ -56,7 +92,7 @@ func (T *TemplateDot) RootDir(upath string) string {
 // Request 用户的请求信息
 //
 //	*http.Request 请求
-func (T *TemplateDot) Request() *http.Request {
+func (T *Dot) Request() *http.Request {
 	return T.R
 }
 
@@ -64,7 +100,7 @@ func (T *TemplateDot) Request() *http.Request {
 //
 //	l int64         复制body大小
 //	*http.Request   请求
-func (T *TemplateDot) RequestLimitSize(l int64) *http.Request {
+func (T *Dot) RequestLimitSize(l int64) *http.Request {
 	T.R.Body = http.MaxBytesReader(T.W, T.R.Body, l)
 	return T.R
 }
@@ -72,14 +108,14 @@ func (T *TemplateDot) RequestLimitSize(l int64) *http.Request {
 // Header 标头
 //
 //	http.Header   响应标头
-func (T *TemplateDot) Header() http.Header {
+func (T *Dot) Header() http.Header {
 	return T.W.Header()
 }
 
 // Response 数据写入响应
 //
 //	Responser     响应
-func (T *TemplateDot) Response() Responser {
+func (T *Dot) Response() Responser {
 	return &response{
 		buffSize: T.BuffSize,
 		w:        T.W,
@@ -88,18 +124,10 @@ func (T *TemplateDot) Response() Responser {
 	}
 }
 
-// ResponseWriter 数据写入响应，http 的响应接口，调用这个接口后，模板中的内容就不会显示页客户端去
-//
-//	http.ResponseWriter      响应
-func (T *TemplateDot) ResponseWriter() http.ResponseWriter {
-	T.Writed = true
-	return T.W
-}
-
 // Session 用户的会话缓存
 //
 //	Sessioner  会话缓存
-func (T *TemplateDot) Session() Sessioner {
+func (T *Dot) Session() Sessioner {
 	if T.Site == nil || T.Site.Sessions == nil {
 		return nil
 	}
@@ -109,7 +137,7 @@ func (T *TemplateDot) Session() Sessioner {
 // Global 全站缓存
 //
 //	Globaler	公共缓存
-func (T *TemplateDot) Global() Globaler {
+func (T *Dot) Global() Globaler {
 	if T.Site == nil || T.Site.Global == nil {
 		return nil
 	}
@@ -119,7 +147,7 @@ func (T *TemplateDot) Global() Globaler {
 // Cookie 用户的Cookie
 //
 //	Cookier	接口
-func (T *TemplateDot) Cookie() Cookier {
+func (T *Dot) Cookie() Cookier {
 	return &Cookie{
 		W: T.W,
 		R: T.R,
@@ -129,7 +157,7 @@ func (T *TemplateDot) Cookie() Cookier {
 // Swap 信息交换
 //
 //	Swaper  映射
-func (T *TemplateDot) Swap() *vmap.Map {
+func (T *Dot) Swap() *vmap.Map {
 	return &T.exchange
 }
 
@@ -141,19 +169,37 @@ func (T *TemplateDot) Swap() *vmap.Map {
 //	 例：
 //		.Defer(fmt.Println, "1", "2")
 //		.Defer(fmt.Printf, "%s", "汉字")
-func (T *TemplateDot) Defer(call any, args ...any) error {
+func (T *Dot) Defer(call any, args ...any) error {
 	return T.ec.Defer(call, args...)
 }
 
-// Free 释放Defer
-func (T *TemplateDot) Free() {
+// Close 释放
+func (T *Dot) Close() error {
 	T.ec.Free()
+	if T.staticFile != nil {
+		staticPath := filepath.Join(T.RootDir(T.staticPath) + T.staticPath)
+		staticDir := filepath.Dir(staticPath)
+		// 判断目录是否存在，不存在创建目录
+		_, err := os.Stat(staticDir)
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(staticDir, 0o644); err != nil {
+				return err
+			}
+		}
+		tempPath := T.staticFile.Name()
+		T.staticFile.Close()
+		T.staticFile = nil
+		if err := os.Rename(tempPath, staticPath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Context 上下文
 //
 //	context.Context 上下文
-func (T *TemplateDot) Context() context.Context {
+func (T *Dot) Context() context.Context {
 	if T.ctx != nil {
 		return T.ctx
 	}
@@ -163,7 +209,7 @@ func (T *TemplateDot) Context() context.Context {
 // WithContext 替换上下文
 //
 //	ctx context.Context 上下文
-func (T *TemplateDot) WithContext(ctx context.Context) {
+func (T *Dot) WithContext(ctx context.Context) {
 	if ctx == nil {
 		panic("nil context")
 	}
@@ -173,7 +219,7 @@ func (T *TemplateDot) WithContext(ctx context.Context) {
 // SaveStatic 保存为静态文件
 //
 //	path string	保存路径
-func (T *TemplateDot) SaveStatic(path string) error {
+func (T *Dot) SaveStatic(path string) error {
 	T.staticPath = path
 	return nil
 }

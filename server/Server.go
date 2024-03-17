@@ -236,8 +236,8 @@ func configTLSFile(c *tls.Config, conf *config.ServerTLS) error {
 		errStr = errStr + "解析服务端证书发生错误（CS.TLS.RootCAs）: \n" + errServerCert
 	}
 
-	// 多证书
-	c.BuildNameToCertificate()
+	// 多证书。
+	// c.BuildNameToCertificate()
 	if errStr != "" {
 		return verror.TrackErrorf("server: %s", errStr)
 	}
@@ -259,8 +259,8 @@ type ServerGroup struct {
 	run atomicBool // 服务器启动了
 
 	// 用于 .UpdateConfigFile 方法
-	backConf []byte         // 备份配置数据。如果是相同数据, 则不更新
-	config   *config.Config // 配置
+	backupConf []byte         // 备份配置数据。如果是相同数据, 则不更新
+	config     *config.Config // 配置
 }
 
 func NewServerGroup() *ServerGroup {
@@ -516,7 +516,7 @@ func (T *ServerGroup) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 					dCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
 				}
 				// 转存静态
-				handlerDynamic.StaticAt = cacheStaticAtFunc
+				handlerDynamic.SaveStatic = cacheStaticAtFunc
 			}
 		}
 		handlerDynamic.RootPath = rootPath
@@ -895,10 +895,10 @@ func (T *ServerGroup) LoadConfigFile(p string) (ok bool, err error) {
 		return
 	}
 	// 判断文件是否有改动
-	if bytes.Equal(b, T.backConf) {
+	if bytes.Equal(b, T.backupConf) {
 		return false, nil
 	}
-	T.backConf = b
+	T.backupConf = b
 
 	// 解析配置文件
 	conf := new(config.Config)

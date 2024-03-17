@@ -11,6 +11,7 @@ import (
 )
 
 // ForMethod	遍历方法
+//
 //	x any	  类型
 //	all	bool		  true不可导出一样可以打印出来
 //	string			  字符串
@@ -25,6 +26,7 @@ func ForMethod(x any) string {
 }
 
 // ForType 遍历字段
+//
 //	x any	类型
 //	lower bool		打印出小写字段
 //	depth int		打印深度
@@ -64,17 +66,17 @@ func forType(x any, floor int, lower bool, depth int) string {
 				// 小写字段
 				continue
 			}
-			
+
 			z = reflect.Indirect(rv.Field(i))
 			var ks string
 			if z.IsValid() {
 				if z.CanInterface() {
 					k = z.Interface()
 				}
-				if z.Kind() == reflect.Slice && z.Type().Elem().Kind() == reflect.Uint8{
+				if z.Kind() == reflect.Slice && z.Type().Elem().Kind() == reflect.Uint8 {
 					if utf8.Valid(z.Bytes()) {
 						ks = fmt.Sprintf("//%s", z.Bytes())
-					}else{
+					} else {
 						ks = fmt.Sprintf("//%#v", z.Bytes())
 					}
 				}
@@ -150,6 +152,7 @@ func typeSelect(v reflect.Value) any {
 }
 
 // InDirect 指针到内存
+//
 //	v reflect.Value		   映射引用为真实内存地址
 //	reflect.Value		   真实内存地址
 func InDirect(v reflect.Value) reflect.Value {
@@ -163,6 +166,7 @@ func inDirect(v reflect.Value) reflect.Value {
 }
 
 // DepthField 快速深入读取字段
+//
 //	s any		 Struct
 //	ndex ... any 字段
 //	field any	 字段
@@ -227,18 +231,19 @@ func depthField(s any, index any) (any, error) {
 }
 
 // CopyStruct 结构字段从src 复制 dsc，不需要相同的结构。他只复制相同类型的字段。
+//
 //	dsc, src any									目标，源结构
-//	handle func(name string, dsc, src reflect.Value) bool	排除处理函数，返回true跳过
+//	exclude func(name string, dsc, src reflect.Value) bool	排除处理函数，返回true跳过
 //	error	错误
-func CopyStruct(dsc, src any, handle func(name string, dsc, src reflect.Value) bool) error {
-	return copyStruct(dsc, src, handle, false)
+func CopyStruct(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool) error {
+	return copyStruct(dsc, src, exclude, false)
 }
 
-func CopyStructDeep(dsc, src any, handle func(name string, dsc, src reflect.Value) bool) error {
-	return copyStruct(dsc, src, handle, true)
+func CopyStructDeep(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool) error {
+	return copyStruct(dsc, src, exclude, true)
 }
 
-func copyStruct(dsc, src any, handle func(name string, dsc, src reflect.Value) bool, deep bool) error {
+func copyStruct(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool, deep bool) error {
 	va, ok := dsc.(reflect.Value)
 	if !ok {
 		va = reflect.ValueOf(dsc)
@@ -257,16 +262,16 @@ func copyStruct(dsc, src any, handle func(name string, dsc, src reflect.Value) b
 	bt := vb.Type()
 	for i := 0; i < bt.NumField(); i++ {
 
-		info := bt.Field(i)
 		bvf := vb.Field(i)
 		if !bvf.IsValid() {
 			continue
 		}
 
+		info := bt.Field(i)
 		avf := va.FieldByName(info.Name)
 
 		// 排除字段
-		if handle != nil && handle(info.Name, avf, bvf) {
+		if exclude != nil && exclude(info.Name, avf, bvf) {
 			continue
 		}
 		if !avf.IsValid() {
@@ -287,7 +292,7 @@ func copyStruct(dsc, src any, handle func(name string, dsc, src reflect.Value) b
 
 		// 深度复制
 		if deep && afk == bfk && afk == reflect.Struct {
-			copyStruct(avf, bvf, handle, deep)
+			copyStruct(avf, bvf, exclude, deep)
 			continue
 		}
 
