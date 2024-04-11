@@ -179,6 +179,37 @@ func (T *ServerHandlerDynamic) ParseFile(path string) error {
 	return T.Parse(file)
 }
 
+func fileFirstLine(buf *bytes.Buffer) (dynamicType []byte, err error) {
+	// 读取一行
+	dynamicType, err = buf.ReadBytes('\n')
+	if err != nil {
+		return nil, errors.New("vweb: The file content is empty")
+	}
+	// 不是注释行退出
+	if len(dynamicType) <= 2 || string(dynamicType[0:2]) != "//" {
+		buf.UnreadByte()
+		return nil, errors.New("vweb: The first line of the file needs to confirm the dynamic type")
+	}
+
+	// 过滤换行符
+	drop := 0
+	if dynamicType[len(dynamicType)-1] == '\n' {
+		drop = 1
+		if len(dynamicType) > 1 && dynamicType[len(dynamicType)-2] == '\r' {
+			drop = 2
+		}
+		dynamicType = dynamicType[:len(dynamicType)-drop]
+	}
+
+	dynamicType = bytes.TrimSpace(dynamicType[2:])
+	// 空注释行跳过
+	if len(dynamicType) == 0 {
+		return nil, errors.New("vweb: The first line of comments in the file is empty")
+	}
+
+	return dynamicType, nil
+}
+
 // Parse 解析模板
 //
 //	r io.Reader			模板内容
@@ -186,6 +217,11 @@ func (T *ServerHandlerDynamic) ParseFile(path string) error {
 func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 	if T.PagePath == "" {
 		return verror.TrackError("vweb: ServerHandlerDynamic.PagePath is not a valid path")
+	}
+
+	// 文件第一行，确认动态文件类型
+	if T.Module == nil {
+		return errors.New("vweb: the file type of the first line of the file is not recognized")
 	}
 
 	buf, ok := r.(*bytes.Buffer)
@@ -206,28 +242,15 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 		buf.ReadFrom(r)
 	}
 
-	// 文件首行
-	firstLine, err := buf.ReadBytes('\n')
-	if err != nil || len(firstLine) == 0 {
-		return verror.TrackErrorf("vweb: Dynamic content is empty! Error: %s", err.Error())
+	dynmicType, err := fileFirstLine(buf)
+	if err != nil {
+		return err
 	}
-	drop := 0
-	if firstLine[len(firstLine)-1] == '\n' {
-		drop = 1
-		if len(firstLine) > 1 && firstLine[len(firstLine)-2] == '\r' {
-			drop = 2
-		}
-		firstLine = firstLine[:len(firstLine)-drop]
+	m, ok := T.Module[string(dynmicType)]
+	if !ok {
+		return errors.New("vweb: the file type does not support dynamic parsing")
 	}
 
-	dynmicType := string(firstLine)
-	if T.Module == nil || len(dynmicType) < 2 {
-		return errors.New("vweb: The file type of the first line of the file is not recognized")
-	}
-	m, ok := T.Module[strings.TrimSpace(dynmicType[2:])]
-	if !ok {
-		return errors.New("vweb: The file type does not support dynamic parsing")
-	}
 	shdt := m(T)
 	shdt.SetPath(T.RootPath, T.PagePath)
 	if err = shdt.Parse(buf); err != nil {
