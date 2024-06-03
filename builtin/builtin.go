@@ -913,7 +913,7 @@ func Bytes(inf any) []byte {
 	return []byte(fmt.Sprintf("%s", inf))
 }
 
-func Runs(inf any) []rune {
+func Runes(inf any) []rune {
 	switch s := inf.(type) {
 	case string:
 		return []rune(s)

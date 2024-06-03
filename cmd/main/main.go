@@ -1,22 +1,26 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/456vv/vweb/v2"
-	"github.com/456vv/vweb/v2/server"
 	"github.com/456vv/vweb/v2/cmd/main/internal/base"
 	"github.com/456vv/vweb/v2/cmd/main/internal/dynamic"
+	"github.com/456vv/vweb/v2/server"
 	"github.com/456vv/x/ticker"
 	"github.com/456vv/x/watch"
 	"github.com/fsnotify/fsnotify"
+	"golang.org/x/crypto/acme/autocert"
 )
 
-var version = "App/v1.0.1"
+var version = "App/v1.0"
 
 var (
 	fRootDir           = flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
@@ -73,6 +77,14 @@ func main() {
 	serverGroup := server.NewServerGroup()
 	serverGroup.ErrorLog.SetOutput(logFile)
 	serverGroup.DynamicModule = dynamic.Module()
+	serverGroup.CertManager = &autocert.Manager{
+		Prompt: autocert.AcceptTOS,
+		Cache:  autocert.DirCache("ssl/auto"),
+		HostPolicy: func(ctx context.Context, host string) error {
+			// 默认不支持，需要设置ssl/auto/host.txt
+			return errors.New("error")
+		},
+	}
 	exitCall.Defer(serverGroup.Close)
 
 	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
@@ -101,6 +113,21 @@ func main() {
 		switch event.Op {
 		case fsnotify.Create, fsnotify.Write:
 			refererConfog()
+		default:
+		}
+	})
+
+	// 监听自动申请证书白名单
+	watcher.Monitor("ssl/auto/host.txt", func(event fsnotify.Event) {
+		switch event.Op {
+		case fsnotify.Create, fsnotify.Write:
+			b, err := os.ReadFile(event.Name)
+			if err != nil || len(b) == 0 {
+				log.Printf("(%s)文件内容为空或错误(%v)", event.Name, err)
+				return
+			}
+			hosts := strings.Split(string(b), "\n")
+			serverGroup.CertManager.HostPolicy = autocert.HostWhitelist(hosts...)
 		default:
 		}
 	})

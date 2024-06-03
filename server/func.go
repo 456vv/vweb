@@ -3,7 +3,6 @@ package server
 import (
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -94,53 +93,35 @@ func isTrue(val reflect.Value) bool {
 	return false
 }
 
-func staticAt(T *ServerGroup, cacheStaticFileDir string, dynamic config.SiteDynamic) func(u *url.URL, r io.Reader, l int) (int, error) {
-	return func(u *url.URL, r io.Reader, l int) (int, error) {
+func staticAt(T *Group, cacheStaticFileDir string, dynamic config.SiteDynamic) func(p string, r io.Reader, l int) (int, error) {
+	return func(p string, r io.Reader, l int) (int, error) {
 		// 存储路径
 		var (
 			fileDir  string
 			filePath string
 		)
-		if fileExt := path.Ext(u.Path); fileExt != "" {
+		if fileExt := path.Ext(p); fileExt != "" {
 			// 这是文件
 
 			// 后缀名称是动态扩展名称，不支持保存
 			for _, ext := range dynamic.Ext {
 				if ext == fileExt {
+					T.ErrorLog.Printf("server: 路径包含动态扩展后缀名称, 不支持保存。 路径: %s, \n", p)
 					return 0, nil
 				}
 			}
 
-			fileDir = path.Dir(u.Path)
-			filePath = u.Path
+			fileDir = path.Dir(p)
+			filePath = p
 		} else {
 			// 这是目录
-			fileDir = u.Path
+			fileDir = p
 			filePath = path.Join(fileDir, "index.html")
-		}
-
-		// 判断有没有符合的路径
-		var (
-			matched bool
-			err     error
-		)
-		for _, spath := range dynamic.CacheStaticAllowPath {
-			matched, err = path.Match(spath, filePath)
-			if err != nil {
-				T.ErrorLog.Printf("server: Dynamic.CacheStaticPaths 通配符格式不正确：%s, %s\n", spath, err.Error())
-				continue
-			}
-			if matched {
-				break
-			}
-		}
-		if !matched {
-			return 0, nil
 		}
 
 		// 目录创建
 		fileDir = filepath.Join(cacheStaticFileDir, fileDir)
-		if err = os.MkdirAll(fileDir, 0o644); err != nil {
+		if err := os.MkdirAll(fileDir, 0o644); err != nil {
 			T.ErrorLog.Printf("server: 创建静态文件目录失败，路径：%s, 错误：%s\n", fileDir, err.Error())
 			return 0, nil
 		}
@@ -148,31 +129,32 @@ func staticAt(T *ServerGroup, cacheStaticFileDir string, dynamic config.SiteDyna
 		// 文件保存
 		filePath = filepath.Join(cacheStaticFileDir, filePath)
 		if fi, err := os.Stat(filePath); err == nil {
-			currTime := time.Now()
+			now := time.Now()
 			mTime := fi.ModTime()
 			cSecond := time.Duration(dynamic.CacheStaticTimeout)
 			// 文件修改时间+允许缓存时间 大于 当时时间，跳过
 			// 文件大小一样，跳过
-			if mTime.Add(cSecond).After(currTime) && fi.Size() == int64(l) {
+			if mTime.Add(cSecond).After(now) && fi.Size() == int64(l) {
 				return 0, nil
 			}
 		}
 
 		osFile, err := os.Create(filePath)
 		if err != nil {
-			T.ErrorLog.Printf("server: 静态文件保存发生错误，路径：%s, 错误：%s\n", filePath, err.Error())
+			T.ErrorLog.Printf("server: 创建静态文件发生错误，路径：%s, 错误：%s\n", filePath, err.Error())
 			return 0, nil
 		}
 		defer osFile.Close()
 
-		if n, err := io.Copy(osFile, r); err != nil {
-			T.ErrorLog.Printf("server: 静态文件保存发生错误，路径：%s, 预期长度：%d, 结果长度：%d, 错误：%s\n", filePath, l, n, err.Error())
+		n, err := io.Copy(osFile, r)
+		if err != nil {
+			T.ErrorLog.Printf("server: 保存静态文件发生错误，路径：%s, 预期长度：%d, 结果长度：%d, 错误：%s\n", filePath, l, n, err.Error())
 		}
-		return 0, nil
+		return int(n), err
 	}
 }
 
-func headerAdd(wh http.Header, mht map[string]config.SiteHeaderType, fileExt string) {
+func siteHeaderType(wh http.Header, mht map[string]config.SiteHeaderType, fileExt string) config.SiteHeaderType {
 	var ht config.SiteHeaderType
 	if h, ok := mht[fileExt]; ok {
 		ht = h
@@ -184,4 +166,5 @@ func headerAdd(wh http.Header, mht map[string]config.SiteHeaderType, fileExt str
 			wh.Add(k, v1)
 		}
 	}
+	return ht
 }

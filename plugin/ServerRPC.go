@@ -1,17 +1,22 @@
 package plugin
 
 import (
+	"crypto/tls"
 	"encoding/gob"
 	"net"
 	"net/http"
 	"net/rpc"
 	"strconv"
+
+	"github.com/456vv/vweb/v2"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // ServerRPC 服务器，这个一个RPC服务器，客户端可以调用绑定的方法。
 type ServerRPC struct {
 	*rpc.Server                      // RPC
 	Addr        string               // 地址
+	AutoCert    *autocert.Manager    // 自动申请证书
 	l           tcpKeepAliveListener // 监听器
 	handled     bool                 // 使用路径
 }
@@ -45,6 +50,20 @@ func (T *ServerRPC) HandleHTTP(rpcPath, debugPath string) {
 	T.handled = true
 }
 
+// LoadTLS 加载证书文件
+//
+//	certFile     证书公钥
+//	keyFile      证书私钥
+func (T *ServerRPC) LoadTLS(certFile, keyFile string) error {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return err
+	}
+	T.l.tlsconfig = new(tls.Config)
+	T.l.tlsconfig.Certificates = append(T.l.tlsconfig.Certificates, cert)
+	return nil
+}
+
 // ListenAndServe 监听并启动
 //
 //	error 错误
@@ -70,8 +89,12 @@ func (T *ServerRPC) Serve(l net.Listener) error {
 	}
 	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
 	T.l.TCPListener = l.(*net.TCPListener)
+
 	if T.handled {
-		return http.Serve(&T.l, nil)
+		hanlde := vweb.AutoCert(T.AutoCert, T.l.tlsconfig, http.Handler(http.HandlerFunc((func(w http.ResponseWriter, r *http.Request) {
+			http.DefaultServeMux.ServeHTTP(w, r)
+		}))))
+		return http.Serve(&T.l, hanlde)
 	}
 	T.Server.Accept(&T.l)
 	return nil

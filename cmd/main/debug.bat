@@ -8,10 +8,11 @@ set CGO_ENABLED=0
 
 set GOOS=windows
 set GOARCH=amd64
-go build -o bin/V-WEB-Server-win-amd64.exe -gcflags "-N -l" -ldflags="-X main.version=%version%" -tags="%tags%" ./
+go build -o bin/V-WEB-Server-win-amd64_test.exe -gcflags "-N -l" -ldflags="-X main.version=%version%" -tags="%tags%" ./
+go clean -cache
 
 set PATH=K:\code\GO\bin;%PATH%
 cd /D bin
-V-WEB-Server-win-amd64.exe -RootDir ../test -ConfigFile config.json
+V-WEB-Server-win-amd64_test.exe -RootDir ../test -ConfigFile config.json
 
 pause

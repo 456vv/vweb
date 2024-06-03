@@ -34,6 +34,14 @@ func (T *Route) HandleFunc(url string, handler func(w http.ResponseWriter, r *ht
 	T.rt.Store(url, http.HandlerFunc(handler))
 }
 
+func (T *Route) HandleFuncDot(url string, handler ...func(*Dot)) {
+	if handler == nil {
+		T.rt.Delete(url)
+		return
+	}
+	T.rt.Store(url, HandleFunc(handler))
+}
+
 // ServeHTTP 服务HTTP
 //
 //	w ResponseWriter    响应
@@ -77,14 +85,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inf, ok := T.rt.Load(upath)
-	if ok {
-		forkReq()
-		inf.(http.Handler).ServeHTTP(w, req)
-		if upath == req.URL.Path {
-			return
-		}
-	} else {
-		var handleFunc http.Handler
+	if !ok {
 		T.rt.Range(func(k, v any) bool {
 			pattern := k.(string)
 			// 正则
@@ -93,32 +94,33 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return true
 				}
-				_, complete := regexpRegexp.LiteralPrefix()
-				if !complete {
+				if _, complete := regexpRegexp.LiteralPrefix(); !complete {
 					regexpRegexp.Longest()
 					if regexpRegexp.MatchString(upath) {
 						ok = true
-						handleFunc = v.(http.Handler)
+						inf = v
 						return false
 					}
 				}
 				return true
 			}
 			// 通配符
-			matched, _ := path.Match(pattern, upath)
-			if matched {
-				ok = true
-				handleFunc = v.(http.Handler)
-				return false
-			}
-			return true
+			ok, _ = path.Match(pattern, upath)
+			inf = v
+			return !ok // false 退出
 		})
-		if ok {
-			forkReq()
-			handleFunc.ServeHTTP(w, req)
-			if upath == req.URL.Path {
-				return
-			}
+	}
+
+	if ok {
+		forkReq()
+		switch h := inf.(type) {
+		case HandleFunc:
+			h.ServeHTTP(w, req)
+		case http.Handler:
+			h.ServeHTTP(w, req)
+		}
+		if upath == req.URL.Path {
+			return
 		}
 	}
 

@@ -32,6 +32,7 @@ func (T *serverHandlerStaticHeader) setETag() {
 }
 
 // etag 内容不变标识，需要设置状态码304。格式："文件最后修改时间:文件字节" == "13a8a1e1232237d0:379b"
+//
 //	string    标识符
 func (T *serverHandlerStaticHeader) etag() string {
 	modifiedTime := T.fileInfo.ModTime().UnixNano()
@@ -40,6 +41,7 @@ func (T *serverHandlerStaticHeader) etag() string {
 }
 
 // ranges 格式化Range，并过滤无效的
+//
 //	ranges string    请求标头Range
 //	r []shshRange
 //	n int64
@@ -100,6 +102,7 @@ func (T *serverHandlerStaticHeader) setLastModified() {
 }
 
 // lastModified 文件最后修改时间
+//
 //	string    日期时间
 func (T *serverHandlerStaticHeader) lastModified() string {
 	// 时间格式是：Fri, 01 Aug 2014 11:57:57 GMT
@@ -118,6 +121,7 @@ func (T *serverHandlerStaticHeader) setContentLength() {
 }
 
 // contentLength 文件大小字节
+//
 //	string    文件大小
 func (T *serverHandlerStaticHeader) contentLength() string {
 	i64 := T.fileInfo.Size()
@@ -130,6 +134,7 @@ func (T *serverHandlerStaticHeader) setAcceptRanges() {
 }
 
 // setPageExpired 设置页面固定过期时间
+//
 //	pageExpired int64	页面过期
 func (T *serverHandlerStaticHeader) setPageExpired(pageExpired int64) {
 	T.wh.Set("Cache-Control", fmt.Sprintf("must-revalidate,max-age=%d", pageExpired))
@@ -145,6 +150,7 @@ type ServerHandlerStatic struct {
 }
 
 // serveHTTP 服务HTTP
+//
 //	rw http.ResponseWriter    响应
 //	req *http.Request         请求
 func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -176,6 +182,7 @@ func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Reques
 }
 
 // Header 处理静态文件的Header 报头
+//
 //	rw http.ResponseWriter      响应
 //	req *http.Request           请求
 //	[]shshRange				    数据块，如何为nil，则读取所有数据。否则，接数据块读取。
@@ -230,6 +237,7 @@ func (T *ServerHandlerStatic) header(rw http.ResponseWriter, req *http.Request) 
 }
 
 // body 处理静态文件的 body 数据
+//
 //	rw http.ResponseWriter    	响应
 //	rangeBlock []shshRange		数据块，如何为nil，则读取所有数据。否则，接数据块读取。
 func (T *ServerHandlerStatic) body(rw http.ResponseWriter, rangeBlock []shshRange) {

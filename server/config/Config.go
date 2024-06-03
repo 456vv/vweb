@@ -20,7 +20,7 @@ import (
 	"github.com/456vv/vweb/v2"
 )
 
-func configMerge(handle func(name string, dsc, src reflect.Value) bool) func(name string, dsc, src reflect.Value) bool {
+func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(name string, dsc, src reflect.Value) bool {
 	return func(name string, dsc, src reflect.Value) bool {
 		if handle != nil && handle(name, dsc, src) {
 			return true
@@ -81,7 +81,6 @@ type SitePlugin struct {
 	Timeout       int64  // 拨号超时（毫秒单位）
 	KeepAlive     int64  // 保持连接超时（毫秒单位）
 	FallbackDelay int64  // 后退延时，等待双协议栈延时，（毫秒单位，默认300ms）。
-	DualStack     bool   // 尝试建立多个IPv4和IPv6的连接
 	IdeConn       int    // 空闲连接数
 
 	// RPC
@@ -126,7 +125,7 @@ func (T *SitePlugins) ConfigSitePluginRPC(origin *SitePlugin, handle func(name s
 	if origin == nil {
 		return false
 	}
-	if c, ok := T.RPC[origin.PublicName]; ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if c, ok := T.RPC[origin.PublicName]; ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -138,7 +137,7 @@ func (T *SitePlugins) ConfigSitePluginHTTP(origin *SitePlugin, handle func(name 
 		return false
 	}
 	c, ok := T.HTTP[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -278,7 +277,7 @@ func (T *SitePublic) ConfigSiteSession(origin *SiteSession, handle func(name str
 		return false
 	}
 	c, ok := T.Session[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -290,7 +289,7 @@ func (T *SitePublic) ConfigSiteHeader(origin *SiteHeader, handle func(name strin
 		return false
 	}
 	c, ok := T.Header[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -314,7 +313,7 @@ func (T *SitePublic) ConfigSiteProperty(origin *SiteProperty, handle func(name s
 		return false
 	}
 	c, ok := T.Property[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -326,7 +325,7 @@ func (T *SitePublic) ConfigSiteDynamic(origin *SiteDynamic, handle func(name str
 		return false
 	}
 	c, ok := T.Dynamic[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -346,9 +345,7 @@ type ServerTLS struct {
 	RootCAs                     []ServerTLSFile // 服务端证书文件
 	NextProtos                  []string        // http版本
 	CipherSuites                []uint16        // 密码套件
-	PreferServerCipherSuites    bool            // 控制服务器是否选择客户端的最首选的密码套件
 	SessionTicketsDisabled      bool            // 设置为 true 可禁用会话票证 (恢复) 支持。
-	SessionTicketKey            [32]byte        // TLS服务器提供会话恢复
 	SetSessionTicketKeys        [][32]byte      // 会话恢复票证
 	DynamicRecordSizingDisabled bool            // 禁用TLS动态记录自适应大小
 	MinVersion                  uint16          // 最小SSL/TLS版本。如果为零，则SSLv3的被取为最小。
@@ -373,16 +370,16 @@ func (T *ServerTLS) CipherSuitesAuto() {
 
 type Server struct {
 	// 引用公共配置后，该以结构中的CC和CS如果也有设置，将会使用优先使用。
-	PublicName        string     // 引用公共配置的名字
-	ReadTimeout       int64      // 设置读取超时(毫秒单位)
-	WriteTimeout      int64      // 设置写入超时(毫秒单位)
-	ReadHeaderTimeout int64      // 读取标头超时(毫秒单位）
-	IdleTimeout       int64      // 保持连接空闲超时，如果为0，使用 ReadTimeout,(毫秒单位）
-	MaxHeaderBytes    int        // 如果0，最大请求头的大小，http.DefaultMaxHeaderBytes
-	KeepAlivesEnabled bool       // 支持客户端Keep-Alive
-	ShutdownConn      bool       // 服务器关闭监听，不会即时关闭正在下载的连接。空闲后再关闭。(默认即时关闭)
-	DisableGeneralOptionsHandler bool // 如果为真，将“OPTIONS *”请求传递给处理程序，否则响应 200 OK 和 Content-Length: 0。
-	TLS               *ServerTLS // TLS
+	PublicName                   string     // 引用公共配置的名字
+	ReadTimeout                  int64      // 设置读取超时(毫秒单位)
+	WriteTimeout                 int64      // 设置写入超时(毫秒单位)
+	ReadHeaderTimeout            int64      // 读取标头超时(毫秒单位）
+	IdleTimeout                  int64      // 保持连接空闲超时，如果为0，使用 ReadTimeout,(毫秒单位）
+	MaxHeaderBytes               int        // 如果0，最大请求头的大小，http.DefaultMaxHeaderBytes
+	KeepAlivesEnabled            bool       // 支持客户端Keep-Alive
+	ShutdownConn                 bool       // 服务器关闭监听，不会即时关闭正在下载的连接。空闲后再关闭。(默认即时关闭)
+	DisableGeneralOptionsHandler bool       // 如果为真，将“OPTIONS *”请求传递给处理程序，否则响应 200 OK 和 Content-Length: 0。
+	TLS                          *ServerTLS // TLS
 }
 type Conn struct {
 	// 引用公共配置后，该以结构中的CC和CS如果也有设置，将会使用优先使用。
@@ -393,7 +390,7 @@ type Conn struct {
 	KeepAlive       bool   // 即使没有任何通信，一个客户端可能希望保持连接到服务器的状态。
 	KeepAlivePeriod int64  // 保持连接超时(毫秒单位)
 	Linger          int    // 连接关闭后，等待发送或待确认的数据（秒单位)。如果 sec > 0，经过sec秒后，所有剩余的未发送数据都可能会被丢弃。则与sec < 0 一样在后台发送数据。
-	NoDelay         bool   // 设置操作系统是否延迟发送数据包,默认是无延迟的
+	NoDelay         bool   // 设置操作系统是否延迟发送数据包,建议设置为true(无延迟)
 	ReadBuffer      int    // 在缓冲区读取数据大小
 	WriteBuffer     int    // 写入数据到缓冲区大小
 }
@@ -407,7 +404,7 @@ func (T *ServerPublic) ConfigConn(origin *Conn, handle func(name string, dsc, sr
 		return false
 	}
 	c, ok := T.CC[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -419,7 +416,7 @@ func (T *ServerPublic) ConfigServer(origin *Server, handle func(name string, dsc
 		return false
 	}
 	c, ok := T.CS[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		if origin.TLS != nil && len(origin.TLS.CipherSuites) == 0 {
 			origin.TLS.CipherSuitesAuto()
@@ -490,7 +487,6 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 	c.Dialer.Timeout = time.Duration(conf.Timeout) * time.Millisecond
 	c.Dialer.KeepAlive = time.Duration(conf.KeepAlive) * time.Millisecond
 	c.Dialer.FallbackDelay = time.Duration(conf.FallbackDelay) * time.Millisecond
-	c.Dialer.DualStack = conf.DualStack
 
 	if c.Tr == nil {
 		c.Tr = new(http.Transport)
@@ -621,7 +617,6 @@ func configRPCClient(c *vweb.PluginRPCClient, conf *SitePlugin) error {
 		d.Timeout = time.Duration(conf.Timeout) * time.Millisecond
 		d.KeepAlive = time.Duration(conf.KeepAlive) * time.Millisecond
 		d.FallbackDelay = time.Duration(conf.FallbackDelay) * time.Millisecond
-		d.DualStack = conf.DualStack
 	}
 	return nil
 }
