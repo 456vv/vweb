@@ -9,6 +9,7 @@ import (
 
 	"github.com/456vv/vweb/v2"
 	"github.com/456vv/vweb/v2/server"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // ServerHTTP 服务器HTTP
@@ -16,6 +17,7 @@ type ServerHTTP struct {
 	*http.Server                      // HTTP
 	Addr         string               // 监听地址
 	Route        *vweb.Route          // 路由表
+	AutoCert     *autocert.Manager    // 自动申请证书
 	l            tcpKeepAliveListener // 监听器
 }
 
@@ -51,7 +53,6 @@ func (T *ServerHTTP) LoadTLS(certFile, keyFile string) error {
 	}
 	T.l.tlsconfig = T.Server.TLSConfig
 	T.Server.TLSConfig.Certificates = append(T.Server.TLSConfig.Certificates, cert)
-	T.Server.TLSConfig.BuildNameToCertificate()
 	return nil
 }
 
@@ -81,6 +82,8 @@ func (T *ServerHTTP) Serve(l net.Listener) error {
 	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
 	T.l.TCPListener = l.(*net.TCPListener)
 	T.Server.Handler = http.HandlerFunc(T.Route.ServeHTTP)
+	T.Server.Handler = vweb.AutoCert(T.AutoCert, T.Server.TLSConfig, T.Server.Handler)
+
 	return T.Server.Serve(&T.l)
 }
 

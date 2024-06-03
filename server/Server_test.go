@@ -274,7 +274,7 @@ func Test_Server_ConfigServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer srv.Close()
-	if d := len(srv.TLSConfig.NameToCertificate); d != 3 {
+	if d := len(srv.TLSConfig.Certificates); d != 2 {
 		t.Fatalf("证书绑定host 失败，预定3个数量，不正确数量：%d", d)
 	}
 
@@ -287,7 +287,7 @@ func Test_Server_ConfigServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := len(srv.TLSConfig.NameToCertificate); d != 0 {
+	if d := len(srv.TLSConfig.Certificates); d != 0 {
 		t.Fatalf("证书绑定host 失败，预定0个数量，不正确数量：%d", d)
 	}
 }

@@ -20,7 +20,7 @@ import (
 	"github.com/456vv/vweb/v2"
 )
 
-func configMerge(handle func(name string, dsc, src reflect.Value) bool) func(name string, dsc, src reflect.Value) bool {
+func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(name string, dsc, src reflect.Value) bool {
 	return func(name string, dsc, src reflect.Value) bool {
 		if handle != nil && handle(name, dsc, src) {
 			return true
@@ -125,7 +125,7 @@ func (T *SitePlugins) ConfigSitePluginRPC(origin *SitePlugin, handle func(name s
 	if origin == nil {
 		return false
 	}
-	if c, ok := T.RPC[origin.PublicName]; ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if c, ok := T.RPC[origin.PublicName]; ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -137,7 +137,7 @@ func (T *SitePlugins) ConfigSitePluginHTTP(origin *SitePlugin, handle func(name 
 		return false
 	}
 	c, ok := T.HTTP[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -277,7 +277,7 @@ func (T *SitePublic) ConfigSiteSession(origin *SiteSession, handle func(name str
 		return false
 	}
 	c, ok := T.Session[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -289,7 +289,7 @@ func (T *SitePublic) ConfigSiteHeader(origin *SiteHeader, handle func(name strin
 		return false
 	}
 	c, ok := T.Header[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -313,7 +313,7 @@ func (T *SitePublic) ConfigSiteProperty(origin *SiteProperty, handle func(name s
 		return false
 	}
 	c, ok := T.Property[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -325,7 +325,7 @@ func (T *SitePublic) ConfigSiteDynamic(origin *SiteDynamic, handle func(name str
 		return false
 	}
 	c, ok := T.Dynamic[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -404,7 +404,7 @@ func (T *ServerPublic) ConfigConn(origin *Conn, handle func(name string, dsc, sr
 		return false
 	}
 	c, ok := T.CC[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -416,7 +416,7 @@ func (T *ServerPublic) ConfigServer(origin *Server, handle func(name string, dsc
 		return false
 	}
 	c, ok := T.CS[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configMerge(handle)) == nil {
+	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		if origin.TLS != nil && len(origin.TLS.CipherSuites) == 0 {
 			origin.TLS.CipherSuitesAuto()
