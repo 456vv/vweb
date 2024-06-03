@@ -116,7 +116,6 @@ func (T *response) Header() http.Header {
 //
 //	code int      状态码
 func (T *response) WriteHeader(code int) {
-	T.td.writed = true
 	T.w.WriteHeader(code)
 }
 
