@@ -78,8 +78,9 @@ func main() {
 	serverGroup.ErrorLog.SetOutput(logFile)
 	serverGroup.DynamicModule = dynamic.Module()
 	serverGroup.CertManager = &autocert.Manager{
-		Prompt: autocert.AcceptTOS,
-		Cache:  autocert.DirCache("ssl/auto"),
+		Prompt:      autocert.AcceptTOS,
+		RenewBefore: time.Hour * 7 * 24, // 7天
+		Cache:       autocert.DirCache("ssl/auto"),
 		HostPolicy: func(ctx context.Context, host string) error {
 			// 默认不支持，需要设置ssl/auto/host.txt
 			return errors.New("error")

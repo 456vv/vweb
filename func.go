@@ -26,7 +26,7 @@ func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) h
 	if ac != nil && tlsconf != nil {
 		tlsconf.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			// 先使用内置证书，过期后使用自动证书
-			now := time.Now()
+			now := time.Now().Add(ac.RenewBefore)
 			var err error
 			for _, cert := range tlsconf.Certificates {
 				if cert.Leaf == nil {
