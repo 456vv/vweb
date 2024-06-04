@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log"
 	mathRand "math/rand"
 	"net/http"
 	"os"
@@ -46,6 +47,7 @@ func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) h
 				// src\crypto\tls\common.go
 				// func (c *Config) getCertificate(clientHello *ClientHelloInfo) (*Certificate, error)
 				// 返回空跳过继续使用原证书
+				log.Println(err)
 				return nil, nil
 			}
 			return cert, nil
