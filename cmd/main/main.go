@@ -74,24 +74,24 @@ func main() {
 	exitCall.Defer(logFile.Close)
 
 	// 服务器
-	serverGroup := server.NewServerGroup()
-	serverGroup.ErrorLog.SetOutput(logFile)
-	serverGroup.DynamicModule = dynamic.Module()
-	serverGroup.CertManager = &autocert.Manager{
+	group := server.NewGroup()
+	group.ErrorLog.SetOutput(logFile)
+	group.DynamicModule = dynamic.Module()
+	group.CertManager = &autocert.Manager{
 		Prompt:      autocert.AcceptTOS,
 		RenewBefore: time.Hour * 7 * 24, // 7天
 		Cache:       autocert.DirCache("ssl/auto"),
 		HostPolicy: func(ctx context.Context, host string) error {
 			// 默认不支持，需要设置ssl/auto/host.txt
-			return errors.New("error")
+			return errors.New("auto cert error")
 		},
 	}
-	exitCall.Defer(serverGroup.Close)
+	exitCall.Defer(group.Close)
 
 	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
 	exitCall.Defer(tick.Stop)
 	refererConfog := tick.Func(func() {
-		ok, err := serverGroup.LoadConfigFile(*fConfigFile)
+		ok, err := group.LoadConfigFile(*fConfigFile)
 		if err != nil {
 			log.Printf("加载配置文件错误：%s\n", err)
 			return
@@ -128,13 +128,13 @@ func main() {
 				return
 			}
 			hosts := strings.Split(string(b), "\n")
-			serverGroup.CertManager.HostPolicy = autocert.HostWhitelist(hosts...)
+			group.CertManager.HostPolicy = autocert.HostWhitelist(hosts...)
 		default:
 		}
 	})
 
 	refererConfog()
-	if err := serverGroup.Start(); err != nil {
+	if err := group.Start(); err != nil {
 		log.Printf("启动失败：%s\n", err)
 	}
 	// 非法结束进程，留给另一个线程处理退出

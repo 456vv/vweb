@@ -57,7 +57,7 @@ LzeIJd6AClByowsdS5v/DeZQnfDaW68OB3+vqKQbMbei
 
 func Test_NewServerGroup_1(t *testing.T) {
 	as := assert.New(t, true)
-	sg := NewServerGroup()
+	sg := NewGroup()
 	time.AfterFunc(2*time.Second, func() {
 		err := sg.Close()
 		as.NotError(err)
@@ -71,7 +71,7 @@ func Test_NewServerGroup_1(t *testing.T) {
 
 func Test_NewServerGroup_2(t *testing.T) {
 	as := assert.New(t, true)
-	sg := NewServerGroup()
+	sg := NewGroup()
 	osFile, err := os.Open("./config/test/config.json")
 	as.NotError(err)
 	defer osFile.Close()
@@ -90,7 +90,7 @@ func Test_NewServerGroup_2(t *testing.T) {
 }
 
 func Test_ServerGroup_LoadConfigFile(t *testing.T) {
-	sg := NewServerGroup()
+	sg := NewGroup()
 	defer sg.Close()
 	_, err := sg.LoadConfigFile("./config/test/config.json")
 	if err == nil && sg.config == nil {
@@ -293,7 +293,7 @@ func Test_Server_ConfigServer(t *testing.T) {
 }
 
 func Test_Server_updateSitePoolAdd(t *testing.T) {
-	sg := NewServerGroup()
+	sg := NewGroup()
 	sg.sitePool = vweb.DefaultSitePool
 	conf := config.Site{
 		Identity: "A",
