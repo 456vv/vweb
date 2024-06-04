@@ -41,7 +41,14 @@ func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) h
 			}
 
 			// 自动证书
-			return ac.GetCertificate(hello)
+			cert, err := ac.GetCertificate(hello)
+			if err != nil {
+				// src\crypto\tls\common.go
+				// func (c *Config) getCertificate(clientHello *ClientHelloInfo) (*Certificate, error)
+				// 返回空跳过继续使用原证书
+				return nil, nil
+			}
+			return cert, nil
 		}
 
 		// 没有配置"acme-tls/1"
