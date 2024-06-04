@@ -266,7 +266,7 @@ type Group struct {
 	config     *config.Config // 配置
 }
 
-func NewServerGroup() *Group {
+func NewGroup() *Group {
 	return &Group{
 		exit:     make(chan bool),
 		ErrorLog: log.New(os.Stdout, "", log.LstdFlags|log.Lshortfile),

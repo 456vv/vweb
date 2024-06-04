@@ -234,12 +234,11 @@ type SiteDynamic struct {
 	// 引用公共配置后，该以结构中的Header如果也有设置，将会使用优先使用。
 	PublicName string // 引用公共配置的名字
 
-	Ext                  []string // 动态文件后缀
-	Cache                bool     // 动态文件缓存解析，非缓存执行
-	CacheParseTimeout    int64    // 动态文件缓存解析超时，（秒为单位）
-	CacheStaticFileDir   string   // 缓存静态文件目录，仅适于markdown转HTML
-	CacheStaticAllowPath []string // 缓存静态路径，仅适于markdown转HTML
-	CacheStaticTimeout   int64    // 缓存静态超时，（秒为单位）
+	Ext                []string // 动态文件后缀
+	Cache              bool     // 动态文件缓存解析，非缓存执行
+	CacheParseTimeout  int64    // 动态文件缓存解析超时，（秒为单位）
+	CacheStaticFileDir string   // 缓存静态文件目录，仅适于markdown转HTML
+	CacheStaticTimeout int64    // 缓存静态超时，（秒为单位）
 }
 
 // 配置-站点
