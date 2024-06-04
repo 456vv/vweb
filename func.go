@@ -29,15 +29,20 @@ func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) h
 			// 先使用内置证书，过期后使用自动证书
 			now := time.Now().Add(ac.RenewBefore)
 			var err error
-			for _, cert := range tlsconf.Certificates {
+			var pos int = -1 // 标注过期证书位置
+			for i, cert := range tlsconf.Certificates {
 				if cert.Leaf == nil {
 					cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
 					if err != nil {
 						continue
 					}
 				}
-				if !now.Before(cert.Leaf.NotBefore) && !now.After(cert.Leaf.NotAfter) && hello.SupportsCertificate(&cert) == nil {
-					return &cert, nil
+				if hello.SupportsCertificate(&cert) == nil {
+					if !now.Before(cert.Leaf.NotBefore) && !now.After(cert.Leaf.NotAfter) {
+						return &cert, nil
+					}
+					// 证书过期
+					pos = i
 				}
 			}
 
@@ -49,6 +54,9 @@ func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) h
 				// 返回空跳过继续使用原证书
 				log.Println(err)
 				return nil, nil
+			}
+			if pos > 0 {
+				tlsconf.Certificates[pos] = *cert
 			}
 			return cert, nil
 		}
