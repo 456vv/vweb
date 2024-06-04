@@ -30,7 +30,7 @@ go build -o bin/V-WEB-Server-linux-mips -trimpath -ldflags="-s -w -X main.versio
 go clean -cache
 
 set /p tags=CGO_ENABLED=1/go:build tags: || set "tags=vweb_lib yaegi_lib igop_lib sqlite3 duckdb"
-if "%tags%" == "" goto upx
+if "%tags%" == "exit" goto upx
 set CGO_ENABLED=1
 go build -o bin/V-WEB-Server-win-amd64-general.exe -trimpath -ldflags="-s -w  -X main.version=$version -extldflags '-static -fpic'"  -tags="%tags%" ./
 
