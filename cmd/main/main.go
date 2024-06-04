@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/456vv/vweb/v2"
@@ -88,8 +87,13 @@ func main() {
 	}
 	exitCall.Defer(group.Close)
 
+	// 加载自动证书允许文件
+	loadAutoCertHostPolicy(group.CertManager, "ssl/auto/host.txt")
+
 	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
 	exitCall.Defer(tick.Stop)
+
+	// 定时加载配置文件
 	refererConfog := tick.Func(func() {
 		ok, err := group.LoadConfigFile(*fConfigFile)
 		if err != nil {
@@ -122,13 +126,7 @@ func main() {
 	watcher.Monitor("ssl/auto/host.txt", func(event fsnotify.Event) {
 		switch event.Op {
 		case fsnotify.Create, fsnotify.Write:
-			b, err := os.ReadFile(event.Name)
-			if err != nil || len(b) == 0 {
-				log.Printf("(%s)文件内容为空或错误(%v)", event.Name, err)
-				return
-			}
-			hosts := strings.Split(string(b), "\n")
-			group.CertManager.HostPolicy = autocert.HostWhitelist(hosts...)
+			loadAutoCertHostPolicy(group.CertManager, event.Name)
 		default:
 		}
 	})
