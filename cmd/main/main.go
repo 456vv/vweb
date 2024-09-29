@@ -7,25 +7,27 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/456vv/vweb/v2"
 	"github.com/456vv/vweb/v2/cmd/main/internal/base"
 	"github.com/456vv/vweb/v2/cmd/main/internal/dynamic"
 	"github.com/456vv/vweb/v2/server"
-	"github.com/456vv/x/ticker"
+	"github.com/456vv/vweb/v2/server/config"
 	"github.com/456vv/x/watch"
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/crypto/acme/autocert"
 )
 
-var version = "App/v1.0"
+var version = "App/v1.1"
 
 var (
-	fRootDir           = flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
-	fConfigFile        = flag.String("ConfigFile", "./config.json", "配置文件")
-	fLogFile           = flag.String("LogFile", "./error.log", "日志文件地址")
-	fTickRefreshConfig = flag.Int("TickRefreshConfig", 60, "定时刷新配置文件,(单位 秒)")
+	fRootDir       = flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
+	fConfigFile    = flag.String("ConfigFile", "config.json", "配置文件")
+	fLogFile       = flag.String("LogFile", "error.log", "日志文件地址")
+	fCertCache     = flag.String("CertCache", "ssl/auto", "证书缓存目录")
+	fAllowCertHost = flag.String("AllowCertHost", "ssl/auto/host.txt", "允许自动申请证书文件路径")
 )
 
 func main() {
@@ -61,6 +63,11 @@ func main() {
 	}
 	log.Printf("根目录：%s\n", dir)
 
+	// 配置文件绝对地址
+	if !filepath.IsAbs(*fConfigFile) {
+		*fConfigFile = filepath.Join(dir, *fConfigFile)
+	}
+
 	// 日志文件对象
 	if err := os.MkdirAll(filepath.Dir(*fLogFile), 0o644); err != nil {
 		panic(err)
@@ -79,7 +86,7 @@ func main() {
 	group.CertManager = &autocert.Manager{
 		Prompt:      autocert.AcceptTOS,
 		RenewBefore: time.Hour * 7 * 24, // 7天
-		Cache:       autocert.DirCache("ssl/auto"),
+		Cache:       autocert.DirCache(*fCertCache),
 		HostPolicy: func(ctx context.Context, host string) error {
 			// 默认不支持，需要设置ssl/auto/host.txt
 			return errors.New("auto cert error")
@@ -88,22 +95,18 @@ func main() {
 	exitCall.Defer(group.Close)
 
 	// 加载自动证书允许文件
-	loadAutoCertHostPolicy(group.CertManager, "ssl/auto/host.txt")
+	loadAutoCertHostPolicy(group.CertManager, *fAllowCertHost)
 
-	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
-	exitCall.Defer(tick.Stop)
-
-	// 定时加载配置文件
-	refererConfog := tick.Func(func() {
-		ok, err := group.LoadConfigFile(*fConfigFile)
-		if err != nil {
-			log.Printf("加载配置文件错误：%s\n", err)
+	// 加载配置文件
+	updateConfig := func(path string) {
+		conf := new(config.Config)
+		if err = loadConfog(path, conf); err != nil {
+			log.Printf("加载配置文件错误: %s\n", err)
 			return
 		}
-		if ok {
-			log.Printf("加载配置文件成功\n")
-		}
-	})
+		group.UpdateConfig(conf)
+		log.Printf("加载配置文件成功\n")
+	}
 
 	// 文件看守
 	watcher, err := watch.NewWatch()
@@ -114,16 +117,18 @@ func main() {
 	exitCall.Defer(watcher.Close)
 
 	// 监听配置文件
-	watcher.Monitor(*fConfigFile, func(event fsnotify.Event) {
-		switch event.Op {
-		case fsnotify.Create, fsnotify.Write:
-			refererConfog()
+	watcher.Monitor(filepath.Dir(*fConfigFile), func(e fsnotify.Event) {
+		switch e.Op {
+		case fsnotify.Create, fsnotify.Write, fsnotify.Remove:
+			if strings.HasSuffix(e.Name, ".json") {
+				updateConfig(*fConfigFile)
+			}
 		default:
 		}
 	})
 
 	// 监听自动申请证书白名单
-	watcher.Monitor("ssl/auto/host.txt", func(event fsnotify.Event) {
+	watcher.Monitor(filepath.Clean(*fAllowCertHost), func(event fsnotify.Event) {
 		switch event.Op {
 		case fsnotify.Create, fsnotify.Write:
 			loadAutoCertHostPolicy(group.CertManager, event.Name)
@@ -131,10 +136,11 @@ func main() {
 		}
 	})
 
-	refererConfog()
+	updateConfig(*fConfigFile)
 	if err := group.Start(); err != nil {
 		log.Printf("启动失败：%s\n", err)
 	}
+
 	// 非法结束进程，留给另一个线程处理退出
 	time.Sleep(time.Second)
 }

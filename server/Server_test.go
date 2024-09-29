@@ -298,10 +298,9 @@ func Test_Server_updateSitePoolAdd(t *testing.T) {
 	conf := config.Site{
 		Identity: "A",
 		Session: config.SiteSession{
-			Name:         "BB",
-			Expired:      0,
-			Size:         128,
-			ActivationID: true,
+			Name:    "BB",
+			Expired: 0,
+			Size:    128,
 		},
 	}
 	sg.updateSitePoolAdd(conf)
