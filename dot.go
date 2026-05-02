@@ -2,7 +2,8 @@ package vweb
 
 import (
 	"context"
-	"log"
+	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,21 +11,21 @@ import (
 	"github.com/456vv/vmap/v2"
 )
 
-type HandleFunc []func(*Dot)
+type HandleFunc []func(Doter)
 
 func (T HandleFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	site, _ := r.Context().Value(SiteContextKey).(*Site)
 	d := &Dot{
 		R:    r,
 		W:    w,
-		Site: r.Context().Value(SiteContextKey).(*Site),
+		Site: site,
 		ctx:  r.Context(),
 	}
 	defer d.Close()
-
 	for _, f := range T {
 		f(d)
-		if d.writed {
-			return
+		if d.isWrited() {
+			break
 		}
 	}
 }
@@ -36,46 +37,29 @@ type DotContexter interface {
 
 // Doter 可以在模本中使用的方法
 type Doter interface {
-	RootDir(path string) string             // 网站的根目录
-	Request() *http.Request                 // 用户的请求信息
-	RequestLimitSize(l int64) *http.Request // 请求限制大小
-	Header() http.Header                    // 标头
-	Response() Responser                    // 数据写入响应
-	Session() Sessioner                     // 用户的会话缓存
-	Global() Globaler                       // 全站缓存
-	Cookie() Cookier                        // 用户的Cookie
-	Swap() *vmap.Map                        // 信息交换
-	Defer(call any, args ...any) error      // 退回调用
-	SaveStatic(path string) error           // 保存为静态文件
-	DotContexter                            // 上下文
+	RootDir(path string) string                            // 网站的根目录
+	Request() *http.Request                                // 用户的请求信息
+	RequestLimitSize(l int64) *http.Request                // 请求限制大小
+	Header() http.Header                                   // 标头
+	Response() Responser                                   // 数据写入响应
+	Session() Sessioner                                    // 用户的会话缓存
+	Global() Globaler                                      // 全站缓存
+	Cookie() Cookier                                       // 用户的Cookie
+	Swap() *vmap.Map                                       // 信息交换
+	Defer(call any, args ...any) error                     // 退回调用
+	SaveStatic(path string) (wr io.WriteCloser, err error) // 保存为静态文件
+	DotContexter                                           // 上下文
 }
 
-// 模板点
+// Dot 模板点
 type Dot struct {
-	R          *http.Request       // 请求
-	W          http.ResponseWriter // 响应
-	BuffSize   int                 // 缓冲块大小
-	Site       *Site               // 网站配置
-	writed     bool                // 表示已经调用写入到客户端。这个是只读的
-	exchange   vmap.Map            // 缓存映射
-	ec         ExitCall            // 退回调用函数
-	ctx        context.Context     // 上下文
-	staticPath string              // 静态路径
-	staticFile *os.File            // 静态文件
-}
-
-func (T *Dot) toStatic(b []byte) {
-	if T.staticPath != "" {
-		if T.staticFile != nil {
-			T.staticFile.Write(b)
-			return
-		}
-		var err error
-		T.staticFile, err = os.CreateTemp("", "*.temp")
-		if err != nil {
-			log.Println(err)
-		}
-	}
+	R        *http.Request       // 请求
+	W        http.ResponseWriter // 响应
+	res      *response
+	Site     *Site           // 网站配置
+	exchange vmap.Map        // 缓存映射
+	ec       ExitCall        // 退回调用函数
+	ctx      context.Context // 上下文
 }
 
 // RootDir 网站的根目录
@@ -112,36 +96,50 @@ func (T *Dot) Header() http.Header {
 	return T.W.Header()
 }
 
+func (T *Dot) response() *response {
+	if T.res == nil {
+		if res, ok := T.W.(*response); ok {
+			// 这里变动需要阅读route.go
+			T.res = res
+		} else {
+			T.res = &response{
+				w: T.W,
+				r: T.R,
+			}
+		}
+	}
+	return T.res
+}
+
+func (T *Dot) isWrited() bool {
+	return T.response().isWrited
+}
+
 // Response 数据写入响应
 //
 //	Responser     响应
 func (T *Dot) Response() Responser {
-	return &response{
-		buffSize: T.BuffSize,
-		w:        T.W,
-		r:        T.R,
-		td:       T,
-	}
+	return T.response()
 }
 
 // Session 用户的会话缓存
 //
 //	Sessioner  会话缓存
 func (T *Dot) Session() Sessioner {
-	if T.Site == nil || T.Site.Sessions == nil {
+	if T.Site == nil || T.Site.sessions == nil {
 		return nil
 	}
-	return T.Site.Sessions.Session(T.W, T.R)
+	return T.Site.sessions.Session(T.W, T.R)
 }
 
 // Global 全站缓存
 //
 //	Globaler	公共缓存
 func (T *Dot) Global() Globaler {
-	if T.Site == nil || T.Site.Global == nil {
+	if T.Site == nil || T.Site.global == nil {
 		return nil
 	}
-	return T.Site.Global
+	return T.Site.global
 }
 
 // Cookie 用户的Cookie
@@ -176,23 +174,6 @@ func (T *Dot) Defer(call any, args ...any) error {
 // Close 释放
 func (T *Dot) Close() error {
 	T.ec.Free()
-	if T.staticFile != nil {
-		staticPath := filepath.Join(T.RootDir(T.staticPath) + T.staticPath)
-		staticDir := filepath.Dir(staticPath)
-		// 判断目录是否存在，不存在创建目录
-		_, err := os.Stat(staticDir)
-		if os.IsNotExist(err) {
-			if err := os.MkdirAll(staticDir, 0o644); err != nil {
-				return err
-			}
-		}
-		tempPath := T.staticFile.Name()
-		T.staticFile.Close()
-		T.staticFile = nil
-		if err := os.Rename(tempPath, staticPath); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -219,7 +200,56 @@ func (T *Dot) WithContext(ctx context.Context) {
 // SaveStatic 保存为静态文件
 //
 //	path string	保存路径
-func (T *Dot) SaveStatic(path string) error {
-	T.staticPath = path
-	return nil
+func (T *Dot) SaveStatic(path string) (wr io.WriteCloser, err error) {
+	staticPath := filepath.Join(T.RootDir("."), path)
+	staticDir := filepath.Dir(staticPath)
+
+	// 判断目录是否存在，不存在创建目录
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(staticDir, 0o644); err != nil {
+			return nil, err
+		}
+	}
+
+	storage := &staticFileStorage{
+		name:      filepath.Base(path),
+		staticDir: staticDir,
+	}
+	return storage, err
+}
+
+type staticFileStorage struct {
+	name      string
+	staticDir string
+	file      *os.File
+	closed    bool
+}
+
+func (t *staticFileStorage) Write(p []byte) (n int, err error) {
+	if t.closed {
+		return 0, errors.New("static file has closed")
+	}
+	if t.file == nil {
+		t.file, err = os.CreateTemp(t.staticDir, "*.temp")
+		if err != nil {
+			return 0, err
+		}
+	}
+	return t.file.Write(p)
+}
+
+func (t *staticFileStorage) Close() error {
+	t.closed = true
+
+	if t.file == nil {
+		return nil
+	} else {
+		tempPath := t.file.Name()
+		t.file.Close()
+		if err := os.Rename(tempPath, filepath.Join(t.staticDir, t.name)); err != nil {
+			os.Remove(tempPath)
+			return err
+		}
+		return nil
+	}
 }

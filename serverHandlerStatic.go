@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -145,25 +146,21 @@ func (T *serverHandlerStaticHeader) setPageExpired(pageExpired int64) {
 type ServerHandlerStatic struct {
 	RootPath, PagePath string      // 根目录, 页路径
 	PageExpired        int64       // 页面过期时间（秒为单位）
-	BuffSize           int         // 缓冲块大小
 	fileInfo           os.FileInfo // 文件基本信息
 }
 
-// serveHTTP 服务HTTP
+// ServeHTTP 服务HTTP
 //
 //	rw http.ResponseWriter    响应
 //	req *http.Request         请求
 func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	if T.PagePath == "" {
+		T.PagePath = path.Clean(req.URL.Path)
+	}
+
 	// 打开文件
 	filePath := filepath.Join(T.RootPath, T.PagePath)
-	file, err := os.Open(filePath)
-	if err != nil {
-		// 500 服务器遇到了意料不到的情况，不能完成客户的请求。
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer file.Close()
-	fileInfo, err := file.Stat()
+	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		// 500 服务器遇到了意料不到的情况，不能完成客户的请求。
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -251,15 +248,10 @@ func (T *ServerHandlerStatic) body(rw http.ResponseWriter, rangeBlock []shshRang
 	}
 	defer file.Close()
 
-	buffsize := T.BuffSize
-	if buffsize == 0 {
-		buffsize = defaultDataBufioSize
-	}
-
 	// 处理静态文件的 body 数据
 	var (
 		wh    = rw.Header()
-		p     = make([]byte, buffsize)
+		p     = make([]byte, defaultDataBufioSize)
 		flush = rw.(http.Flusher)
 	)
 	switch len(rangeBlock) {

@@ -4,20 +4,22 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/456vv/vconnpool/v2"
 	"github.com/456vv/verror"
 	"github.com/456vv/vweb/v2"
+	"github.com/456vv/vweb/v2/builtin"
 )
 
 func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(name string, dsc, src reflect.Value) bool {
@@ -34,21 +36,26 @@ func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(n
 
 // 配置-转发-配置
 type SiteForward struct {
-	Status       bool     // 启用或禁止
-	Path         []string // 多种路径匹配
-	ExcludePath  []string // 排除多种路径匹配
-	RePath       string   // 重写路径
-	RedirectCode int      // 重定向状态码，默认不转向
-	End          bool     // 不进行二次
+	Status        bool     // 启用或禁止
+	Path          []string // 多种路径匹配
+	ExcludePath   []string // 排除多种路径匹配
+	RePath        string   // 重写路径
+	RedirectCode  int      // 重定向状态码，默认不转向
+	End           bool     // 不进行二次
+	forwardWriter *vweb.ForwardRewriter
 }
 
-func (T *SiteForward) Rewrite(upath string) (rpath string, rewrited bool, err error) {
-	forward := vweb.Forward{
-		Path:        T.Path,
-		ExcludePath: T.ExcludePath,
-		RePath:      T.RePath,
+func (T *SiteForward) Compile() (fw *vweb.ForwardRewriter, err error) {
+	if T.forwardWriter == nil {
+		forward := vweb.Forward{
+			Path:        T.Path,
+			ExcludePath: T.ExcludePath,
+			RePath:      T.RePath,
+		}
+		fw, err = forward.Compile()
+		T.forwardWriter = fw
 	}
-	return forward.Rewrite(upath)
+	return T.forwardWriter, nil
 }
 
 type SiteForwards struct {
@@ -125,7 +132,7 @@ func (T *SitePlugins) ConfigSitePluginRPC(origin *SitePlugin, handle func(name s
 	if origin == nil {
 		return false
 	}
-	if c, ok := T.RPC[origin.PublicName]; ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
+	if c, ok := T.RPC[origin.PublicName]; ok && builtin.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -137,7 +144,7 @@ func (T *SitePlugins) ConfigSitePluginHTTP(origin *SitePlugin, handle func(name 
 		return false
 	}
 	c, ok := T.HTTP[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
+	if ok && builtin.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -215,16 +222,6 @@ type SiteSession struct {
 	Salt       string // 加盐，由于计算机随机数是伪随机数。（可默认为空）
 }
 
-// 配置-性能
-type SiteProperty struct {
-	// 引用公共配置后，该以结构中的Header如果也有设置，将会使用优先使用。
-	PublicName string // 引用公共配置的名字
-
-	ConnMaxNumber int64 // 连接最大数量
-	ConnSpeed     int64 // 连接宽带速度
-	BuffSize      int   // 缓冲区大小
-}
-
 type SiteDynamic struct {
 	// 引用公共配置后，该以结构中的Header如果也有设置，将会使用优先使用。
 	PublicName string // 引用公共配置的名字
@@ -254,16 +251,14 @@ type Site struct {
 	Log       SiteLog           // 日志
 	ErrorPage map[string]string // 错误页
 
-	Session  SiteSession  // 会话
-	Property SiteProperty // 性能
+	Session SiteSession // 会话
 }
 type SitePublic struct {
-	Header   map[string]SiteHeader
-	Session  map[string]SiteSession
-	Plugin   SitePlugins
-	Forward  map[string]SiteForwards
-	Property map[string]SiteProperty
-	Dynamic  map[string]SiteDynamic
+	Header  map[string]SiteHeader
+	Session map[string]SiteSession
+	Plugin  SitePlugins
+	Forward map[string]SiteForwards
+	Dynamic map[string]SiteDynamic
 }
 
 func (T *SitePublic) ConfigSiteSession(origin *SiteSession, handle func(name string, dsc, src reflect.Value) bool) bool {
@@ -271,7 +266,7 @@ func (T *SitePublic) ConfigSiteSession(origin *SiteSession, handle func(name str
 		return false
 	}
 	c, ok := T.Session[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
+	if ok && builtin.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -283,7 +278,7 @@ func (T *SitePublic) ConfigSiteHeader(origin *SiteHeader, handle func(name strin
 		return false
 	}
 	c, ok := T.Header[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
+	if ok && builtin.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -302,24 +297,12 @@ func (T *SitePublic) ConfigSiteForward(origin *SiteForwards, handle func(name st
 	return false
 }
 
-func (T *SitePublic) ConfigSiteProperty(origin *SiteProperty, handle func(name string, dsc, src reflect.Value) bool) bool {
-	if origin == nil {
-		return false
-	}
-	c, ok := T.Property[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
-		*origin = c
-		return true
-	}
-	return false
-}
-
 func (T *SitePublic) ConfigSiteDynamic(origin *SiteDynamic, handle func(name string, dsc, src reflect.Value) bool) bool {
 	if origin == nil {
 		return false
 	}
 	c, ok := T.Dynamic[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
+	if ok && builtin.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -398,7 +381,7 @@ func (T *ServerPublic) ConfigConn(origin *Conn, handle func(name string, dsc, sr
 		return false
 	}
 	c, ok := T.CC[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
+	if ok && builtin.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -410,7 +393,7 @@ func (T *ServerPublic) ConfigServer(origin *Server, handle func(name string, dsc
 		return false
 	}
 	c, ok := T.CS[origin.PublicName]
-	if ok && vweb.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
+	if ok && builtin.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		if origin.TLS != nil && len(origin.TLS.CipherSuites) == 0 {
 			origin.TLS.CipherSuitesAuto()
@@ -451,6 +434,26 @@ func (T *Config) ParseFile(file string) error {
 	return json.NewDecoder(osFile).Decode(T)
 }
 
+func (T *Config) ParseFiles(file string) error {
+	// 加载主配置文件
+	if err := T.ParseFile(file); err != nil {
+		return err
+	}
+
+	// 加载子配置文件
+	dir := filepath.Dir(file)
+	list, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, v := range list {
+		if err = loadSubConf(filepath.Join(dir, v.Name()), T); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ParseReader 解析服务器配置数据，一个JSON格式的数据。
 //
 //	参：
@@ -474,7 +477,7 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 		// 设置本地拨号地址
 		netTCPAddr, err := net.ResolveTCPAddr("tcp", conf.LocalAddr)
 		if err != nil {
-			return verror.TrackErrorf("ConfigSitePlugin.LocalAddr 地址无法解析这个(%s)。格式应该是 111.222.444.555:0 或者 www.xxx.com:0", conf.LocalAddr)
+			return fmt.Errorf("ConfigSitePlugin.LocalAddr 地址无法解析这个(%s)。格式应该是 111.222.444.555:0 或者 www.xxx.com:0", conf.LocalAddr)
 		}
 		c.Dialer.LocalAddr = netTCPAddr
 	}
@@ -489,7 +492,7 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 	if conf.ProxyURL != "" {
 		u, err := url.Parse(conf.ProxyURL)
 		if err != nil {
-			return verror.TrackErrorf("代理地址不是有效的ConfigSitePlugin.ProxyURL(%s)", conf.ProxyURL)
+			return fmt.Errorf("代理地址不是有效的ConfigSitePlugin.ProxyURL(%s)", conf.ProxyURL)
 		}
 		c.Tr.Proxy = http.ProxyURL(u)
 	}
@@ -551,7 +554,7 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 
 		for _, filename := range conf.TLS.RootCAs {
 			// 打开文件
-			caData, err := ioutil.ReadFile(filename)
+			caData, err := os.ReadFile(filename)
 			if err != nil {
 				return verror.TrackErrorf("%s %s", filename, err.Error())
 			}
@@ -561,7 +564,7 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 				{
 					certificates, err := x509.ParseCertificates(caData)
 					if err != nil {
-						return verror.TrackErrorf("%s %s", filename, err.Error())
+						return fmt.Errorf("%s %s", filename, err.Error())
 					}
 					for _, cert := range certificates {
 						tlsConfig.RootCAs.AddCert(cert)
@@ -570,12 +573,12 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 			case ".pem", ".crt":
 				{
 					if !tlsConfig.RootCAs.AppendCertsFromPEM(caData) {
-						return verror.TrackErrorf("%s %s\n", filename, "not is a valid PEM format")
+						return fmt.Errorf("%s %s\n", filename, "not is a valid PEM format")
 					}
 				}
 			default:
 				{
-					return verror.TrackErrorf("TLS.RootCAs[\"%s\"], the file type is not supported，only support \".cer/.crt/.pem\" file type", filename)
+					return fmt.Errorf("TLS.RootCAs[\"%s\"], the file type is not supported，only support \".cer/.crt/.pem\" file type", filename)
 				}
 			}
 		}
@@ -604,13 +607,62 @@ func configRPCClient(c *vweb.PluginRPCClient, conf *SitePlugin) error {
 			// 设置本地拨号地址
 			netTCPAddr, err := net.ResolveTCPAddr("tcp", conf.LocalAddr)
 			if err != nil {
-				return verror.TrackErrorf("ConfigSitePlugin.LocalAddr 地址无法解析这个(%s)。格式应该是 111.222.444.555:0 或者 www.xxx.com:0", conf.LocalAddr)
+				return fmt.Errorf("ConfigSitePlugin.LocalAddr 地址无法解析这个(%s)。格式应该是 111.222.444.555:0 或者 www.xxx.com:0", conf.LocalAddr)
 			}
 			d.LocalAddr = netTCPAddr
 		}
 		d.Timeout = time.Duration(conf.Timeout) * time.Millisecond
 		d.KeepAlive = time.Duration(conf.KeepAlive) * time.Millisecond
 		d.FallbackDelay = time.Duration(conf.FallbackDelay) * time.Millisecond
+	}
+	return nil
+}
+
+func parseSubconf(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(data, v)
+	return err
+}
+
+func loadSubConf(path string, conf *Config) error {
+	if strings.HasSuffix(path, ".site.json") {
+		var site []Site
+		if err := parseSubconf(path, &site); err != nil {
+			return err
+		}
+	V:
+		for i, v := range conf.Sites.Site {
+			if len(site) == 0 {
+				break V
+			}
+
+		V1:
+			for i1, v1 := range site {
+				if v.Identity == v1.Identity {
+					// 先替换
+					conf.Sites.Site[i] = v1
+
+					// 删除已替换的配置
+					site = slices.Delete(site, i1, i1+1)
+					break V1
+				}
+			}
+		}
+		// 剩下的全是新创建的
+		conf.Sites.Site = append(conf.Sites.Site, site...)
+	}
+
+	if strings.HasSuffix(path, ".listen.json") {
+		var listen map[string]Listen
+		if err := parseSubconf(path, &listen); err != nil {
+			return err
+		}
+		for k, v := range listen {
+			conf.Servers.Listen[k] = v
+		}
 	}
 	return nil
 }

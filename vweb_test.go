@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func Test_GenerateRandomId(t *testing.T) {
+func Test_GenerateRandomID(t *testing.T) {
 	rnd := make([]byte, 10)
-	err := GenerateRandomId(rnd)
+	err := GenerateRandomID(rnd)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/456vv/vweb/v2"
 	"github.com/456vv/vweb/v2/server/config"
 	"github.com/issue9/assert/v2"
 )
@@ -294,25 +293,23 @@ func Test_Server_ConfigServer(t *testing.T) {
 
 func Test_Server_updateSitePoolAdd(t *testing.T) {
 	sg := NewGroup()
-	sg.sitePool = vweb.DefaultSitePool
 	conf := config.Site{
 		Identity: "A",
 		Session: config.SiteSession{
 			Name:    "BB",
-			Expired: 0,
+			Expired: 10,
 			Size:    128,
 		},
 	}
 	sg.updateSitePoolAdd(conf)
-
-	site := vweb.DefaultSitePool.NewSite(conf.Identity)
-
-	if conf.Session.Expired != int64(site.Sessions.Expired) {
-		t.Fatal("无法增加站点池")
+	if time.Duration(conf.Session.Expired)*time.Second != sg.sitePool.NewSite(conf.Identity).Sessions().Expired {
+		t.Fatal("站点池的会话时间不一致")
 	}
 
-	sg.updateSitePoolDel([]string{})
-	if int64(vweb.DefaultSitePool.NewSite(conf.Identity).Sessions.Expired) == conf.Session.Expired {
-		t.Fatal("无法删除站点池")
+	sg.updateSitePoolDel([]string{}, []string{})
+	sg.updateSitePoolAdd(conf)
+
+	if time.Duration(conf.Session.Expired)*time.Second != sg.sitePool.NewSite(conf.Identity).Sessions().Expired {
+		t.Fatal("站点池的【默认】会话时间不一致")
 	}
 }

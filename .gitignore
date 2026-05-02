@@ -1,3 +1,5 @@
 server/cmd/main/bin/
 .vscode/
 .history/
+.continue
+.git

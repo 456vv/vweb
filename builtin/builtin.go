@@ -18,7 +18,7 @@ func Value(v any) reflect.Value {
 // Type(v)
 func Type(v any) reflect.Type {
 	t := builtinType(v)
-	return reflect.PtrTo(t)
+	return reflect.PointerTo(t)
 }
 
 // Panic(v)
@@ -207,18 +207,22 @@ func Set(m any, args ...any) {
 	if (n & 1) != 0 {
 		panic("call with invalid argument count: please use Set(obj, member1, val1, ...)")
 	}
-	o := reflect.ValueOf(m)
-	o = reflect.Indirect(o)
+	o := reflect.Indirect(reflect.ValueOf(m))
 	switch o.Kind() {
 	case reflect.Slice, reflect.Array:
-		telem := reflect.TypeOf(m).Elem()
+		telem := o.Type().Elem() // 修复盲区：原来为 reflect.TypeOf(m) 会导致传指针时获取 Elem 错误
 		for i := 0; i < n; i += 2 {
 			index, ok := args[i].(int)
 			if !ok {
 				panic("slice position is not a valid `int` type")
 			}
 			val := autoConvert(telem, args[i+1])
-			o.Index(index).Set(val)
+
+			idxRef := o.Index(index)
+			if !idxRef.CanSet() { // 修复盲区：如果用户传入的是 Array 的值而非指针，拦截原生恐慌
+				panic("array/slice element is unaddressable or unexported, please pass a pointer")
+			}
+			idxRef.Set(val)
 		}
 	case reflect.Map:
 		setMapMember(m, args...)
@@ -233,8 +237,7 @@ func Set(m any, args ...any) {
 // Get(string, index)
 // Get(number, index)
 func Get(m any, key any) any {
-	o := reflect.ValueOf(m)
-	o = reflect.Indirect(o)
+	o := reflect.Indirect(reflect.ValueOf(m))
 	var s string
 	switch o.Kind() {
 	case reflect.Map:
@@ -250,8 +253,8 @@ func Get(m any, key any) any {
 			}
 			panic(fmt.Errorf("index out of range [%d] with length %d", idx, o.Len()))
 		}
-		panic("slice key isn't an int type")
-	case reflect.Ptr, reflect.Interface, reflect.Struct:
+		panic("slice/array/string key isn't an int type")
+	case reflect.Pointer, reflect.Interface, reflect.Struct:
 		return getMember(m, key)
 	case reflect.Complex64, reflect.Complex128:
 		return 0
@@ -271,19 +274,14 @@ func Get(m any, key any) any {
 	panic(fmt.Errorf("type %v does not support %v get", o.Kind(), key))
 }
 
-// Len([]T)
-// Len(string)
-// Len(map[T]T)
 func Len(a any) int {
 	if a == nil {
 		return 0
 	}
-
 	v := inDirect(reflect.ValueOf(a))
 	if !v.IsValid() {
 		return 0
 	}
-
 	switch v.Kind() {
 	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice, reflect.String:
 		return v.Len()
@@ -300,7 +298,6 @@ func Cap(a any) int {
 	if !v.IsValid() {
 		return 0
 	}
-
 	switch v.Kind() {
 	case reflect.Array, reflect.Slice:
 		return v.Cap()
@@ -395,7 +392,7 @@ func Float64(a any) float64 {
 	case uint64:
 		return float64(a1)
 	case unsafe.Pointer:
-		return *(*float64)(unsafe.Pointer(a1))
+		return *(*float64)(a1)
 	}
 	return autoConvert(builtinType(float64(0)), a).Float()
 }
@@ -428,7 +425,7 @@ func Float32(a any) float32 {
 	case uint64:
 		return float32(a1)
 	case unsafe.Pointer:
-		return *(*float32)(unsafe.Pointer(a1))
+		return *(*float32)(a1)
 	}
 	return float32(autoConvert(builtinType(float32(0)), a).Float())
 }
@@ -461,7 +458,7 @@ func Int(a any) int {
 	case uint64:
 		return int(a1)
 	case unsafe.Pointer:
-		return *(*int)(unsafe.Pointer(a1))
+		return *(*int)(a1)
 	}
 	return int(autoConvert(builtinType(int(0)), a).Int())
 }
@@ -494,7 +491,7 @@ func Int8(a any) int8 {
 	case uint64:
 		return int8(a1)
 	case unsafe.Pointer:
-		return *(*int8)(unsafe.Pointer(a1))
+		return *(*int8)(a1)
 	}
 	return int8(autoConvert(builtinType(int8(0)), a).Int())
 }
@@ -527,7 +524,7 @@ func Int16(a any) int16 {
 	case uint64:
 		return int16(a1)
 	case unsafe.Pointer:
-		return *(*int16)(unsafe.Pointer(a1))
+		return *(*int16)(a1)
 	}
 	return int16(autoConvert(builtinType(int16(0)), a).Int())
 }
@@ -560,7 +557,7 @@ func Int32(a any) int32 {
 	case uint64:
 		return int32(a1)
 	case unsafe.Pointer:
-		return *(*int32)(unsafe.Pointer(a1))
+		return *(*int32)(a1)
 	}
 	return int32(autoConvert(builtinType(int32(0)), a).Int())
 }
@@ -593,7 +590,7 @@ func Rune(a any) rune {
 	case uint64:
 		return rune(a1)
 	case unsafe.Pointer:
-		return *(*rune)(unsafe.Pointer(a1))
+		return *(*rune)(a1)
 	}
 	panicUnsupportedOp1("rune", a)
 	return 0
@@ -627,7 +624,7 @@ func Int64(a any) int64 {
 	case uint64:
 		return int64(a1)
 	case unsafe.Pointer:
-		return *(*int64)(unsafe.Pointer(a1))
+		return *(*int64)(a1)
 	}
 	return autoConvert(builtinType(int64(0)), a).Int()
 }
@@ -660,7 +657,7 @@ func Uint(a any) uint {
 	case uint64:
 		return uint(a1)
 	case unsafe.Pointer:
-		return *(*uint)(unsafe.Pointer(a1))
+		return *(*uint)(a1)
 	}
 	return uint(autoConvert(builtinType(uint(0)), a).Uint())
 }
@@ -693,7 +690,7 @@ func Uint8(a any) uint8 {
 	case uint64:
 		return uint8(a1)
 	case unsafe.Pointer:
-		return *(*uint8)(unsafe.Pointer(a1))
+		return *(*uint8)(a1)
 	}
 	return uint8(autoConvert(builtinType(uint8(0)), a).Uint())
 }
@@ -726,7 +723,7 @@ func Byte(a any) byte {
 	case uint64:
 		return byte(a1)
 	case unsafe.Pointer:
-		return *(*byte)(unsafe.Pointer(a1))
+		return *(*byte)(a1)
 	}
 	panicUnsupportedOp1("byte", a)
 	return 0
@@ -760,7 +757,7 @@ func Uint16(a any) uint16 {
 	case uint64:
 		return uint16(a1)
 	case unsafe.Pointer:
-		return *(*uint16)(unsafe.Pointer(a1))
+		return *(*uint16)(a1)
 	}
 	return uint16(autoConvert(builtinType(uint16(0)), a).Uint())
 }
@@ -793,7 +790,7 @@ func Uint32(a any) uint32 {
 	case uint64:
 		return uint32(a1)
 	case unsafe.Pointer:
-		return *(*uint32)(unsafe.Pointer(a1))
+		return *(*uint32)(a1)
 	}
 	return uint32(autoConvert(builtinType(uint32(0)), a).Uint())
 }
@@ -826,7 +823,7 @@ func Uint64(a any) uint64 {
 	case uint64:
 		return uint64(a1)
 	case unsafe.Pointer:
-		return *(*uint64)(unsafe.Pointer(a1))
+		return *(*uint64)(a1)
 	}
 	return autoConvert(builtinType(uint64(0)), a).Uint()
 }
@@ -839,7 +836,7 @@ func Complex64(a any) complex64 {
 	case complex128:
 		return complex64(a1)
 	case unsafe.Pointer:
-		return *(*complex64)(unsafe.Pointer(a1))
+		return *(*complex64)(a1)
 	}
 	return complex64(autoConvert(builtinType(complex64(0)), a).Complex())
 }
@@ -852,7 +849,7 @@ func Complex128(a any) complex128 {
 	case complex128:
 		return a1
 	case unsafe.Pointer:
-		return *(*complex128)(unsafe.Pointer(a1))
+		return *(*complex128)(a1)
 	}
 	return autoConvert(builtinType(complex128(0)), a).Complex()
 }
@@ -862,6 +859,8 @@ func Uintptr(a any) uintptr {
 	switch a1 := a.(type) {
 	case uintptr:
 		return a1
+	case unsafe.Pointer:
+		return uintptr(a1)
 	}
 	return reflect.ValueOf(a).Pointer()
 }
@@ -874,7 +873,7 @@ func Pointer(a any) unsafe.Pointer {
 	case uintptr:
 		return unsafe.Pointer(a1)
 	}
-	return unsafe.Pointer(reflect.ValueOf(a).Pointer())
+	return reflect.ValueOf(a).UnsafePointer()
 }
 
 // String returns string(a)
@@ -923,29 +922,158 @@ func Runes(inf any) []rune {
 	return []rune(fmt.Sprintf("%s", inf))
 }
 
-// 该函数暂时测试，可能会改动。
-//	a,b any		b转换到a类型
 func Convert(a, b any) bool {
-	av, ok := a.(reflect.Value)
-	if !ok {
-		av = reflect.ValueOf(a)
-		av = reflect.Indirect(av)
-	}
-	bv, ok := b.(reflect.Value)
-	if !ok {
-		bv = reflect.ValueOf(b)
-		bv = reflect.Indirect(bv)
-	}
+	av := reflect.Indirect(reflect.ValueOf(a))
+	bv := reflect.Indirect(reflect.ValueOf(b))
 	return typeConvert(av, bv)
 }
 
-// 初始化一个类型
-//	v any		未初始化的类型
 func Init(v any) {
-	rv, ok := v.(reflect.Value)
-	if !ok {
-		rv = reflect.ValueOf(v)
-		rv = reflect.Indirect(rv)
-	}
+	rv := reflect.Indirect(reflect.ValueOf(v))
 	typeInit(rv, false)
+}
+
+func CopyStruct(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool) error {
+	return copyStruct(reflect.ValueOf(dsc), reflect.ValueOf(src), "", exclude, false)
+}
+
+func CopyStructDeep(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool) error {
+	return copyStruct(reflect.ValueOf(dsc), reflect.ValueOf(src), "", exclude, true)
+}
+
+func copyStruct(dsc, src reflect.Value, name string, exclude func(name string, dsc reflect.Value, src reflect.Value) bool, deep bool) error {
+	va := inDirect(dsc)
+	vb := inDirect(src)
+	if va.Kind() != vb.Kind() || va.Kind() != reflect.Struct {
+		return fmt.Errorf("仅支持struct类型，dsc(%s)，src(%s)", va.Kind(), vb.Kind())
+	}
+
+	bt := vb.Type()
+	for i := 0; i < bt.NumField(); i++ {
+
+		bvField := vb.Field(i)
+		if !bvField.IsValid() {
+			continue
+		}
+
+		info := bt.Field(i)
+		avField := va.FieldByName(info.Name)
+
+		if exclude != nil && exclude(name+info.Name, avField, bvField) {
+			continue
+		}
+		if !avField.IsValid() {
+			continue
+		}
+
+		avfi := inDirect(avField)
+		bvfi := inDirect(bvField)
+		if !avfi.IsValid() && bvfi.IsValid() {
+			typeInit(avField, false)
+			avfi = inDirect(avField)
+		}
+
+		afKind := avfi.Kind()
+		bfKind := bvfi.Kind()
+
+		if deep && afKind == bfKind && afKind == reflect.Struct {
+			copyStruct(avField, bvField, info.Name+".", exclude, deep)
+			continue
+		}
+
+		if afKind == bfKind && afKind == reflect.Map {
+			if bvfi.IsNil() {
+				continue
+			}
+			bfType := bvfi.Type()
+			afType := avfi.Type()
+
+			if !bfType.Key().ConvertibleTo(afType.Key()) || !bfType.Elem().ConvertibleTo(afType.Elem()) {
+				continue
+			}
+			if avfi.IsNil() {
+				if !avfi.CanSet() { // 修复盲区：未公开字段不可复制 Map 分配
+					continue
+				}
+				mt := reflect.MapOf(afType.Key(), afType.Elem())
+				mv := reflect.MakeMapWithSize(mt, bvfi.Len())
+				avfi.Set(mv)
+			}
+			bfmr := bvfi.MapRange()
+			for bfmr.Next() {
+				key := bfmr.Key().Convert(afType.Key())
+				val := bfmr.Value().Convert(afType.Elem())
+				avfi.SetMapIndex(key, val)
+			}
+			continue
+		}
+
+		if afKind == bfKind && afKind == reflect.Slice {
+			if bvfi.IsNil() || avField.Type() != bvField.Type() {
+				continue
+			}
+			nv := reflect.MakeSlice(bvField.Type(), 0, bvField.Cap())
+			if bvField.Len() > 0 {
+				nv = reflect.AppendSlice(nv, bvField)
+			}
+			if avField.CanSet() { // 修复盲区补充防崩
+				avField.Set(nv)
+			}
+			continue
+		}
+
+		if avField.CanSet() {
+			if bvField.Type().AssignableTo(avField.Type()) {
+				avField.Set(bvField)
+			} else if bvField.Type().ConvertibleTo(avField.Type()) {
+				bvv := bvField.Convert(avField.Type())
+				avField.Set(bvv)
+			}
+		}
+	}
+	return nil
+}
+
+func DepthField(s any, index ...any) (field any, err error) {
+	field = s
+	for _, i := range index {
+		field, err = depthField(field, i)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return field, nil
+}
+
+func depthField(s any, index any) (any, error) {
+	sv := inDirect(reflect.ValueOf(s))
+	var v reflect.Value
+	switch sv.Kind() {
+	case reflect.Struct:
+		switch idx := index.(type) {
+		case string:
+			v = sv.FieldByName(idx)
+		case int:
+			v = sv.Field(idx)
+		}
+	case reflect.Map:
+		if sv.IsNil() {
+			return nil, fmt.Errorf("该字段是 nil。错误的字段名为(%#v)", index)
+		}
+		v = sv.MapIndex(reflect.ValueOf(index))
+	case reflect.Slice, reflect.Array:
+		if i, ok := index.(int); ok && sv.Len() > i {
+			v = sv.Index(i)
+		}
+	default:
+		return nil, fmt.Errorf("非结构类型，无法正确读取。错误的类型为（%s）", sv.Kind())
+	}
+
+	if v.Kind() != reflect.Invalid {
+		if !v.CanInterface() { // 修复盲区：不可导出的私有小写字段读取 panic 阻断
+			return nil, fmt.Errorf("该字段未导出，不可读。字段名（%#v）", index)
+		}
+		return v.Interface(), nil
+	}
+	return nil, fmt.Errorf("该字段不是有效。错误的字段名为（%#v）", index)
 }

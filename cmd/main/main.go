@@ -10,11 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/456vv/vweb/v2"
-	"github.com/456vv/vweb/v2/cmd/main/internal/base"
 	"github.com/456vv/vweb/v2/cmd/main/internal/dynamic"
 	"github.com/456vv/vweb/v2/server"
-	"github.com/456vv/vweb/v2/server/config"
 	"github.com/456vv/x/watch"
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/crypto/acme/autocert"
@@ -40,18 +37,7 @@ func main() {
 		return
 	}
 
-	var (
-		err      error
-		exitCall vweb.ExitCall
-	)
-
-	// 非法结束退出
-	base.StartSigHandlers()
-	go func() {
-		<-base.Interrupted
-		exitCall.Free()
-	}()
-	defer exitCall.Free()
+	var err error
 
 	// 程序根目录
 	if err = os.Chdir(*fRootDir); err != nil {
@@ -77,12 +63,12 @@ func main() {
 		log.Println(err)
 		return
 	}
-	exitCall.Defer(logFile.Close)
+	logFile.Close()
 
 	// 服务器
 	group := server.NewGroup()
 	group.ErrorLog.SetOutput(logFile)
-	group.DynamicModule = dynamic.Module()
+	group.Module = dynamic.Module
 	group.CertManager = &autocert.Manager{
 		Prompt:      autocert.AcceptTOS,
 		RenewBefore: time.Hour * 7 * 24, // 7天
@@ -92,21 +78,10 @@ func main() {
 			return errors.New("auto cert error")
 		},
 	}
-	exitCall.Defer(group.Close)
+	defer group.Close()
 
 	// 加载自动证书允许文件
 	loadAutoCertHostPolicy(group.CertManager, *fAllowCertHost)
-
-	// 加载配置文件
-	updateConfig := func(path string) {
-		conf := new(config.Config)
-		if err = loadConfog(path, conf); err != nil {
-			log.Printf("加载配置文件错误: %s\n", err)
-			return
-		}
-		group.UpdateConfig(conf)
-		log.Printf("加载配置文件成功\n")
-	}
 
 	// 文件看守
 	watcher, err := watch.NewWatch()
@@ -114,7 +89,19 @@ func main() {
 		log.Println(err)
 		return
 	}
-	exitCall.Defer(watcher.Close)
+	defer watcher.Close()
+
+	// 加载配置文件，支持子配置
+	updateConfig := func(path string) {
+		ok, err := group.LoadConfigFile(path)
+		if err != nil {
+			log.Printf("加载配置文件出现错误: %s\n", err.Error())
+			return
+		}
+		log.Printf("加载配置文件成功(%t)\n", ok)
+	}
+	// 主动加载配置
+	updateConfig(*fConfigFile)
 
 	// 监听配置文件
 	watcher.Monitor(filepath.Dir(*fConfigFile), func(e fsnotify.Event) {
@@ -136,7 +123,6 @@ func main() {
 		}
 	})
 
-	updateConfig(*fConfigFile)
 	if err := group.Start(); err != nil {
 		log.Printf("启动失败：%s\n", err)
 	}

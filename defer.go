@@ -1,169 +1,147 @@
 package vweb
 
-import(
-    "reflect"
-    "github.com/456vv/verror"
-    "sync"
+import (
+	"fmt"
+	"reflect"
+	"sync"
 )
 
-//ExecCall 执行函数
+// ExecCall 执行函数包装器
 type ExecCall struct {
-	fun         reflect.Value                                                               // 函数
-    arg         []reflect.Value                                                             // 参数
-    argVariadic bool                                                                        // 有可变参数
-}
-func (T *ExecCall) Func(call any, args ... any) error {
-    var (
-		
-        fn          reflect.Value
-        ft          reflect.Type
-		
-        fnInLen     int
-        argLen      int = len(args)
-        variadic    bool
-    )
-    if f, ok := call.(reflect.Value); ok {
-	 	fn = f
-    }else{
-    	fn = reflect.ValueOf(call)
-    }
-    
-    fvdirect := inDirect(fn)
-    if fvdirect.Kind() != reflect.Func {
-        return verror.TrackErrorf("vweb: 第一个参数不是有效的func，错误的func类型为 %s。", fvdirect.Kind())
-    }
-    if fvdirect.IsNil() {
-    	return verror.TrackErrorf("vweb: 该函数 %s 还没被初始化，不可以使用！", fn.Type().Name())
-    }
-	
-    ft 			= fvdirect.Type()
-    fnInLen 	= ft.NumIn()
-    variadic 	= ft.IsVariadic()
-    fnargLen 	:= fnInLen - argLen
-    if (!variadic && fnInLen != argLen) ||
-        variadic && fnargLen != 1 && fnInLen > argLen {
-    	return verror.TrackErrorf("vweb: 传入的参数长度与调用函数参数不符合。调用函数参数长度为（%d）,传入参数长度为（%d）。", fnInLen, argLen)
-    }
-	
-	fnInLen = fnInLen-1			//函数参数-长度
-    var argIndex reflect.Type 	//函数参数-类型
-    var varArgs reflect.Value		//创建一上存放可变参数slice
-    var typeErr bool
-    for index, arg := range args {
-    	argv := reflect.ValueOf(&arg).Elem().Elem()
-    	
-        //限制参数数量
-        if index <= fnInLen {
-        	argIndex =  ft.In(index)
-        	//防止无类型nil参数
-        	if argv.Kind() == reflect.Invalid {
-        		argv = reflect.New(argIndex).Elem()
-        	}
-
-        	
-			//1，函数参数是接口
-			//2，类型相等
-			//3，类型可以转换
-    		if argIndex.Kind() == reflect.Interface || argIndex.Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex) {
-				//适用func(a any, b ...any) => call(any, []any)
-        		T.arg = append(T.arg, argv)//argv.Elem() 是将参数 any 转为 原类型
-            	continue
-    		}
-    		
-			//最后一个是切片
-			if index == fnInLen && variadic && (argIndex.Elem().Kind() == reflect.Interface || argv.Type().ConvertibleTo(argIndex.Elem())) {
-				//适用func(a any, b ...any) => call(any, any)
-				varArgs = reflect.MakeSlice(argIndex, 0, 0)
-				varArgs = reflect.Append(varArgs, argv)
-				continue
-    		}
-    		
-    		//参数类型不匹配
-    		typeErr = true
-        }
-        
-        //可变参数+1...
-        if !typeErr {
-        	if varArgs.Kind() != reflect.Invalid {
-	        	if argIndex.Elem().Kind() == reflect.Interface || (argIndex.Elem().Kind() == argv.Kind() && argv.Type().ConvertibleTo(argIndex.Elem())) {
-		        		//适用func(a any, b ...any) => call(any, any, any)
-		         		varArgs = reflect.Append(varArgs, argv)
-	         			continue
-	        	}
-        	}
-        	typeErr = true
-        }
-	    if typeErr {
-	    	return verror.TrackErrorf("vweb: 传入参数类型与调用函数参数类型不符，第(%d)个参数，函数参数类型为（%s），传入类型为（%s）。", index+1, argIndex.Kind(), argv.Kind())
-	    }
-    }
-    //调用没有传入可变参数
-    if variadic {
-    	//1，函数参数-输入参数=1，表示没有设置可变参数
-    	//2，判断 varArgs 上面没有初始化，否则创建一个空的可变参数
-    	if (ft.NumIn()-argLen) == 1 && varArgs.Kind() == reflect.Invalid {
-    		varArgs = reflect.MakeSlice(ft.In(fnInLen), 0, 0)
-    	}
-    	//1，仅对有效 varArgs 追加
-    	if varArgs.Kind() != reflect.Invalid {
-   			T.arg = append(T.arg, varArgs)
-    	}
-    }
-
-    T.fun = fn
-    T.argVariadic = variadic
-    return nil
-}
-func (T *ExecCall) Exec() (ret []any) {
-	var rvs []reflect.Value
-	if T.argVariadic {
-		rvs = T.fun.CallSlice(T.arg)
-	}else{
-	    rvs = T.fun.Call(T.arg)
- 	}
- 	if len(rvs) == 0 {
- 		return nil
- 	}
- 	for _, rv := range rvs {
-		ret = append(ret, typeSelect(rv))
- 	}
- 	return
+	fun reflect.Value
+	arg []reflect.Value
 }
 
-//ExitCall 过期函数
+// Func 初始化函数和参数
+func (T *ExecCall) Func(call any, args ...any) error {
+	var fn reflect.Value
+	if v, ok := call.(reflect.Value); ok {
+		fn = v
+	} else {
+		fn = reflect.ValueOf(call)
+	}
+
+	// 1. 快速检查：是否为函数且非空
+	if fn.Kind() == reflect.Pointer {
+		fn = fn.Elem()
+	}
+	if fn.Kind() != reflect.Func {
+		return fmt.Errorf("vweb: call parameter is not a func, got %s", fn.Kind())
+	}
+	if fn.IsNil() {
+		return fmt.Errorf("vweb: function is nil")
+	}
+
+	ft := fn.Type()
+	numIn := ft.NumIn()
+	isVariadic := ft.IsVariadic()
+	argLen := len(args)
+
+	// 2. 参数长度校验
+	if isVariadic {
+		if argLen < numIn-1 {
+			return fmt.Errorf("vweb: not enough arguments, need at least %d, got %d", numIn-1, argLen)
+		}
+	} else {
+		if argLen != numIn {
+			return fmt.Errorf("vweb: argument count mismatch, need %d, got %d", numIn, argLen)
+		}
+	}
+
+	// 3. 预分配 reflect.Value 切片，减少多次 append 的内存分配
+	// 我们统一使用 Call() 而不是 CallSlice()，这样逻辑更清晰，性能差异微乎其微
+	prepArgs := make([]reflect.Value, argLen)
+
+	for i := range argLen {
+		var targetType reflect.Type
+		if isVariadic && i >= numIn-1 {
+			targetType = ft.In(numIn - 1).Elem() // 可变参数的元素类型
+		} else {
+			targetType = ft.In(i)
+		}
+
+		if args[i] == nil {
+			// 处理 nil 参数
+			prepArgs[i] = reflect.Zero(targetType)
+		} else {
+			argV := reflect.ValueOf(args[i])
+			argT := argV.Type()
+
+			// 类型检查与转换
+			if argT.AssignableTo(targetType) {
+				prepArgs[i] = argV
+			} else if argT.ConvertibleTo(targetType) {
+				prepArgs[i] = argV.Convert(targetType)
+			} else {
+				return fmt.Errorf("vweb: arg[%d] type mismatch: cannot convert %s to %s", i, argT, targetType)
+			}
+		}
+	}
+
+	T.fun = fn
+	T.arg = prepArgs
+	return nil
+}
+
+// Exec 执行函数
+func (T *ExecCall) Exec() []any {
+	if !T.fun.IsValid() {
+		return nil
+	}
+
+	// 无论是否是可变参数函数，只要参数已经展开平铺，都可以直接用 Call
+	var rvs []reflect.Value = T.fun.Call(T.arg)
+
+	if len(rvs) == 0 {
+		return nil
+	}
+
+	ret := make([]any, len(rvs))
+	for i, rv := range rvs {
+		ret[i] = rv.Interface()
+	}
+	return ret
+}
+
+// ExitCall 任务管理
 type ExitCall struct {
-    // 记录每个用户的函数，会话超时后关闭打开的对象
-    efs     []*ExecCall
-    m		sync.Mutex
+	efs []*ExecCall
+	m   sync.Mutex
 }
 
-// Defer 在用户会话时间过期后，将被调用。
-//	call any            函数
-//	args ... any        参数或更多个函数是函数的参数
-//	error                       错误
-//  例：
-//	.Defer(fmt.Println, "1", "2")
-//	.Defer(fmt.Printf, "%s", "汉字")
-func (T *ExitCall) Defer(call any, args ... any) error {
-	T.m.Lock()
-	defer T.m.Unlock()
-	
-	df := new(ExecCall)
+// 使用对象池减少 ExecCall 频繁创建销毁的开销
+var execCallPool = sync.Pool{
+	New: func() any {
+		return &ExecCall{}
+	},
+}
+
+func (T *ExitCall) Defer(call any, args ...any) error {
+	// 从池中获取对象
+	df := execCallPool.Get().(*ExecCall)
 	if err := df.Func(call, args...); err != nil {
+		execCallPool.Put(df) // 出错放回
 		return err
 	}
-    T.efs = append(T.efs, df)
-    return nil
+
+	T.m.Lock()
+	T.efs = append(T.efs, df)
+	T.m.Unlock()
+	return nil
 }
 
-
-//Free 执行结束Defer
 func (T *ExitCall) Free() {
 	T.m.Lock()
-	defer T.m.Unlock()
-	
-	for i:=len(T.efs)-1; i>=0; i-- {
-	 	T.efs[i].Exec()
+	calls := T.efs
+	T.efs = nil // 尽早释放引用
+	T.m.Unlock()
+
+	// 倒序执行
+	for i := len(calls) - 1; i >= 0; i-- {
+		calls[i].Exec()
+		// 清理并放回对象池
+		calls[i].arg = nil
+		calls[i].fun = reflect.Value{}
+		execCallPool.Put(calls[i])
 	}
-	T.efs = nil
 }

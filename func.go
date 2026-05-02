@@ -4,21 +4,23 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"log"
 	mathRand "math/rand"
 	"net/http"
 	"os"
 	"path"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/456vv/verror"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
 
-// 自动从 Let's Encrypt 申请证书
+// AutoCert 自动从 Let's Encrypt 申请证书
 //
 //	ac *autocert.Manager	申请证书管理
 //	tlsconf *tls.Config		tls配置
@@ -61,8 +63,8 @@ func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) h
 			return cert, nil
 		}
 
-		// 没有配置"acme-tls/1"
-		if !strSliceContains(tlsconf.NextProtos, acme.ALPNProto) {
+		// 没有配置"acme-tls/1"协议，自动添加
+		if !slices.Contains(tlsconf.NextProtos, acme.ALPNProto) {
 			tlsconf.NextProtos = append(tlsconf.NextProtos, acme.ALPNProto)
 		}
 
@@ -111,22 +113,22 @@ func equalDomain(host, domain string) (ok bool) {
 	return
 }
 
-// GenerateRandomId 生成标识符
+// GenerateRandomID 生成标识符
 //
 //	[]byte  	生成的标识符
 //	err error	错误
-func GenerateRandomId(rnd []byte) error {
+func GenerateRandomID(rnd []byte) error {
 	if rnd == nil {
-		return verror.TrackErrorf("vweb: The parameter is nil, unable to generate random data!")
+		return errors.New("vweb: The parameter is nil, unable to generate random data")
 	}
 	if _, err := rand.Read(rnd); err != nil {
 		// 当系统随机API函数不可用，将使用备用随机数。
 		// 该功能在效力上也不理想。
 		// 这可能是在万分之一的情况下使用到。
-		source := mathRand.NewSource(0)
+		seed := time.Now().UnixNano()
+		source := mathRand.NewSource(seed)
 		rr := mathRand.New(source)
-		for i := 0; i < len(rnd); i++ {
-			rr.Seed(time.Now().UnixNano() + int64(i))
+		for i := range rnd {
 			r := rr.Int()
 			rnd[i] = byte(r)
 		}
@@ -141,12 +143,12 @@ func GenerateRandomId(rnd []byte) error {
 //	err error	错误
 func GenerateRandom(length int) ([]byte, error) {
 	rnd := make([]byte, length)
-	err := GenerateRandomId(rnd)
+	err := GenerateRandomID(rnd)
 	if err != nil {
 		return nil, err
 	}
 	encodeLength := len(encodeStd)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		pos := int(rnd[i]) % encodeLength
 		rnd[i] = encodeStd[pos]
 	}
@@ -175,7 +177,7 @@ func AddSalt(rnd []byte, salt string) string {
 		encodeLength = len(encodeStd)
 	)
 	if sl != 0 {
-		for i := 0; i < len(rnd); i++ {
+		for i := range rnd {
 			pos := int(rnd[i]^salt[start]) % encodeLength
 			rnd[i] = encodeStd[pos]
 			start++
@@ -184,7 +186,7 @@ func AddSalt(rnd []byte, salt string) string {
 			}
 		}
 	} else {
-		for i := 0; i < len(rnd); i++ {
+		for i := range rnd {
 			pos := int(rnd[i]) % encodeLength
 			rnd[i] = encodeStd[pos]
 		}
@@ -260,12 +262,8 @@ func ExecFunc(f any, args ...any) ([]any, error) {
 	return ef.Exec(), nil
 }
 
-// strSliceContains 从切片中查找匹配的字符串
-func strSliceContains(ss []string, c string) bool {
-	for _, v := range ss {
-		if v == c {
-			return true
-		}
-	}
-	return false
+// 判断是否是真正的正则表达式（简单判断）
+func isRegex(re *regexp.Regexp) bool {
+	prefix, complete := re.LiteralPrefix()
+	return !complete || prefix == ""
 }
