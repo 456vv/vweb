@@ -23,10 +23,11 @@ type Responser interface {
 
 // response 模本点的响应写入
 type response struct {
-	buffSize int                 // 写入的缓冲大小
-	r        *http.Request       // 请求
-	w        http.ResponseWriter // 响应
-	td       *Dot                // 模板点
+	statusCode int                 // 状态码
+	r          *http.Request       // 请求
+	w          http.ResponseWriter // 响应
+	td         *Dot                // 模板点
+	isWrited   bool
 }
 
 // Write 写入正文
@@ -35,8 +36,7 @@ type response struct {
 //	int           写入的长度
 //	error         错误
 func (T *response) Write(p []byte) (int, error) {
-	T.td.toStatic(p)
-	T.td.writed = true
+	T.isWrited = true
 	return T.w.Write(p)
 }
 
@@ -46,8 +46,7 @@ func (T *response) Write(p []byte) (int, error) {
 //	int           写入的长度
 //	error         错误
 func (T *response) WriteString(s string) (int, error) {
-	T.td.toStatic([]byte(s))
-	T.td.writed = true
+	T.isWrited = true
 	return io.WriteString(T.w, s)
 }
 
@@ -57,15 +56,8 @@ func (T *response) WriteString(s string) (int, error) {
 //	int64         写入的长度
 //	error         错误
 func (T *response) ReadFrom(src io.Reader) (written int64, err error) {
-	T.td.writed = true
-
-	buffsize := T.buffSize
-	if buffsize == 0 {
-		buffsize = defaultDataBufioSize
-	}
-
 	var (
-		p     = make([]byte, buffsize)
+		p     = make([]byte, defaultDataBufioSize)
 		flush = T.w.(http.Flusher)
 	)
 	// 正常读出文件
@@ -101,7 +93,7 @@ func (T *response) ReadFrom(src io.Reader) (written int64, err error) {
 //	urlStr string 网址
 //	code int      状态码
 func (T *response) Redirect(urlStr string, code int) {
-	T.td.writed = true
+	T.isWrited = true
 	http.Redirect(T.w, T.r, urlStr, code)
 }
 
@@ -116,6 +108,8 @@ func (T *response) Header() http.Header {
 //
 //	code int      状态码
 func (T *response) WriteHeader(code int) {
+	T.statusCode = code
+	T.isWrited = true
 	T.w.WriteHeader(code)
 }
 
@@ -124,7 +118,7 @@ func (T *response) WriteHeader(code int) {
 //	err string    错误字符串
 //	code int      状态码
 func (T *response) Error(err string, code int) {
-	T.td.writed = true
+	T.isWrited = true
 	http.Error(T.w, err, code)
 }
 
@@ -152,7 +146,7 @@ func (T *response) Push(target string, opts *http.PushOptions) error {
 //	error				错误
 func (T *response) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hijack, ok := T.w.(http.Hijacker); ok {
-		T.td.writed = true
+		T.isWrited = true
 		return hijack.Hijack()
 	}
 	return nil, nil, errors.New("vweb: 不支持 http.Hijacker")

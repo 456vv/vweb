@@ -10,23 +10,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/456vv/vweb/v2"
-	"github.com/456vv/vweb/v2/cmd/main/internal/base"
 	"github.com/456vv/vweb/v2/cmd/main/internal/dynamic"
 	"github.com/456vv/vweb/v2/server"
-	"github.com/456vv/x/ticker"
 	"github.com/456vv/x/watch"
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/crypto/acme/autocert"
 )
 
-var version = "App/v1.0"
+var version = "App/v1.1"
 
 var (
-	fRootDir           = flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
-	fConfigFile        = flag.String("ConfigFile", "./config.json", "配置文件")
-	fLogFile           = flag.String("LogFile", "./error.log", "日志文件地址")
-	fTickRefreshConfig = flag.Int("TickRefreshConfig", 60, "定时刷新配置文件,(单位 秒)")
+	fRootDir       = flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
+	fConfigFile    = flag.String("ConfigFile", "config.json", "配置文件")
+	fLogFile       = flag.String("LogFile", "error.log", "日志文件地址")
+	fCertCache     = flag.String("CertCache", "ssl/auto", "证书缓存目录")
+	fAllowCertHost = flag.String("AllowCertHost", "ssl/auto/host.txt", "允许自动申请证书文件路径")
 )
 
 func main() {
@@ -39,18 +37,7 @@ func main() {
 		return
 	}
 
-	var (
-		err      error
-		exitCall vweb.ExitCall
-	)
-
-	// 非法结束退出
-	base.StartSigHandlers()
-	go func() {
-		<-base.Interrupted
-		exitCall.Free()
-	}()
-	defer exitCall.Free()
+	var err error
 
 	// 程序根目录
 	if err = os.Chdir(*fRootDir); err != nil {
@@ -62,6 +49,11 @@ func main() {
 	}
 	log.Printf("根目录：%s\n", dir)
 
+	// 配置文件绝对地址
+	if !filepath.IsAbs(*fConfigFile) {
+		*fConfigFile = filepath.Join(dir, *fConfigFile)
+	}
+
 	// 日志文件对象
 	if err := os.MkdirAll(filepath.Dir(*fLogFile), 0o644); err != nil {
 		panic(err)
@@ -71,35 +63,25 @@ func main() {
 		log.Println(err)
 		return
 	}
-	exitCall.Defer(logFile.Close)
+	logFile.Close()
 
 	// 服务器
 	group := server.NewGroup()
 	group.ErrorLog.SetOutput(logFile)
-	group.DynamicModule = dynamic.Module()
+	group.Module = dynamic.Module
 	group.CertManager = &autocert.Manager{
 		Prompt:      autocert.AcceptTOS,
 		RenewBefore: time.Hour * 7 * 24, // 7天
-		Cache:       autocert.DirCache("ssl/auto"),
+		Cache:       autocert.DirCache(*fCertCache),
 		HostPolicy: func(ctx context.Context, host string) error {
 			// 默认不支持，需要设置ssl/auto/host.txt
 			return errors.New("auto cert error")
 		},
 	}
-	exitCall.Defer(group.Close)
+	defer group.Close()
 
-	tick := ticker.NewTicker(time.Duration(*fTickRefreshConfig) * time.Second)
-	exitCall.Defer(tick.Stop)
-	refererConfog := tick.Func(func() {
-		ok, err := group.LoadConfigFile(*fConfigFile)
-		if err != nil {
-			log.Printf("加载配置文件错误：%s\n", err)
-			return
-		}
-		if ok {
-			log.Printf("加载配置文件成功\n")
-		}
-	})
+	// 加载自动证书允许文件
+	loadAutoCertHostPolicy(group.CertManager, *fAllowCertHost)
 
 	// 文件看守
 	watcher, err := watch.NewWatch()
@@ -107,36 +89,44 @@ func main() {
 		log.Println(err)
 		return
 	}
-	exitCall.Defer(watcher.Close)
+	defer watcher.Close()
+
+	// 加载配置文件，支持子配置
+	updateConfig := func(path string) {
+		ok, err := group.LoadConfigFile(path)
+		if err != nil {
+			log.Printf("加载配置文件出现错误: %s\n", err.Error())
+			return
+		}
+		log.Printf("加载配置文件成功(%t)\n", ok)
+	}
+	// 主动加载配置
+	updateConfig(*fConfigFile)
 
 	// 监听配置文件
-	watcher.Monitor(*fConfigFile, func(event fsnotify.Event) {
-		switch event.Op {
-		case fsnotify.Create, fsnotify.Write:
-			refererConfog()
+	watcher.Monitor(filepath.Dir(*fConfigFile), func(e fsnotify.Event) {
+		switch e.Op {
+		case fsnotify.Create, fsnotify.Write, fsnotify.Remove:
+			if strings.HasSuffix(e.Name, ".json") {
+				updateConfig(*fConfigFile)
+			}
 		default:
 		}
 	})
 
 	// 监听自动申请证书白名单
-	watcher.Monitor("ssl/auto/host.txt", func(event fsnotify.Event) {
+	watcher.Monitor(filepath.Clean(*fAllowCertHost), func(event fsnotify.Event) {
 		switch event.Op {
 		case fsnotify.Create, fsnotify.Write:
-			b, err := os.ReadFile(event.Name)
-			if err != nil || len(b) == 0 {
-				log.Printf("(%s)文件内容为空或错误(%v)", event.Name, err)
-				return
-			}
-			hosts := strings.Split(string(b), "\n")
-			group.CertManager.HostPolicy = autocert.HostWhitelist(hosts...)
+			loadAutoCertHostPolicy(group.CertManager, event.Name)
 		default:
 		}
 	})
 
-	refererConfog()
 	if err := group.Start(); err != nil {
 		log.Printf("启动失败：%s\n", err)
 	}
+
 	// 非法结束进程，留给另一个线程处理退出
 	time.Sleep(time.Second)
 }

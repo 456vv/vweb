@@ -5,16 +5,16 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/456vv/verror"
 	"github.com/456vv/vmap/v2"
 )
 
 type manageSession struct {
-	s      Sessioner
-	recent time.Time
+	s           Sessioner
+	recent      time.Time
+	unavailable bool
 }
 
-// Sessions集
+// Sessions 用于管理不同用户的会话。
 type Sessions struct {
 	Expired      time.Duration // 保存session时间长
 	Name         string        // 标识名称。用于Cookie
@@ -31,35 +31,59 @@ func (T *Sessions) Len() int {
 	return T.ss.Len()
 }
 
-// ProcessDeadAll 定时来处理过期的Session
+func (T *Sessions) InstantDeadAll() {
+	T.ss.Range(func(id, mse any) bool {
+		ms := mse.(*manageSession)
+		// 多线程情况下防止重复检测浪费资源
+		if ms.unavailable {
+			return true
+		}
+		ms.unavailable = true
+		// 执行Defer
+		go ms.s.Free()
+		return true
+	})
+	T.ss.Reset()
+}
+
+// CheckDeadAll 定时来处理过期的Session
 //
 //	[]string	过期的ID名称
-func (T *Sessions) ProcessDeadAll() []any {
-	var expId []any
+func (T *Sessions) CheckDeadAll() []any {
+	var expID []any
 	if T.Expired != 0 {
 		currTime := time.Now()
 		T.ss.Range(func(id, mse any) bool {
 			ms := mse.(*manageSession)
+			// 多线程情况下防止重复检测浪费资源
+			if ms.unavailable {
+				return true
+			}
 			recentTime := ms.recent.Add(T.Expired)
 			if currTime.After(recentTime) {
+				ms.unavailable = true
 				// 追加了expId一次性删除
-				expId = append(expId, id)
+				expID = append(expID, id)
 				// 执行Defer
 				go ms.s.Free()
 			}
 			return true
 		})
-		T.ss.Dels(expId)
+		T.ss.Dels(expID)
 	}
-	return expId
+	return expID
 }
 
 // triggerDeadSession 由用户来触发，并删除已挂载入的Defer
 func (T *Sessions) triggerDeadSession(ms *manageSession) (ok bool) {
+	if ms.unavailable {
+		return true
+	}
 	if T.Expired != 0 {
 		currTime := time.Now()
 		recentTime := ms.recent.Add(T.Expired)
 		if currTime.After(recentTime) {
+			ms.unavailable = true
 			go ms.s.Free()
 			return true
 		}
@@ -67,12 +91,12 @@ func (T *Sessions) triggerDeadSession(ms *manageSession) (ok bool) {
 	return
 }
 
-// generateSessionId 生成Session标识符
+// generateSessionID 生成Session标识符
 //
 //	string  标识符
-func (T *Sessions) generateSessionId() string {
+func (T *Sessions) generateSessionID() string {
 	rnd := make([]byte, T.Size)
-	err := GenerateRandomId(rnd)
+	err := GenerateRandomID(rnd)
 	if err != nil {
 		panic(err)
 	}
@@ -83,15 +107,15 @@ func (T *Sessions) generateSessionId() string {
 	return id[:T.Size]
 }
 
-// SessionId 从请求中读取会话标识
+// SessionID 从请求中读取会话标识
 //
 //	req *http.Request   请求
 //	id string           id标识符
 //	err error           错误
-func (T *Sessions) SessionId(req *http.Request) (id string, err error) {
+func (T *Sessions) SessionID(req *http.Request) (id string, err error) {
 	c, err := req.Cookie(T.Name)
 	if err != nil || c.Value == "" {
-		return "", verror.TrackErrorf("vweb: 该用会话属性（%s）名称，从客户端请求中没有找可用ID值。", T.Name)
+		return "", fmt.Errorf("vweb: 该用会话属性（%s）名称，从客户端请求中没有找可用ID值。", T.Name)
 	}
 	return c.Value, nil
 }
@@ -101,13 +125,10 @@ func (T *Sessions) SessionId(req *http.Request) (id string, err error) {
 //	id string	id标识符
 //	Sessioner   会话
 func (T *Sessions) NewSession(id string) Sessioner {
-	if id == "" {
-		id = T.generateRandSessionId()
-	}
 	if s, ok := T.GetSession(id); ok {
 		return s
 	}
-	return T.SetSession(id, &Session{})
+	return T.SetSession(id, new(Session))
 }
 
 // GetSession 使用id读取会话
@@ -120,7 +141,11 @@ func (T *Sessions) GetSession(id string) (Sessioner, bool) {
 	if !ok {
 		return nil, false
 	}
+
 	ms := mse.(*manageSession)
+	if ms.unavailable {
+		return nil, false
+	}
 
 	if T.triggerDeadSession(ms) {
 		T.ss.Del(id)
@@ -136,17 +161,17 @@ func (T *Sessions) GetSession(id string) (Sessioner, bool) {
 //	s Sessioner 新的会话
 //	Sessioner   会话
 func (T *Sessions) SetSession(id string, s Sessioner) Sessioner {
-	return T.setSession(id, s, true)
-}
-
-func (T *Sessions) setSession(id string, s Sessioner, free bool) Sessioner {
 	if inf, ok := T.ss.GetHas(id); ok {
 		ms := inf.(*manageSession)
-		if ms.s.Token() == s.Token() {
-			// 已经存在，无法再设置
-			return s
-		}
-		if free {
+		// 在执行ProcessDeadAll时候，已经过期了，只是还没有被删除
+		// 所以检测有没有过期，否则不能读取返回
+		if !ms.unavailable {
+			if ms.s.Token() == s.Token() {
+				// 已经存在，无法再设置
+				return s
+			}
+			// 设置为不可用,防止被读取
+			ms.unavailable = true
 			// 替换原有Session，需要清理原有的defer
 			go ms.s.Free()
 		}
@@ -168,9 +193,8 @@ func (T *Sessions) setSession(id string, s Sessioner, free bool) Sessioner {
 //	id string   id标识符
 func (T *Sessions) DelSession(id string) {
 	if mse, ok := T.ss.GetHas(id); ok {
-		ms := mse.(*manageSession)
-		go ms.s.Free()
 		T.ss.Del(id)
+		go mse.(*manageSession).s.Free()
 	}
 }
 
@@ -179,7 +203,7 @@ func (T *Sessions) DelSession(id string) {
 //	rw http.ResponseWriter  响应
 //	id string               id标识符
 //	Sessioner    			会话
-func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) Sessioner {
+func (T *Sessions) writeToClient(rw http.ResponseWriter) Sessioner {
 	wh := rw.Header()
 
 	// 防止重复写入
@@ -191,6 +215,9 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) Sessioner {
 		}
 	}
 
+	// 客户是第一次请求，没有会话ID
+	// 现在生成一个ID给客户端
+	id := T.generateRandSessionID()
 	cookie := &http.Cookie{
 		Name:     T.Name,
 		Value:    id,
@@ -198,19 +225,18 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, id string) Sessioner {
 		HttpOnly: true,
 	}
 	wh.Add("Set-Cookie", cookie.String())
-	return T.SetSession(id, &Session{})
+	return T.SetSession(id, new(Session))
 }
 
-func (T *Sessions) generateRandSessionId() string {
+func (T *Sessions) generateRandSessionID() string {
 	var (
-		id      = T.generateSessionId()
+		id      = T.generateSessionID()
 		maxWait = time.Second
 		wait    time.Duration
 	)
-
 	for T.ss.Has(id) {
 		wait = delay(wait, maxWait)
-		id = T.generateSessionId()
+		id = T.generateSessionID()
 		if wait >= maxWait {
 			id += "-temp"
 			// ID即将耗尽
@@ -227,19 +253,15 @@ func (T *Sessions) generateRandSessionId() string {
 //	Sessioner               会话接口
 func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner {
 	// 判断标识名是否存在
-	id, err := T.SessionId(req)
+	id, err := T.SessionID(req)
 	if err != nil {
-		// 客户是第一次请求，没有会话ID
-		// 现在生成一个ID给客户端
-		id = T.generateRandSessionId()
-		return T.writeToClient(rw, id)
+		return T.writeToClient(rw)
 	}
 
 	// 判断Id是否有效
 	s, ok := T.GetSession(id)
 	if !ok {
-		id = T.generateRandSessionId()
-		return T.writeToClient(rw, id)
+		return T.writeToClient(rw)
 	}
 	return s
 }

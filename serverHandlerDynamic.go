@@ -1,8 +1,8 @@
 package vweb
 
 import (
+	"bufio"
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,16 +10,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
-
-	"github.com/456vv/verror"
 )
 
 type DynamicTemplater interface {
-	SetPath(rootPath, pagePath string)    // 设置路径
+	SetPath(root string, page string)
 	Parse(r io.Reader) (err error)        // 解析
 	Execute(out io.Writer, dot any) error // 执行
 }
@@ -38,15 +36,13 @@ type ServerHandlerDynamic struct {
 	PagePath string // 主模板文件路径
 
 	// 可选的
-	BuffSize     int                                                             // 缓冲块大小
-	Site         *Site                                                           // 网站配置
-	Context      context.Context                                                 // 上下文
-	Module       map[string]DynamicTemplateFunc                                  // 支持更动态文件类型
-	SaveStatic   func(filePath string, r io.Reader, l int) (int, error)          // 静态结果。仅在 .ServeHTTP 方法中使用
-	ReadFile     func(filePath string, u *url.URL) (io.Reader, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
-	ReplaceParse func(name string, p []byte) []byte
-	exec         DynamicTemplater
-	modeTime     time.Time
+	Site   *Site                                       // 网站配置
+	Module func(name string) (DynamicTemplater, error) // 支持更动态文件类型
+
+	SaveStatic func(filePath string, r io.Reader, l int) (int, error)          // 静态结果。仅在 .ServeHTTP 方法中使用
+	ReadFile   func(filePath string, u *url.URL) (io.Reader, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
+	exec       DynamicTemplater
+	modeTime   time.Time
 }
 
 // ServeHTTP 服务HTTP
@@ -54,16 +50,17 @@ type ServerHandlerDynamic struct {
 //	rw http.ResponseWriter    响应
 //	req *http.Request         请求
 func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	if T.PagePath == "" {
-		T.PagePath = req.URL.Path
-	}
-	filePath := filepath.Join(T.RootPath, T.PagePath)
-
 	var (
 		tmplread io.Reader
 		modeTime time.Time
 		err      error
 	)
+
+	if T.PagePath == "" {
+		T.PagePath = path.Clean(req.URL.Path)
+	}
+
+	filePath := filepath.Join(T.RootPath, T.PagePath)
 	if T.ReadFile != nil {
 		tmplread, modeTime, err = T.ReadFile(filePath, req.URL)
 		if err != nil {
@@ -106,23 +103,23 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 
 	// 模板点
 	dock := &Dot{
-		R:        req,
-		W:        rw,
-		BuffSize: T.BuffSize,
-		Site:     T.Site,
+		R:    req,
+		W:    rw,
+		Site: T.Site,
 	}
 	defer dock.Close()
 
-	ctx := T.Context
-	if ctx == nil {
-		ctx = req.Context()
+	ctx := req.Context()
+	if site, ok := ctx.Value(SiteContextKey).(*Site); ok {
+		dock.Site = site
 	}
+
 	dock.WithContext(ctx)
 	body := new(bytes.Buffer)
 
 	// 执行模板内容
 	if err = T.Execute(body, dock); err != nil {
-		if !dock.writed {
+		if !dock.isWrited() {
 			webError(rw, err.Error())
 			return
 		}
@@ -132,17 +129,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	if !dock.writed {
-		// 保存静态文件
-		if T.SaveStatic != nil && dock.staticPath != "" {
-			br := io.TeeReader(body, rw)
-			if _, err = T.SaveStatic(dock.staticPath, br, body.Len()); err != nil {
-				io.WriteString(rw, err.Error())
-				log.Println(err.Error())
-				return
-			}
-		}
-
+	if !dock.isWrited() {
 		// 写入到浏览器页面中去
 		if body.Len() != 0 {
 			body.WriteTo(rw)
@@ -150,36 +137,34 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	}
 }
 
-// ParseText 解析模板
-//
-//	name, content string	模板名称, 模板内容
-//	error					错误
-func (T *ServerHandlerDynamic) ParseText(name, content string) error {
-	T.PagePath = name
-	r := strings.NewReader(content)
-	return T.Parse(r)
-}
-
 // ParseFile 解析模板
 //
 //	path string			模板文件路径，如果为空，默认使用RootPath,PagePath字段
 //	error				错误
 func (T *ServerHandlerDynamic) ParseFile(path string) error {
-	if path == "" {
-		path = filepath.Join(T.RootPath, T.PagePath)
-	} else if !filepath.IsAbs(path) {
-		T.PagePath = path
-	}
 	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-
 	defer file.Close()
 	return T.Parse(file)
 }
 
-func fileFirstLine(buf *bytes.Buffer) (dynamicType []byte, err error) {
+func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
+	h, err := buf.Peek(8)
+	if err != nil {
+		return nil, err
+	}
+
+	// 可能是wasm文件，直接返回wasm
+	//| 检查项					| 值（十六进制） 	  | 值（ASCII/解释） | 说明
+	//| 魔数 (Magic Number)		| `00 61 73 6D` 	| `\0 a s m` 	  | **唯一标识WASM二进制格式**
+	//| 版本 (Version) 			| `01 00 00 00` 	| 小端序的数字 `1`  | 当前核心标准版本为1
+	if bytes.Equal(h[0:4], []byte{0x00, 0x61, 0x73, 0x6D}) {
+		// wasm-01000000
+		return fmt.Appendf(nil, "wasm-%0x", h[4:8]), nil
+	}
+
 	// 读取一行
 	dynamicType, err = buf.ReadBytes('\n')
 	if err != nil {
@@ -187,7 +172,6 @@ func fileFirstLine(buf *bytes.Buffer) (dynamicType []byte, err error) {
 	}
 	// 不是注释行退出
 	if len(dynamicType) <= 2 || string(dynamicType[0:2]) != "//" {
-		buf.UnreadByte()
 		return nil, errors.New("vweb: The first line of the file needs to confirm the dynamic type")
 	}
 
@@ -215,49 +199,24 @@ func fileFirstLine(buf *bytes.Buffer) (dynamicType []byte, err error) {
 //	r io.Reader			模板内容
 //	error				错误
 func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
-	if T.PagePath == "" {
-		return verror.TrackError("vweb: ServerHandlerDynamic.PagePath is not a valid path")
-	}
-
 	// 文件第一行，确认动态文件类型
 	if T.Module == nil {
 		return errors.New("vweb: the file type of the first line of the file is not recognized")
 	}
 
-	buf, ok := r.(*bytes.Buffer)
-	if T.ReplaceParse != nil {
-		b, err := io.ReadAll(r)
-		if err != nil {
-			return verror.TrackErrorf("vweb: ServerHandlerDynamic.ReplaceParse failed to read data: %s", err.Error())
-		}
-		b = T.ReplaceParse(T.PagePath, b)
-		if ok {
-			buf.Write(b)
-		} else {
-			buf = bytes.NewBuffer(b)
-		}
-	} else if !ok {
-		buf = bytes.NewBuffer(nil)
-		buf.Grow(4096)
-		buf.ReadFrom(r)
-	}
-
+	buf := bufio.NewReader(r)
 	dynmicType, err := fileFirstLine(buf)
 	if err != nil {
 		return err
 	}
-	m, ok := T.Module[string(dynmicType)]
-	if !ok {
-		return errors.New("vweb: the file type does not support dynamic parsing")
+
+	T.exec, err = T.Module(string(dynmicType))
+	if err != nil {
+		return err
 	}
 
-	shdt := m(T)
-	shdt.SetPath(T.RootPath, T.PagePath)
-	if err = shdt.Parse(buf); err != nil {
-		return
-	}
-	T.exec = shdt
-	return
+	T.exec.SetPath(T.RootPath, T.PagePath)
+	return T.exec.Parse(buf)
 }
 
 // Execute 执行模板

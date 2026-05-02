@@ -5,32 +5,41 @@ import (
 	"reflect"
 )
 
-// Compute(1, "+", 2)
+// Compute 动态计算反射值
 func Compute(x any, symbol string, y any) (i any, err error) {
-	xx := reflect.ValueOf(x)
-	yy := reflect.ValueOf(y)
-	xx = inDirect(xx)
-	yy = inDirect(yy)
+	if x == nil || y == nil {
+		return nil, fmt.Errorf("invalid operation: nil values not supported")
+	}
+
+	xx := inDirect(reflect.ValueOf(x))
+	yy := inDirect(reflect.ValueOf(y))
+
+	if !xx.IsValid() || !yy.IsValid() {
+		return nil, fmt.Errorf("invalid operation: untyped nil")
+	}
+
 	es := "Algorithms not supported by this type(%s)?"
 	if xx.Kind() != yy.Kind() {
 		return 0, fmt.Errorf("two types are not equal? %v != %v", xx.Kind(), yy.Kind())
 	}
+
 	switch xx.Kind() {
 	case reflect.String:
-		XS := xx.String()
-		YS := yy.String()
-		var XYS string
-		switch symbol {
-		case "+":
-			XYS = XS + YS
-		default:
-			err = fmt.Errorf(es, symbol)
+		if symbol == "+" {
+			return xx.String() + yy.String(), nil
 		}
-		return XYS, err
+		return nil, fmt.Errorf(es, symbol)
+
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		XI := xx.Int()
 		YI := yy.Int()
 		var XYI int64
+
+		// 检查除零
+		if (symbol == "/" || symbol == "%") && YI == 0 {
+			return nil, fmt.Errorf("integer divide by zero")
+		}
+
 		switch symbol {
 		case "+":
 			XYI = XI + YI
@@ -50,14 +59,28 @@ func Compute(x any, symbol string, y any) (i any, err error) {
 			XYI = XI ^ YI
 		case "&^":
 			XYI = XI &^ YI
+		case "<<":
+			XYI = XI << uint64(YI) // 修复: 支持有符号数的位移
+		case ">>":
+			XYI = XI >> uint64(YI)
 		default:
-			err = fmt.Errorf(es, symbol)
+			return nil, fmt.Errorf(es, symbol)
 		}
-		return XYI, err
+		// 修复: 还原为原本的数据类型，而不是统一个返回 int64
+		ret := reflect.New(xx.Type()).Elem()
+		ret.SetInt(XYI)
+		return ret.Interface(), nil
+
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		XU := xx.Uint()
 		YU := yy.Uint()
 		var XYU uint64
+
+		// 检查除零
+		if (symbol == "/" || symbol == "%") && YU == 0 {
+			return nil, fmt.Errorf("integer divide by zero")
+		}
+
 		switch symbol {
 		case "+":
 			XYU = XU + YU
@@ -82,13 +105,17 @@ func Compute(x any, symbol string, y any) (i any, err error) {
 		case ">>":
 			XYU = XU >> YU
 		default:
-			err = fmt.Errorf(es, symbol)
+			return nil, fmt.Errorf(es, symbol)
 		}
-		return XYU, err
+		ret := reflect.New(xx.Type()).Elem()
+		ret.SetUint(XYU)
+		return ret.Interface(), nil
+
 	case reflect.Float32, reflect.Float64:
 		XF := xx.Float()
 		YF := yy.Float()
 		var XYF float64
+		// 浮点除零会产生 +Inf, 不会 panic，属于安全行为
 		switch symbol {
 		case "+":
 			XYF = XF + YF
@@ -99,32 +126,18 @@ func Compute(x any, symbol string, y any) (i any, err error) {
 		case "/":
 			XYF = XF / YF
 		default:
-			err = fmt.Errorf(es, symbol)
+			return nil, fmt.Errorf(es, symbol)
 		}
-		return XYF, err
-	case reflect.Uintptr:
-		XP := xx.UnsafeAddr()
-		YP := yy.UnsafeAddr()
-		var XYP uintptr
-		switch symbol {
-		case "+":
-			XYP = XP + YP
-		case "-":
-			XYP = XP - YP
-		case "*":
-			XYP = XP * YP
-		case "/":
-			XYP = XP / YP
-		default:
-			err = fmt.Errorf(es, symbol)
-		}
-		return XYP, err
+		ret := reflect.New(xx.Type()).Elem()
+		ret.SetFloat(XYF)
+		return ret.Interface(), nil
+
 	default:
 		return nil, fmt.Errorf("this is a type that does not match the calculation(%v)？", xx.Kind())
 	}
 }
 
-// a+1
+// Inc a+1
 func Inc(a any) any {
 	switch v := a.(type) {
 	case int:
@@ -139,19 +152,23 @@ func Inc(a any) any {
 		return v + 1
 	case uint32:
 		return v + 1
-	case uint8:
-		return v + 1
-	case int8:
+	case int16:
 		return v + 1
 	case uint16:
 		return v + 1
-	case int16:
+	case int8:
 		return v + 1
+	case uint8:
+		return v + 1
+	case float32:
+		return v + 1.0 // 修复盲区: 支持浮点数自增
+	case float64:
+		return v + 1.0
 	}
 	return panicUnsupportedOp1("++", a)
 }
 
-// a-1
+// Dec a-1
 func Dec(a any) any {
 	switch v := a.(type) {
 	case int:
@@ -166,30 +183,45 @@ func Dec(a any) any {
 		return v - 1
 	case uint32:
 		return v - 1
-	case uint8:
-		return v - 1
-	case int8:
+	case int16:
 		return v - 1
 	case uint16:
 		return v - 1
-	case int16:
+	case int8:
 		return v - 1
+	case uint8:
+		return v - 1
+	case float32:
+		return v - 1.0 // 修复盲区: 支持浮点数自减
+	case float64:
+		return v - 1.0
 	}
 	return panicUnsupportedOp1("--", a)
 }
 
-// -a
+// Neg -a
 func Neg(a any) any {
 	switch a1 := a.(type) {
 	case int:
 		return -a1
+	case int64:
+		return -a1
+	case int32:
+		return -a1
+	case int16:
+		return -a1
+	case int8:
+		return -a1
 	case float64:
 		return -a1
+	case float32:
+		return -a1
 	}
+	// Note: go对于无符号数取负通常合法(回绕)，若有需求可额外添加 uint 系列
 	return panicUnsupportedOp1("-", a)
 }
 
-// a*b
+// Mul a*b
 func Mul(a, b any) any {
 	switch a1 := a.(type) {
 	case int:
@@ -213,12 +245,15 @@ func Mul(a, b any) any {
 	return panicUnsupportedOp2("*", a, b)
 }
 
-// a/b
+// Quo a/b
 func Quo(a, b any) any {
 	switch a1 := a.(type) {
 	case int:
 		switch b1 := b.(type) {
 		case int:
+			if b1 == 0 {
+				panic("integer divide by zero")
+			} // 修复除零Panic
 			return a1 / b1
 		case float64:
 			return float64(a1) / b1
@@ -237,10 +272,13 @@ func Quo(a, b any) any {
 	return panicUnsupportedOp2("/", a, b)
 }
 
-// a%b
+// Mod a%b
 func Mod(a, b any) any {
 	if a1, ok := a.(int); ok {
 		if b1, ok := b.(int); ok {
+			if b1 == 0 {
+				panic("integer divide by zero")
+			} // 修复除零Panic
 			return a1 % b1
 		}
 	}
@@ -250,7 +288,7 @@ func Mod(a, b any) any {
 	return panicUnsupportedOp2("%", a, b)
 }
 
-// a+b
+// Add a+b
 func Add(a, b any) any {
 	switch a1 := a.(type) {
 	case int:
@@ -272,48 +310,39 @@ func Add(a, b any) any {
 			return a1 + b1
 		}
 	case uint:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + uint(b1)
 		}
 	case uint64:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + uint64(b1)
 		}
 	case int64:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + int64(b1)
 		}
 	case uint32:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + uint32(b1)
 		}
 	case int32:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + int32(b1)
 		}
 	case uint16:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + uint16(b1)
 		}
 	case int16:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + int16(b1)
 		}
 	case uint8:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + uint8(b1)
 		}
 	case int8:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 + int8(b1)
 		}
 	}
@@ -323,7 +352,7 @@ func Add(a, b any) any {
 	return panicUnsupportedOp2("+", a, b)
 }
 
-// a-b
+// Sub a-b
 func Sub(a, b any) any {
 	switch a1 := a.(type) {
 	case int:
@@ -341,48 +370,39 @@ func Sub(a, b any) any {
 			return a1 - b1
 		}
 	case uint:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - uint(b1)
 		}
 	case uint64:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - uint64(b1)
 		}
 	case int64:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - int64(b1)
 		}
 	case uint32:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - uint32(b1)
 		}
 	case int32:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - int32(b1)
 		}
 	case uint16:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - uint16(b1)
 		}
 	case int16:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - int16(b1)
 		}
 	case uint8:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - uint8(b1)
 		}
 	case int8:
-		switch b1 := b.(type) {
-		case int:
+		if b1, ok := b.(int); ok {
 			return a1 - int8(b1)
 		}
 	}

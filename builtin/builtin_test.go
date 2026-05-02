@@ -1,146 +1,137 @@
 package builtin
-	
+
 import (
-	"testing"
+	"fmt"
 	"reflect"
+	"testing"
+
+	"github.com/issue9/assert/v4"
 )
 
-type toTI interface{
-	M() int
+type A struct {
+	B
 }
-type toT1 struct{
-	i int
-	T *int
+type B struct {
+	*C
+	F map[string]string
+	G []string
+	H [5]string
+	i int // 未导出字段
 }
-func (T *toT1) M() int {return T.i}
-type toT2 struct{
-	i int
-	T *int
+type B1 struct {
+	*C
+	F map[string]string
+	G []int
+	H [3]int
 }
-func (T *toT2) M() int {return T.i}
+type C struct {
+	D int
+}
 
-
-func Test_typeInit(t *testing.T) {
-	fns := []func()bool{
-		func()bool{
-			var t1 *toT1
-			typeInit(reflect.ValueOf(&t1).Elem(), false)
-			return t1 != nil
+func Test_copyStruct(t *testing.T) {
+	tests := []struct {
+		name string
+		f    func(t *testing.T) bool
+	}{
+		{
+			name: "Map深度拷贝正常覆盖",
+			f: func(t *testing.T) bool {
+				a := B{G: []string{"1", "2", "3"}}
+				b := B{G: []string{"4", "5", "6"}}
+				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				b.G[0] = "-"
+				return fmt.Sprint(a.G) == "[4 5 6]"
+			},
+		}, {
+			name: "不同类型自动跳过不崩溃",
+			f: func(t *testing.T) bool {
+				a := B{G: []string{"1", "2", "3"}}
+				b := B1{G: []int{4, 5, 6}}
+				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				return fmt.Sprint(a.G) == "[1 2 3]"
+			},
+		}, {
+			name: "复杂嵌套指针初始化和拷贝",
+			f: func(t *testing.T) bool {
+				var a A
+				b := A{
+					B: B{
+						C: &C{D: 1},
+					},
+				}
+				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				return a.B.C.D == 1
+			},
+		}, {
+			name: "空Map跳过拷贝",
+			f: func(t *testing.T) bool {
+				a := B{F: map[string]string{"a": "1"}}
+				b := B{F: nil}
+				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				return len(a.F) == 1
+			},
+		}, {
+			name: "排除指定字段",
+			f: func(t *testing.T) bool {
+				a := A{}
+				b := A{
+					B{
+						C: &C{
+							D: 1,
+						},
+						F: map[string]string{"a": "b"},
+					},
+				}
+				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", func(name string, dsc reflect.Value, src reflect.Value) bool {
+					return name == "B.C"
+				}, true)
+				return a.B.C == nil && len(a.B.F) == 1
+			},
 		},
-		func()bool{
-			var t1 toTI = (*toT1)(nil)
-			typeInit(reflect.ValueOf(&t1).Elem(), false)
-			t2,ok := t1.(*toT1)
-			if !ok {
-				return false
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !tt.f(t) {
+				t.Fatalf("error in %s", tt.name)
 			}
-			return t2 != nil
-		},
-		func()bool{
-			var t1 func()
-			typeInit(reflect.ValueOf(&t1).Elem(), true, func([]reflect.Value)[]reflect.Value{
-				return nil
-			})
-			return t1 != nil
-		},
-		func()bool{
-			var t1 map[string]string
-			typeInit(reflect.ValueOf(&t1).Elem(), true, 10)
-			return t1 != nil
-		},func()bool{
-			var t1 chan bool
-			typeInit(reflect.ValueOf(&t1).Elem(), true, 1)
-			t1<-true
-			select{
-			case <-t1:
-				return true
-			default:
-				return false
-			}
-		},
-	}
-	for index, fn := range fns {
-		if !fn() {
-			t.Fatalf("error in %d", index)
-		}
+		})
 	}
 }
 
-func Test_Convert(t *testing.T) {
+func Test_Set(t *testing.T) {
+	as := assert.New(t, true)
 
-	fns :=[]func()bool{
-		func() bool{
-			t1 := (*toT1)(nil)
-			t2 := (*toT2)(nil)
-			if !Convert(&t1, &t2) {return false}
-			
-			return t1 == nil && reflect.TypeOf(&t1).Elem().String() == "*builtin.toT1"
-		},
-		func() bool{
-			t1 := &toT1{i:1}
-			var t2 any = nil
-			//nil 不可以转换到 struct
-			//t1 没有改变
-			if Convert(&t1, &t2) {return false}
-			return t1.i == 1
-		},
-		func() bool{
-			t1 := (*toT1)(nil)
-			//nil 不可以转换,dst 依然是 (*toT1)(nil)
-			if Convert(&t1, nil) {return false}
-			return t1 == nil
-		},
-		func() bool{
-			t1 := (*int)(nil)
-			t2 := &toT2{i:2}
-			//两个类型不一至，不可以转换
-			if Convert(&t1, &t2) {return false}
-			return t1 == nil
-		},
-		func() bool{
-			t1 := (*toT1)(nil)
-			t2 := toT2{i:2}
-			//**t1 和 t2
-			if !Convert(&t1, t2) {return false}
-			return t1 != nil && t1.i == 2
-		},
-		func() bool{
-			t1 := (*toT1)(nil)
-			t2 := &toT2{i:2}
-			//**t1 和 **t2
-			if !Convert(&t1, t2) {return false}
-			return t1 != nil && t1.i == 2
-		},
-		func() bool{
-			var t1 toTI = (*toT1)(nil)
-			t2 := &toT2{i:2}
-			//将t2转为t1同接口
-			if !Convert(&t1, t2) {return false}
-			return t1.M() == 2
-		},
-		func() bool{
-			var t1 toTI = &toT1{i:1}
-			var t2 = (*toT2)(nil)
-			//仅是将 toT2 和 nil 转到 toTI 接口
-			if !Convert(&t1, &t2) {return false}
-			_, ok := t1.(*toT2)
-			return ok
-		},
-	}
-	for index, fn := range fns {
-		if !fn() {
-			t.Fatalf("errot in %d", index)
-		}
-	}
+	// 1. Array 设置（使用指针修复的盲区测试）
+	arr := [3]int{1, 2, 3}
+	Set(&arr, 1, 999)
+	as.Equal(arr[1], 999)
+
+	// 2. 传值非法拦截验证 (不再抛出底层恐慌)
+	as.PanicString(func() {
+		Set(arr, 1, 999)
+	}, "array/slice element is unaddressable or unexported, please pass a pointer")
+
+	// 3. Slice 设置
+	sl := []int{10, 20}
+	Set(&sl, 0, 100)
+	as.Equal(sl[0], 100)
 }
 
-func Test_Set(t *testing.T){
-	var t1 *toT1
-	Init(&t1)
-	vi := Value("int")
-	vi.Elem().Set(reflect.ValueOf(1))
-	Set(t1, "T", vi.Interface())
-	if *t1.T != 1 {
-		t.Fatal("error")
-	}
+func Test_DepthField(t *testing.T) {
+	as := assert.New(t, true)
+	a := A{}
+
+	// 深度有效访问
+	a.B.F = map[string]string{"1": "a"}
+	v, err := DepthField(a, "B", "F", "1")
+	as.NotError(err).Equal(v, "a")
+
+	a.B.G = []string{"1"}
+	v, err = DepthField(a, "B", "G", 0)
+	as.NotError(err).Equal(v, "1")
+
+	// 修复盲区：不可导出的私有小写字段读取阻断 panic
+	a.B.i = 100
+	v, err = DepthField(a, "B", "i")
+	as.Error(err).Nil(v)
 }

@@ -17,23 +17,34 @@ func Test_SiteForward(t *testing.T) {
 			upath:   "/",
 			rpath:   "/",
 			re:      false,
-		}, {
-			forward: &SiteForward{ExcludePath: []string{"/A/B/C/index.html"}, Path: []string{"/a/b/c/index.html"}, RePath: "/A/B/C/index.html"},
-			upath:   "/a/b/c/index.html",
-			rpath:   "/A/B/C/index.html",
+		}, { // 路径被排除了，不重定向
+			forward: &SiteForward{ExcludePath: []string{"/a/index.html"}, Path: []string{"/a/index.html"}, RePath: "/b/index.html"},
+			upath:   "/a/index.html",
+			rpath:   "/a/index.html",
+			re:      false,
+		}, { // 路径不匹配，不重定向
+			forward: &SiteForward{ExcludePath: []string{}, Path: []string{"/a/index.html"}, RePath: "/b/index.html"},
+			upath:   "/c/index.html",
+			rpath:   "/c/index.html",
+			re:      false,
+		}, { // 全部匹配，重定向
+			forward: &SiteForward{ExcludePath: []string{}, Path: []string{"/a/index.html"}, RePath: "/b/index.html"},
+			upath:   "/a/index.html",
+			rpath:   "/b/index.html",
 			re:      true,
-		}, {
-			forward: &SiteForward{ExcludePath: []string{}, Path: []string{"/(\\w)/(\\w)/(\\w)/index.html"}, RePath: "/$1/$2/$3/index.html"},
-			upath:   "/a/b/c/index.html",
-			rpath:   "/a/b/c/index.html",
+		}, { // 正则匹配，重定向
+			forward: &SiteForward{ExcludePath: []string{}, Path: []string{"/(\\w)/index.html"}, RePath: "/$1/b/index.html"},
+			upath:   "/a/index.html",
+			rpath:   "/a/b/index.html",
 			re:      true,
 		},
 	}
 	for index, test := range tests {
-		rpath, re, err := test.forward.Rewrite(test.upath)
+		fr, err := test.forward.Compile()
 		if err != nil {
 			t.Fatal(err)
 		}
+		rpath, re := fr.Rewrite(test.upath)
 		if test.re != re || test.rpath != rpath {
 			t.Fatalf("error %d", index)
 		}

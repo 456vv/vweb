@@ -1,0 +1,31 @@
+[{
+		"Status":true,
+        "Identity":"C",
+		"Host":["c.baidu.com:4432"],
+        "Forward": {},
+        "Plugin": {
+          "RPC": {},
+          "HTTP": {}
+        },
+		"Directory":{
+          "Root": "wwwroot",
+          "Virtual": []
+        },
+		"IndexFile":[
+          "index.html"
+        ],
+		"Dynamic":{
+            "PublicName": "C"
+        },
+		"Header":{
+            "PublicName": "C"
+		},
+		"Log":{},
+		"ErrorPage":{},
+		"Session":{
+			"PublicName":"C"
+		},
+		"Property":{
+            "PublicName": "C"
+		}
+}]

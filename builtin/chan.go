@@ -1,94 +1,129 @@
 package builtin
-	
-import(
+
+import (
+	"fmt"
 	"reflect"
 )
-type Chan struct{
+
+type Chan struct {
 	Data reflect.Value
 }
 
-//不阻塞
-//TrySend(*Chan, value)
+// 辅助函数：统一提取 channel 的 reflect.Value
+func getChanValue(a any) (reflect.Value, bool) {
+	if p, ok := a.(*Chan); ok {
+		return p.Data, true
+	} else if rv, ok := a.(reflect.Value); ok && rv.Kind() == reflect.Chan {
+		return rv, true
+	} else {
+		// 支持原生 Go channel (例如: make(chan int))
+		rv := reflect.ValueOf(a)
+		if rv.IsValid() && rv.Kind() == reflect.Chan {
+			return rv, true
+		}
+	}
+	return reflect.Value{}, false
+}
+
+// 辅助函数：处理发送时的 value，特别是 nil 值的处理
+func getSendValue(ch reflect.Value, v any) reflect.Value {
+	if v == nil {
+		// 如果发送的是 nil，则生成 channel 元素类型的零值
+		return reflect.Zero(ch.Type().Elem())
+	}
+	return reflect.ValueOf(v)
+}
+
+// 不阻塞
+// TrySend(*Chan/reflect.Value/chan T, value)
 func TrySend(a any, v any) bool {
-	if v == nil {
-		panic("can't nil value to a channel")
+	ch, ok := getChanValue(a)
+	if !ok {
+		return false
 	}
-	if p, ok := a.(*Chan); ok {
-		return p.Data.TrySend(reflect.ValueOf(v))
-	}else if rv, ok := a.(reflect.Value); ok && rv.Kind() == reflect.Chan {
-		return rv.TrySend(reflect.ValueOf(v))
-	}
-	return false
+	return ch.TrySend(getSendValue(ch, v))
 }
 
-//不阻塞
-//TryRecv(*Chan)
-func TryRecv(a any) any {
-	var v reflect.Value
-	if p, ok := a.(*Chan); ok {
-		v = p.Data
-	}else if rv, ok := a.(reflect.Value); ok && rv.Kind() == reflect.Chan {
-		v = rv
-	}else{
-		return nil
+// 不阻塞
+// TryRecv 返回 (值, 是否成功接收)
+// ok == false 说明 channel 为空或已关闭
+func TryRecv(a any) (any, bool) {
+	ch, ok := getChanValue(a)
+	if !ok {
+		return nil, false
 	}
-	vr, _ := v.TryRecv()
-	if vr.IsValid() {
-		return vr.Interface()
+	vr, recvOk := ch.TryRecv()
+	if recvOk && vr.IsValid() && vr.CanInterface() {
+		return vr.Interface(), true
 	}
-	return nil
+	return nil, false
 }
 
-//Send(*Chan, value)
+// 阻塞发送
+// Send(*Chan/reflect.Value/chan T, value)
 func Send(a any, v any) {
-	if v == nil {
-		panic("can't nil value to a channel")
+	ch, ok := getChanValue(a)
+	if !ok {
+		panic("Send: expected a channel")
 	}
-	if p, ok := a.(*Chan); ok {
-		p.Data.Send(reflect.ValueOf(v))
-	}else if rv, ok := a.(reflect.Value); ok && rv.Kind() == reflect.Chan {
-		rv.Send(reflect.ValueOf(v))
-	}
+	ch.Send(getSendValue(ch, v))
 }
 
-//Recv(*Chan)
-func Recv(a any) any {
-	
-	var v reflect.Value
-	if p, ok := a.(*Chan); ok {
-		v = p.Data
-	}else if rv, ok := a.(reflect.Value); ok && rv.Kind() == reflect.Chan {
-		v = rv
-	}else{
-		return nil
+// 阻塞接收
+// Recv 返回 (值, 通道是否未关闭)
+// ok == false 说明 channel 已关闭
+func Recv(a any) (any, bool) {
+	ch, ok := getChanValue(a)
+	if !ok {
+		return nil, false
 	}
-	vr, ok := v.Recv()
-	if ok {
-		return vr.Interface()
+	vr, recvOk := ch.Recv()
+	if recvOk && vr.IsValid() && vr.CanInterface() {
+		return vr.Interface(), true
 	}
-	return nil
+	return nil, false
 }
 
-//Close(*Chan)
+// 关闭通道
+// Close(*Chan/reflect.Value/chan T)
 func Close(a any) {
-	
-	if p, ok := a.(*Chan); ok {
-		p.Data.Close()
-	}else if rv, ok := a.(reflect.Value); ok && rv.Kind() == reflect.Chan {
-		rv.Close()
+	ch, ok := getChanValue(a)
+	if !ok {
+		panic("Close: expected a channel")
 	}
+	ch.Close()
 }
 
-//ChanOf(T)
+// ChanOf(T)
 func ChanOf(typ any) reflect.Type {
-	return reflect.ChanOf(reflect.BothDir, builtinType(typ))
+	elemType := builtinType(typ)
+	if elemType == nil {
+		panic(fmt.Sprintf("ChanOf: invalid or unknown element type: %v", typ))
+	}
+	return reflect.ChanOf(reflect.BothDir, elemType)
 }
 
-//MakeChan(T, size)
+// MakeChan(T, size)
 func MakeChan(typ any, buffer ...any) *Chan {
 	n := 0
 	if len(buffer) > 0 {
-		n = buffer[0].(int)
+		// 解决强制断言 panic 的问题，兼容多种整型
+		switch v := buffer[0].(type) {
+		case int:
+			n = v
+		case int32:
+			n = int(v)
+		case int64:
+			n = int(v)
+		default:
+			// 尝试通过反射转为 int
+			rv := reflect.ValueOf(buffer[0])
+			if rv.CanConvert(reflect.TypeOf(0)) {
+				n = int(rv.Convert(reflect.TypeOf(0)).Int())
+			} else {
+				panic("MakeChan: buffer size must be an integer")
+			}
+		}
 	}
 	t := ChanOf(typ)
 	return &Chan{Data: reflect.MakeChan(t, n)}

@@ -16,6 +16,7 @@ func Test_serverHandlerStaticHeader(t *testing.T) {
 	}
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
+
 	tempFile.Write([]byte("123456"))
 	fi, err := tempFile.Stat()
 	if err != nil {
@@ -49,7 +50,7 @@ func Test_serverHandlerStaticHeader(t *testing.T) {
 		t.Fatalf("返回的ETag和设置的ETag不一致")
 	}
 
-	test_Range := []struct {
+	testRange := []struct {
 		h   string
 		n   int64
 		err bool
@@ -66,7 +67,7 @@ func Test_serverHandlerStaticHeader(t *testing.T) {
 		{h: "bytes=0-,1-2,-1-2", n: 12, err: true},    //-1-2 是错误的，忽略
 		{h: "bytes=0-,1-2,1-4", n: fi.Size() + 2 + 4}, // 1-4 超出长度
 	}
-	for _, v := range test_Range {
+	for _, v := range testRange {
 		rh.Set("Range", v.h)
 		_, n, err := shsh.ranges(v.h)
 		if err != nil && !v.err {
@@ -85,13 +86,14 @@ func Test_ServerHandlerStatic_header(t *testing.T) {
 	}
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
+
 	tempFile.Write([]byte("123456"))
 	fi, err := tempFile.Stat()
 	if err != nil {
 		t.Fatalf("读取文件(%s)信息错误：%v", tempFile.Name(), err)
 	}
 
-	test_Range := []struct {
+	testRange := []struct {
 		h   string
 		err bool
 	}{
@@ -116,7 +118,7 @@ func Test_ServerHandlerStatic_header(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r, _ := http.NewRequest("GET", "./test/1.html", nil)
-	for _, v := range test_Range {
+	for _, v := range testRange {
 		r.Header.Set("Range", v.h)
 		_, err := shs.header(w, r)
 		if err != nil && !v.err {
@@ -133,6 +135,7 @@ func Test_serverHandlerStatic_body(t *testing.T) {
 	}
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
+
 	tempFile.Write([]byte("123456"))
 	fi, err := tempFile.Stat()
 	if err != nil {
@@ -145,7 +148,6 @@ func Test_serverHandlerStatic_body(t *testing.T) {
 	shs := &ServerHandlerStatic{
 		RootPath: filepath.Dir(tempFile.Name()),
 		PagePath: fi.Name(),
-		BuffSize: 1024,
 		fileInfo: fi,
 	}
 

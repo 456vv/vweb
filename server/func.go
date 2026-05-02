@@ -1,14 +1,8 @@
 package server
 
 import (
-	"io"
 	"net/http"
-	"os"
-	"path"
-	"path/filepath"
-	"reflect"
 	"strings"
-	"time"
 
 	"github.com/456vv/vweb/v2/server/config"
 )
@@ -39,19 +33,6 @@ func derogatoryDomain(host string, f func(string) bool) {
 	}
 }
 
-// equalDomain 贬域名
-//
-//	host string             host地址
-//	domain string			贬域名
-//	ok bool					如果相等，返回true
-func equalDomain(host, domain string) (ok bool) {
-	derogatoryDomain(host, func(d string) bool {
-		ok = (d == domain)
-		return ok
-	})
-	return
-}
-
 // strSliceContains 从切片中查找匹配的字符串
 func strSliceContains(ss []string, c string) bool {
 	for _, v := range ss {
@@ -60,98 +41,6 @@ func strSliceContains(ss []string, c string) bool {
 		}
 	}
 	return false
-}
-
-func inDirect(v reflect.Value) reflect.Value {
-	for ; v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface; v = v.Elem() {
-	}
-	return v
-}
-
-func isTrue(val reflect.Value) bool {
-	if !val.IsValid() {
-		return false
-	}
-	switch val.Kind() {
-	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
-		return val.Len() > 0
-	case reflect.Bool:
-		return val.Bool()
-	case reflect.Complex64, reflect.Complex128:
-		return val.Complex() != 0
-	case reflect.Chan, reflect.Func, reflect.Ptr, reflect.Interface:
-		return !val.IsNil()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return val.Int() != 0
-	case reflect.Float32, reflect.Float64:
-		return val.Float() != 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return val.Uint() != 0
-	case reflect.Struct:
-		return true
-	}
-	return false
-}
-
-func staticAt(T *Group, cacheStaticFileDir string, dynamic config.SiteDynamic) func(p string, r io.Reader, l int) (int, error) {
-	return func(p string, r io.Reader, l int) (int, error) {
-		// 存储路径
-		var (
-			fileDir  string
-			filePath string
-		)
-		if fileExt := path.Ext(p); fileExt != "" {
-			// 这是文件
-
-			// 后缀名称是动态扩展名称，不支持保存
-			for _, ext := range dynamic.Ext {
-				if ext == fileExt {
-					T.ErrorLog.Printf("server: 路径包含动态扩展后缀名称, 不支持保存。 路径: %s, \n", p)
-					return 0, nil
-				}
-			}
-
-			fileDir = path.Dir(p)
-			filePath = p
-		} else {
-			// 这是目录
-			fileDir = p
-			filePath = path.Join(fileDir, "index.html")
-		}
-
-		// 目录创建
-		fileDir = filepath.Join(cacheStaticFileDir, fileDir)
-		if err := os.MkdirAll(fileDir, 0o644); err != nil {
-			T.ErrorLog.Printf("server: 创建静态文件目录失败，路径：%s, 错误：%s\n", fileDir, err.Error())
-			return 0, nil
-		}
-
-		// 文件保存
-		filePath = filepath.Join(cacheStaticFileDir, filePath)
-		if fi, err := os.Stat(filePath); err == nil {
-			now := time.Now()
-			mTime := fi.ModTime()
-			cSecond := time.Duration(dynamic.CacheStaticTimeout)
-			// 文件修改时间+允许缓存时间 大于 当时时间，跳过
-			// 文件大小一样，跳过
-			if mTime.Add(cSecond).After(now) && fi.Size() == int64(l) {
-				return 0, nil
-			}
-		}
-
-		osFile, err := os.Create(filePath)
-		if err != nil {
-			T.ErrorLog.Printf("server: 创建静态文件发生错误，路径：%s, 错误：%s\n", filePath, err.Error())
-			return 0, nil
-		}
-		defer osFile.Close()
-
-		n, err := io.Copy(osFile, r)
-		if err != nil {
-			T.ErrorLog.Printf("server: 保存静态文件发生错误，路径：%s, 预期长度：%d, 结果长度：%d, 错误：%s\n", filePath, l, n, err.Error())
-		}
-		return int(n), err
-	}
 }
 
 func siteHeaderType(wh http.Header, mht map[string]config.SiteHeaderType, fileExt string) config.SiteHeaderType {
