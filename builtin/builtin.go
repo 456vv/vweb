@@ -922,14 +922,22 @@ func Runes(inf any) []rune {
 	return []rune(fmt.Sprintf("%s", inf))
 }
 
+func toValue(v any) reflect.Value {
+	rv, ok := v.(reflect.Value)
+	if !ok {
+		rv = reflect.ValueOf(v).Elem()
+	}
+	return rv
+}
+
 func Convert(a, b any) bool {
-	av := reflect.Indirect(reflect.ValueOf(a))
-	bv := reflect.Indirect(reflect.ValueOf(b))
+	av := toValue(a)
+	bv := toValue(b)
 	return typeConvert(av, bv)
 }
 
 func Init(v any) {
-	rv := reflect.Indirect(reflect.ValueOf(v))
+	rv := toValue(v)
 	typeInit(rv, false)
 }
 
