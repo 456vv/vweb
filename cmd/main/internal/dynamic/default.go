@@ -3,7 +3,7 @@ package dynamic
 import (
 	"errors"
 
-	"github.com/456vv/vweb/v2"
+	"github.com/456vv/vweb/v3"
 )
 
 func Module(name string) (vweb.DynamicTemplater, error) {

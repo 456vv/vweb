@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/456vv/vweb/v2"
-	"github.com/456vv/vweb/v2/server"
+	"github.com/456vv/vweb/v3"
+	"github.com/456vv/vweb/v3/server"
 	"golang.org/x/crypto/acme/autocert"
 )
 

@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/456vv/vweb/v2/server/config"
+	"github.com/456vv/vweb/v3/server/config"
 )
 
 // tcp连接保持

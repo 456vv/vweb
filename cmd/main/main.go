@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/456vv/vweb/v2/cmd/main/internal/dynamic"
-	"github.com/456vv/vweb/v2/server"
+	"github.com/456vv/vweb/v3/cmd/main/internal/dynamic"
+	"github.com/456vv/vweb/v3/server"
 	"github.com/456vv/x/watch"
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/crypto/acme/autocert"

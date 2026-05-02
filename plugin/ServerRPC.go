@@ -8,7 +8,7 @@ import (
 	"net/rpc"
 	"strconv"
 
-	"github.com/456vv/vweb/v2"
+	"github.com/456vv/vweb/v3"
 	"golang.org/x/crypto/acme/autocert"
 )
 

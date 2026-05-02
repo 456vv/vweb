@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/456vv/vmap/v2"
-	"github.com/456vv/vweb/v2"
-	"github.com/456vv/vweb/v2/builtin"
-	"github.com/456vv/vweb/v2/server/config"
+	"github.com/456vv/vweb/v3"
+	"github.com/456vv/vweb/v3/builtin"
+	"github.com/456vv/vweb/v3/server/config"
 	"golang.org/x/crypto/acme/autocert"
 )
 

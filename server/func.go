@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/456vv/vweb/v2/server/config"
+	"github.com/456vv/vweb/v3/server/config"
 )
 
 // derogatoryDomain 贬域名

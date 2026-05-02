@@ -18,8 +18,8 @@ import (
 
 	"github.com/456vv/vconnpool/v2"
 	"github.com/456vv/verror"
-	"github.com/456vv/vweb/v2"
-	"github.com/456vv/vweb/v2/builtin"
+	"github.com/456vv/vweb/v3"
+	"github.com/456vv/vweb/v3/builtin"
 )
 
 func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(name string, dsc, src reflect.Value) bool {

@@ -1,13 +1,15 @@
 package server
+
 import (
 	"sync"
-	"github.com/456vv/vweb/v2"
+
 	"github.com/456vv/verror"
+	"github.com/456vv/vweb/v3"
 )
 
 type plugin struct {
-	rpc 	sync.Map
-	http	sync.Map
+	rpc  sync.Map
+	http sync.Map
 }
 
 func (T *plugin) RPC(name string) (vweb.PluginRPC, error) {
@@ -18,6 +20,7 @@ func (T *plugin) RPC(name string) (vweb.PluginRPC, error) {
 	}
 	return nil, verror.TrackErrorf("rpc plugin %s not found", name)
 }
+
 func (T *plugin) HTTP(name string) (vweb.PluginHTTP, error) {
 	inf, ok := T.http.Load(name)
 	if ok {
