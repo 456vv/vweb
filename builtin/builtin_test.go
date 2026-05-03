@@ -411,6 +411,16 @@ func Test_Init(t *testing.T) {
 		}
 	})
 
+	t.Run("Call Init with `reflect.type` of an uninitialized pointer type", func(t *testing.T) {
+		var i *int
+		rt := reflect.TypeOf(i)
+		rv := reflect.New(rt) // rv is reflect.Value of *int (pointer to int)
+		Init(rv)
+		if rv.IsNil() || rv.Elem().IsNil() {
+			t.Errorf("Expected rv to be non-nil after Init, got nil")
+		}
+	})
+
 	t.Run("Call Init with literal nil (expected panic from reflect.ValueOf(nil).Elem())", func(t *testing.T) {
 		defer func() {
 			if r := recover(); r == nil {

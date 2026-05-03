@@ -10,6 +10,12 @@ import (
 	"sync"
 )
 
+type Router interface {
+	HandleFunc(url string, handler func(w http.ResponseWriter, r *http.Request))
+	HandleFuncDot(url string, handler ...func(Doter))
+	ServeHTTP(w http.ResponseWriter, r *http.Request)
+}
+
 // routePathPlaceholder 定义了路由路径的结构和占位符信息
 type routePathPlaceholder struct {
 	pathSegments  []string       // 路径的各个片段，可能包含占位符，如 "b{id}b"
@@ -110,7 +116,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ctx = context.WithValue(ctx, SiteContextKey, site)
 	}
 
-	ctx = context.WithValue(ctx, RouterContextKey, http.Handler(T))
+	ctx = context.WithValue(ctx, RouterContextKey, Router(T))
 	r = r.WithContext(ctx)
 
 	// 处理 HandleFunc

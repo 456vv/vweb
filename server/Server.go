@@ -26,7 +26,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
-var Version string = "Server/3.0.0"
+var Version string = "Server/v3"
 
 // 上下文的Key, 在请求中可以使用
 type contextKey struct {
@@ -322,15 +322,10 @@ func (T *Group) SetServer(laddr string, srv *Server) error {
 
 func (T *Group) defaultServerConfig(srv *Server) {
 	if srv.Handler == nil {
-		if T.route != nil {
-			// 使用路由
-			srv.Handler = http.HandlerFunc(T.route.ServeHTTP)
-			if T.route.HandlerError == nil {
-				T.route.HandlerError = http.HandlerFunc(T.serveHTTP)
-			}
-		} else {
-			// 服务组默认处理
-			srv.Handler = http.HandlerFunc(T.serveHTTP)
+		// 使用路由
+		srv.Handler = http.HandlerFunc(T.route.ServeHTTP)
+		if T.route.HandlerError == nil {
+			T.route.HandlerError = http.HandlerFunc(T.serveHTTP)
 		}
 	}
 
@@ -532,10 +527,8 @@ func (T *Group) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// 在 route.go 已有在上下文中设置 site/router
 		ctx := context.WithValue(r.Context(), vweb.PluginContextKey, vweb.Pluginer(plugin))
-		// 需要设置 site, 原因在 vweb.ServerHandlerDynamic.ServeHTTP 内部调用
-		// 可能存在重复设置,在 T.Route 已有在上下文中设置
-		ctx = context.WithValue(ctx, vweb.SiteContextKey, site)
 		r = r.WithContext(ctx)
 		handlerDynamic.ServeHTTP(rw, r)
 	} else {
