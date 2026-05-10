@@ -174,6 +174,7 @@ func (T *Dot) Defer(call any, args ...any) error {
 // Close 释放
 func (T *Dot) Close() error {
 	T.ec.Free()
+	T.exchange.Reset()
 	return nil
 }
 

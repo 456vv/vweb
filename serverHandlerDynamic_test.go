@@ -32,12 +32,12 @@ func TestServerHandlerDynamic(t *testing.T) {
 		},
 	}
 
-	if err := shd.Parse(strings.NewReader(fileContent)); err != nil {
+	if err := shd.parse(strings.NewReader(fileContent)); err != nil {
 		t.Fatal(err)
 	}
 
 	body := bytes.NewBuffer(nil)
-	if err := shd.Execute(body, nil); err != nil {
+	if err := shd.execute("", body, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,7 +63,7 @@ type mockDynamicTemplater struct {
 	parseErr    error
 	executeErr  error
 	executeBody string
-	executeFn   func(out io.Writer, dot any) error // 自定义执行逻辑
+	executeFn   func(name string, out io.Writer, dot ...any) error // 自定义执行逻辑
 }
 
 func (m *mockDynamicTemplater) SetPath(root string, page string) {
@@ -75,9 +75,9 @@ func (m *mockDynamicTemplater) Parse(r io.Reader) error {
 	return m.parseErr
 }
 
-func (m *mockDynamicTemplater) Execute(out io.Writer, dot any) error {
+func (m *mockDynamicTemplater) Execute(name string, out io.Writer, dot ...any) error {
 	if m.executeFn != nil {
-		return m.executeFn(out, dot)
+		return m.executeFn(name, out, dot...)
 	}
 	if m.executeErr != nil {
 		return m.executeErr
@@ -398,9 +398,9 @@ func TestServerHandlerDynamic_ServeHTTP_ExecuteError_AlreadyWrited(t *testing.T)
 		PagePath: "/" + filename,
 		Module: func(name string) (DynamicTemplater, error) {
 			return &mockDynamicTemplater{
-				executeFn: func(out io.Writer, dot any) error {
+				executeFn: func(name string, out io.Writer, dot ...any) error {
 					// 模拟在模板执行过程中已经向 ResponseWriter 写入了数据
-					if d, ok := dot.(Doter); ok {
+					if d, ok := dot[0].(Doter); ok {
 						d.Response().Write([]byte("partial content "))
 					}
 					return errors.New("execute failed mid-way")
@@ -492,8 +492,8 @@ func TestServerHandlerDynamic_ServeHTTP_SitePassedToDot(t *testing.T) {
 		Site:     testSite,
 		Module: func(name string) (DynamicTemplater, error) {
 			return &mockDynamicTemplater{
-				executeFn: func(out io.Writer, dot any) error {
-					if d, ok := dot.(*Dot); ok {
+				executeFn: func(name string, out io.Writer, dot ...any) error {
+					if d, ok := dot[0].(*Dot); ok {
 						capturedDot = d
 					}
 					io.WriteString(out, "OK")
@@ -578,8 +578,8 @@ func TestServerHandlerDynamic_ServeHTTP_DotRequestAndResponseWriter(t *testing.T
 		PagePath: "/" + filename,
 		Module: func(name string) (DynamicTemplater, error) {
 			return &mockDynamicTemplater{
-				executeFn: func(out io.Writer, dot any) error {
-					if d, ok := dot.(*Dot); ok {
+				executeFn: func(name string, out io.Writer, dot ...any) error {
+					if d, ok := dot[0].(*Dot); ok {
 						capturedReq = d.R
 						capturedRW = d.W
 					}
@@ -616,7 +616,7 @@ func TestServerHandlerDynamic_ServeHTTP_ExecutePanic(t *testing.T) {
 		PagePath: "/" + filename,
 		Module: func(name string) (DynamicTemplater, error) {
 			return &mockDynamicTemplater{
-				executeFn: func(out io.Writer, dot any) error {
+				executeFn: func(name string, out io.Writer, dot ...any) error {
 					panic("template panic!")
 				},
 			}, nil

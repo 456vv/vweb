@@ -13,13 +13,14 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
 type DynamicTemplater interface {
 	SetPath(root string, page string)
-	Parse(r io.Reader) (err error)        // 解析
-	Execute(out io.Writer, dot any) error // 执行
+	Parse(r io.Reader) (err error)                        // 解析
+	Execute(name string, out io.Writer, dot ...any) error // 执行
 }
 type DynamicTemplateFunc func(*ServerHandlerDynamic) DynamicTemplater
 
@@ -56,11 +57,11 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		err      error
 	)
 
+	pagePath := T.PagePath
 	if T.PagePath == "" {
-		T.PagePath = path.Clean(req.URL.Path)
+		pagePath = path.Clean(req.URL.Path)
 	}
-
-	filePath := filepath.Join(T.RootPath, T.PagePath)
+	filePath := filepath.Join(T.RootPath, pagePath)
 	if T.ReadFile != nil {
 		tmplread, modeTime, err = T.ReadFile(filePath, req.URL)
 		if err != nil {
@@ -91,11 +92,10 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 			}
 			T.modeTime = modeTime
 		}
-
 	}
 	if T.exec == nil {
 		// 解析模板内容
-		if err = T.Parse(tmplread); err != nil {
+		if err = T.parse(tmplread); err != nil {
 			webError(rw, err.Error())
 			return
 		}
@@ -115,10 +115,11 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	}
 
 	dock.WithContext(ctx)
-	body := new(bytes.Buffer)
 
 	// 执行模板内容
-	if err = T.Execute(body, dock); err != nil {
+	body := new(bytes.Buffer)
+	callName := entryname(req.URL.Path)
+	if err = T.execute(callName, body, dock); err != nil {
 		if !dock.isWrited() {
 			webError(rw, err.Error())
 			return
@@ -137,17 +138,23 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	}
 }
 
-// ParseFile 解析模板
-//
-//	path string			模板文件路径，如果为空，默认使用RootPath,PagePath字段
-//	error				错误
-func (T *ServerHandlerDynamic) ParseFile(path string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
+func entryname(name string) string {
+	base := filepath.Base(name)
+	pos := strings.IndexAny(base, ".")
+	if pos != -1 {
+		base = base[:pos]
 	}
-	defer file.Close()
-	return T.Parse(file)
+
+	if base == "index" || base == "" {
+		return "Main"
+	}
+
+	for _, v := range base {
+		if v < '0' || (v > '9' && v < 'A') || (v > 'Z' && v < 'a') || v > 'z' {
+			return "Main"
+		}
+	}
+	return strings.ToUpper(base[:1]) + base[1:]
 }
 
 func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
@@ -194,11 +201,11 @@ func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
 	return dynamicType, nil
 }
 
-// Parse 解析模板
+// parse 解析模板
 //
 //	r io.Reader			模板内容
 //	error				错误
-func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
+func (T *ServerHandlerDynamic) parse(r io.Reader) (err error) {
 	// 文件第一行，确认动态文件类型
 	if T.Module == nil {
 		return errors.New("vweb: the file type of the first line of the file is not recognized")
@@ -219,12 +226,12 @@ func (T *ServerHandlerDynamic) Parse(r io.Reader) (err error) {
 	return T.exec.Parse(buf)
 }
 
-// Execute 执行模板
+// execute 执行模板
 //
 //	bufw *bytes.Buffer	模板返回数据
 //	dock any	与模板对接接口
 //	error				错误
-func (T *ServerHandlerDynamic) Execute(bufw io.Writer, dock any) (err error) {
+func (T *ServerHandlerDynamic) execute(name string, bufw io.Writer, dock ...any) (err error) {
 	if T.exec == nil {
 		return errors.New("vweb: Parse the template content first and then call the Execute")
 	}
@@ -237,5 +244,5 @@ func (T *ServerHandlerDynamic) Execute(bufw io.Writer, dock any) (err error) {
 		}
 	}()
 
-	return T.exec.Execute(bufw, dock)
+	return T.exec.Execute(name, bufw, dock...)
 }
