@@ -3,6 +3,8 @@ vweb.ConnContextKey			*net.Conn
 http.LocalAddrContextKey	net.Conn.LocalAddr()
 http.ServerContextKey		*http.Server
 vweb.PluginContextKey		*vweb.Pluginer
+vweb.SiteContextKey			*vweb.Site
+vweb.RouterContextKey		vweb.Router
 Template					*vweb_dynamic.TemplateExtend
 								//创建/调用
 								f = t.NewFunc(name string) (f func([]reflect.Value) []reflect.Value, err error)
