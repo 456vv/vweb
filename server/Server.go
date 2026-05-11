@@ -522,8 +522,14 @@ func (T *Group) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 				// 时效
 				dCache.Set(pagePath, handlerDynamic)
 				if conf.Dynamic.CacheParseTimeout != 0 {
-					dCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
+					dCache.SetExpiredCall(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout), func(a any) {
+						if d, ok := a.(*vweb.ServerHandlerDynamic); ok {
+							d.Close()
+						}
+					})
 				}
+			} else {
+				defer handlerDynamic.Close()
 			}
 		}
 

@@ -89,6 +89,10 @@ func (m *mockDynamicTemplater) Execute(name string, out io.Writer, dot ...any) e
 	return nil
 }
 
+func (m *mockDynamicTemplater) Close() error {
+	return nil
+}
+
 // createTempFile 创建带有指定内容的临时文件，返回目录和文件名
 func createTempFile(t *testing.T, content string) (dir, filename string) {
 	t.Helper()

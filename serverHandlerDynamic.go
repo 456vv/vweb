@@ -21,6 +21,7 @@ type DynamicTemplater interface {
 	SetPath(root string, page string)
 	Parse(r io.Reader) (err error)                        // 解析
 	Execute(name string, out io.Writer, dot ...any) error // 执行
+	Close() error
 }
 type DynamicTemplateFunc func(*ServerHandlerDynamic) DynamicTemplater
 
@@ -93,6 +94,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 			T.modeTime = modeTime
 		}
 	}
+
 	if T.exec == nil {
 		// 解析模板内容
 		if err = T.parse(tmplread); err != nil {
@@ -113,7 +115,6 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	if site, ok := ctx.Value(SiteContextKey).(*Site); ok {
 		dock.Site = site
 	}
-
 	dock.WithContext(ctx)
 
 	// 执行模板内容
@@ -201,10 +202,6 @@ func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
 	return dynamicType, nil
 }
 
-// parse 解析模板
-//
-//	r io.Reader			模板内容
-//	error				错误
 func (T *ServerHandlerDynamic) parse(r io.Reader) (err error) {
 	// 文件第一行，确认动态文件类型
 	if T.Module == nil {
@@ -226,12 +223,7 @@ func (T *ServerHandlerDynamic) parse(r io.Reader) (err error) {
 	return T.exec.Parse(buf)
 }
 
-// execute 执行模板
-//
-//	bufw *bytes.Buffer	模板返回数据
-//	dock any	与模板对接接口
-//	error				错误
-func (T *ServerHandlerDynamic) execute(name string, bufw io.Writer, dock ...any) (err error) {
+func (T *ServerHandlerDynamic) execute(name string, bufw io.Writer, dock any) (err error) {
 	if T.exec == nil {
 		return errors.New("vweb: Parse the template content first and then call the Execute")
 	}
@@ -244,5 +236,12 @@ func (T *ServerHandlerDynamic) execute(name string, bufw io.Writer, dock ...any)
 		}
 	}()
 
-	return T.exec.Execute(name, bufw, dock...)
+	return T.exec.Execute(name, bufw, dock)
+}
+
+func (T *ServerHandlerDynamic) Close() error {
+	if T.exec != nil {
+		return T.exec.Close()
+	}
+	return nil
 }

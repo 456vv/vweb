@@ -17,7 +17,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
-var version = "App/v1.1"
+var version = "App/v2.0"
 
 var (
 	fRootDir       = flag.String("RootDir", filepath.Dir(os.Args[0]), "程序根目录")
@@ -126,7 +126,4 @@ func main() {
 	if err := group.Start(); err != nil {
 		log.Printf("启动失败：%s\n", err)
 	}
-
-	// 非法结束进程，留给另一个线程处理退出
-	time.Sleep(time.Second)
 }
