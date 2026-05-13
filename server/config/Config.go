@@ -426,6 +426,12 @@ type Config struct {
 //	返：
 //	  error           错误，如果文件无法打开，或无法解析的情况
 func (T *Config) ParseFile(file string) error {
+	// 优先判断加载子配置文件
+	if strings.HasSuffix(file, ".site.json") || strings.HasSuffix(file, ".listen.json") {
+		return loadSubConf(file, T)
+	}
+
+	// 加载主配置文件
 	osFile, err := os.Open(file)
 	if err != nil {
 		return err
@@ -618,19 +624,18 @@ func configRPCClient(c *vweb.PluginRPCClient, conf *SitePlugin) error {
 	return nil
 }
 
-func parseSubconf(path string, v any) error {
+func parseConf(path string, v any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	err = json.Unmarshal(data, v)
-	return err
+	return json.Unmarshal(data, v)
 }
 
 func loadSubConf(path string, conf *Config) error {
 	if strings.HasSuffix(path, ".site.json") {
 		var site []Site
-		if err := parseSubconf(path, &site); err != nil {
+		if err := parseConf(path, &site); err != nil {
 			return err
 		}
 	V:
@@ -653,11 +658,9 @@ func loadSubConf(path string, conf *Config) error {
 		}
 		// 剩下的全是新创建的
 		conf.Sites.Site = append(conf.Sites.Site, site...)
-	}
-
-	if strings.HasSuffix(path, ".listen.json") {
+	} else if strings.HasSuffix(path, ".listen.json") {
 		var listen map[string]Listen
-		if err := parseSubconf(path, &listen); err != nil {
+		if err := parseConf(path, &listen); err != nil {
 			return err
 		}
 		for k, v := range listen {

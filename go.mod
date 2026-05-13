@@ -5,8 +5,8 @@ go 1.25.0
 require (
 	github.com/456vv/vconnpool/v2 v2.2.1
 	github.com/456vv/verror v1.1.0
-	github.com/456vv/vmap/v2 v2.3.3
-	github.com/456vv/x/vweb_dynamic v0.0.0-20260511070359-dbdbeca72c90
+	github.com/456vv/vmap/v2 v2.3.4
+	github.com/456vv/x/vweb_dynamic v0.0.0-20260513151119-1a8c867a3d31
 	github.com/456vv/x/watch v0.0.0-20260511070359-dbdbeca72c90
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/issue9/assert/v2 v2.3.2

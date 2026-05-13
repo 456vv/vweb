@@ -12,6 +12,7 @@ import (
 
 	"github.com/456vv/vweb/v3/cmd/main/internal/dynamic"
 	"github.com/456vv/vweb/v3/server"
+	"github.com/456vv/vweb/v3/server/config"
 	"github.com/456vv/x/watch"
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/crypto/acme/autocert"
@@ -92,13 +93,14 @@ func main() {
 	defer watcher.Close()
 
 	// 加载配置文件，支持子配置
+	var conf config.Config
 	updateConfig := func(path string) {
-		ok, err := group.LoadConfigFile(path)
-		if err != nil {
+		if err := conf.ParseFiles(path); err != nil {
 			log.Printf("加载配置文件出现错误: %s\n", err.Error())
 			return
 		}
-		log.Printf("加载配置文件成功(%t)\n", ok)
+		group.UpdateConfig(&conf)
+		log.Printf("加载配置文件成功: %s\n", path)
 	}
 	// 主动加载配置
 	updateConfig(*fConfigFile)
@@ -108,7 +110,7 @@ func main() {
 		switch e.Op {
 		case fsnotify.Create, fsnotify.Write, fsnotify.Remove:
 			if strings.HasSuffix(e.Name, ".json") {
-				updateConfig(*fConfigFile)
+				updateConfig(e.Name)
 			}
 		default:
 		}
