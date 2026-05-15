@@ -53,7 +53,7 @@ type ServerHandlerDynamic struct {
 //	req *http.Request         请求
 func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	var (
-		tmplread io.Reader
+		tplRead  io.Reader
 		modeTime time.Time
 		err      error
 	)
@@ -64,7 +64,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	}
 	filePath := filepath.Join(T.RootPath, pagePath)
 	if T.ReadFile != nil {
-		tmplread, modeTime, err = T.ReadFile(filePath, req.URL)
+		tplRead, modeTime, err = T.ReadFile(filePath, req.URL)
 		if err != nil {
 			webError(rw, fmt.Sprintf("Failed to read the ReadFile! Error: %s", err.Error()))
 			return
@@ -80,7 +80,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 			return
 		}
 		defer osFile.Close()
-		tmplread = osFile
+		tplRead = osFile
 
 		// 记录文件修改时间，用于缓存文件
 		osFileInfo, err := osFile.Stat()
@@ -97,7 +97,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 
 	if T.exec == nil {
 		// 解析模板内容
-		if err = T.parse(tmplread); err != nil {
+		if err = T.parse(tplRead); err != nil {
 			webError(rw, err.Error())
 			return
 		}
