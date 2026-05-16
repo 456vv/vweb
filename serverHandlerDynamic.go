@@ -121,13 +121,13 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	body := new(bytes.Buffer)
 	callName := entryname(req.URL.Path)
 	if err = T.execute(callName, body, dock); err != nil {
+		log.Printf("%s\n执行模板错误: \n%s\n", req.URL.Path, err.Error())
 		if !dock.isWrited() {
 			webError(rw, err.Error())
 			return
 		}
 
 		io.WriteString(rw, err.Error())
-		log.Println(err.Error())
 		return
 	}
 

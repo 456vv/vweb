@@ -6,10 +6,9 @@ require (
 	github.com/456vv/vconnpool/v2 v2.2.1
 	github.com/456vv/verror v1.1.0
 	github.com/456vv/vmap/v2 v2.3.5
-	github.com/456vv/x/vweb_dynamic v0.0.0-20260514145233-0a0d4af8fb46
-	github.com/456vv/x/watch v0.0.0-20260514145233-0a0d4af8fb46
+	github.com/456vv/x/vweb_dynamic v0.0.0-20260515145744-76b27cdc94e5
+	github.com/456vv/x/watch v0.0.0-20260515145744-76b27cdc94e5
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/issue9/assert/v2 v2.3.2
 	golang.org/x/crypto v0.51.0
 	golang.org/x/net v0.54.0
 )
@@ -19,17 +18,18 @@ require (
 	github.com/456vv/vcipher v1.0.0 // indirect
 	github.com/456vv/verifycode v1.0.3 // indirect
 	github.com/456vv/vforward v1.2.4 // indirect
-	github.com/456vv/x/db v0.0.0-20260514145233-0a0d4af8fb46 // indirect
-	github.com/456vv/x/igop_lib v0.0.0-20260514145233-0a0d4af8fb46 // indirect
-	github.com/456vv/x/smtp v0.0.0-20260514145233-0a0d4af8fb46 // indirect
-	github.com/456vv/x/sqltable v0.0.0-20260514145233-0a0d4af8fb46 // indirect
-	github.com/456vv/x/ticker v0.0.0-20260514145233-0a0d4af8fb46 // indirect
-	github.com/456vv/x/yaegi_lib v0.0.0-20260514145233-0a0d4af8fb46 // indirect
+	github.com/456vv/x/db v0.0.0-20260515145744-76b27cdc94e5 // indirect
+	github.com/456vv/x/igop_lib v0.0.0-20260515145744-76b27cdc94e5 // indirect
+	github.com/456vv/x/smtp v0.0.0-20260515145744-76b27cdc94e5 // indirect
+	github.com/456vv/x/sqltable v0.0.0-20260515145744-76b27cdc94e5 // indirect
+	github.com/456vv/x/ticker v0.0.0-20260515145744-76b27cdc94e5 // indirect
+	github.com/456vv/x/yaegi_lib v0.0.0-20260515145744-76b27cdc94e5 // indirect
 	github.com/OpenListTeam/wazero-wasip2 v0.0.0-20251102195840-b699dbc20d5c // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/goplus/ixgo v1.1.0 // indirect
 	github.com/goplus/reflectx v1.7.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/issue9/assert/v2 v2.3.2 // indirect
 	github.com/libp2p/go-reuseport v0.4.0 // indirect
 	github.com/mattn/go-sqlite3 v1.14.44 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect

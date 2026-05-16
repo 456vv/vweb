@@ -3,6 +3,7 @@ package vweb
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"path"
 	"regexp"
@@ -217,9 +218,7 @@ func parsePathParams(filteredUserSegments, pathSegments []string) (result map[st
 		}
 
 		// 将提取到的参数合并到最终结果 map 中
-		for k, v := range params {
-			result[k] = v
-		}
+		maps.Copy(result, params)
 	}
 
 	return result, true
