@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/456vv/vconnpool/v2"
+	"github.com/456vv/vconnpool/v3"
 	"github.com/456vv/verror"
 	"github.com/456vv/vweb/v3"
 	"github.com/456vv/vweb/v3/builtin"
@@ -600,12 +600,12 @@ func configRPCClient(c *vweb.PluginRPCClient, conf *SitePlugin) error {
 	c.Path = conf.Path
 	// RPC客户端连接池
 	if c.ConnPool == nil {
-		c.ConnPool = new(vconnpool.ConnPool)
+		c.ConnPool = new(vconnpool.Pool)
 	}
 	if c.ConnPool.Dialer == nil {
 		c.ConnPool.Dialer = new(net.Dialer)
 	}
-	c.ConnPool.IdeConn = conf.IdeConn
+	c.ConnPool.IdleConn = conf.IdeConn
 	c.ConnPool.MaxConn = conf.MaxConn
 
 	if d, ok := c.ConnPool.Dialer.(*net.Dialer); ok {

@@ -4,13 +4,12 @@ import (
 	"bufio"
 	"encoding/gob"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/rpc"
 
-	"github.com/456vv/vconnpool/v2"
+	"github.com/456vv/vconnpool/v3"
 )
 
 // PluginRPC rpc插件接口
@@ -24,9 +23,9 @@ type PluginRPC interface {
 
 // PluginRPCClient 插件RPC客户端
 type PluginRPCClient struct {
-	ConnPool *vconnpool.ConnPool // 连接池
-	Addr     string              // 地址
-	Path     string              // 路径
+	ConnPool *vconnpool.Pool // 连接池
+	Addr     string          // 地址
+	Path     string          // 路径
 }
 
 // Connection 快速连接RPC
@@ -45,7 +44,7 @@ func (T *PluginRPCClient) Connection() (PluginRPC, error) {
 
 	// RPC客户端准备
 	var client *rpc.Client
-	if conn, ok := conn.(vconnpool.Conn); ok && conn.IsReuseConn() {
+	if conn.IsReuseConn() {
 		// 重复连接不需要做连接前准备
 		client = rpc.NewClient(conn)
 	} else {
@@ -125,9 +124,8 @@ func (T *pluginRPC) Close() error {
 //
 //	error     错误
 func (T *pluginRPC) Discard() error {
-	conn, ok := T.conn.(vconnpool.Conn)
-	if ok {
-		return fmt.Errorf("vweb: Discard 方法不存在！")
+	if conn, ok := T.conn.(vconnpool.Conn); ok {
+		conn.Discard()
 	}
-	return conn.Discard()
+	return nil
 }
