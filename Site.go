@@ -3,6 +3,7 @@ package vweb
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/456vv/vmap/v2"
@@ -13,7 +14,7 @@ type SitePool struct {
 	pool   sync.Map     // map[host]*Site
 	tick   *time.Ticker // 定时器
 	exit   chan bool    // 退出
-	closed atomicBool   // 已经启动
+	closed atomic.Bool  // 已经启动
 }
 
 func NewSitePool() *SitePool {
@@ -90,7 +91,7 @@ L:
 //
 //	error   错误
 func (T *SitePool) Close() error {
-	if !T.closed.setTrue() {
+	if !T.closed.Swap(true) {
 		T.exit <- true
 		T.tick.Stop()
 		T.pool.Range(func(key, value any) bool {

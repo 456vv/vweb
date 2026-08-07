@@ -2,6 +2,7 @@ package vweb
 
 import (
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/456vv/vmap/v2"
@@ -27,7 +28,7 @@ type Session struct {
 	vmap.Map          // 数据，用户存储的数据
 	id       string   // id，给Sessions使用的
 	exitCall ExitCall // 退回调用函数
-	freed    atomicBool
+	freed    atomic.Bool
 }
 
 // Token 读取当前的令牌
@@ -46,7 +47,7 @@ func (T *Session) Token() string {
 //		.Defer(fmt.Println, "1", "2")
 //		.Defer(fmt.Printf, "%s", "汉字")
 func (T *Session) Defer(call any, args ...any) error {
-	if T.freed.isTrue() {
+	if T.freed.Load() {
 		return errors.New("has execute freed")
 	}
 	return T.exitCall.Defer(call, args...)
@@ -54,7 +55,7 @@ func (T *Session) Defer(call any, args ...any) error {
 
 // Free 执行结束Defer和键值有效期
 func (T *Session) Free() {
-	T.freed.setTrue()
+	T.freed.Store(true)
 	// 执行退出函数
 	T.exitCall.Free()
 }

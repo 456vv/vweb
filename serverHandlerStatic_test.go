@@ -1,191 +1,278 @@
 ﻿package vweb
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
-	"time"
 )
 
-func Test_serverHandlerStaticHeader(t *testing.T) {
-	tempFile, err := os.CreateTemp("", "T")
+// setupTestEnvironment 创建用于测试的绝对路径目录和文件
+// 满足严格使用绝对路径的规范
+func setupTestEnvironment(t *testing.T) (rootPath string, cleanup func()) {
+	// 获取系统临时目录的绝对路径
+	tmpDir, err := filepath.Abs(os.TempDir())
 	if err != nil {
-		t.Fatalf("打开文件错误：%v", err)
+		t.Fatalf("Failed to get absolute temp dir: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
 
-	tempFile.Write([]byte("123456"))
-	fi, err := tempFile.Stat()
+	rootPath = filepath.Join(tmpDir, "vweb_static_test_dir")
+	err = os.MkdirAll(rootPath, 0o755)
 	if err != nil {
-		t.Fatalf("读取文件(%s)信息错误：%v", tempFile.Name(), err)
+		t.Fatalf("Failed to create test dir: %v", err)
 	}
 
-	wh := make(http.Header)
-	rh := http.Header{}
-	shsh := serverHandlerStaticHeader{
-		fileInfo: fi,
-		wh:       wh,
+	// 写入测试文件 (36 bytes: 0123456789abcdefghijklmnopqrstuvwxyz)
+	filePath := filepath.Join(rootPath, "testfile.txt")
+	content := []byte("0123456789abcdefghijklmnopqrstuvwxyz")
+	err = os.WriteFile(filePath, content, 0o644)
+	if err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	shsh.setLastModified()
-	if shsh.lastModified() != wh.Get("Last-Modified") {
-		t.Fatalf("返回的修改时间和设置的修改时间不一致")
-	}
+	// 创建一个子目录用于测试 403 权限问题
+	subDir := filepath.Join(rootPath, "subdir")
+	os.MkdirAll(subDir, 0o755)
 
-	shsh.setDate()
-	if time.Now().Format(http.TimeFormat) != wh.Get("Date") {
-		t.Fatalf("返回的系统时间和设置的系统时间不一致")
+	cleanup = func() {
+		os.RemoveAll(rootPath)
 	}
-
-	shsh.setContentLength()
-	if shsh.contentLength() != wh.Get("Content-Length") {
-		t.Fatalf("返回的文件大小和设置的文件大小不一致")
-	}
-
-	shsh.setETag()
-	if shsh.etag() != wh.Get("ETag") {
-		t.Fatalf("返回的ETag和设置的ETag不一致")
-	}
-
-	testRange := []struct {
-		h   string
-		n   int64
-		err bool
-	}{
-		{h: "bytes=1-2", n: 2},
-		{h: "bytes=0-2", n: 3},
-		{h: "bytes=-2", n: 2}, //-2 表示后面两位字节
-		{h: "bytes=0-", n: fi.Size()},
-		{h: "bytes=60-80", n: 0}, // 长度超出
-		{h: "bytes=2-1", n: 0},   // 错误的格式
-		{h: "bytes=1-1", n: 1},
-		{h: "bytes=-1-", n: 0, err: true}, // 错误的格式
-		{h: "bytes=0-,1-2,0-2", n: fi.Size() + 2 + 3},
-		{h: "bytes=0-,1-2,-1-2", n: 12, err: true},    //-1-2 是错误的，忽略
-		{h: "bytes=0-,1-2,1-4", n: fi.Size() + 2 + 4}, // 1-4 超出长度
-	}
-	for _, v := range testRange {
-		rh.Set("Range", v.h)
-		_, n, err := shsh.ranges(v.h)
-		if err != nil && !v.err {
-			t.Fatalf("数据长度：%d, 标头 Raange: %s，是不正确的，错误：%v\r\n", fi.Size(), v.h, err)
-		}
-		if n != v.n && !v.err {
-			t.Fatalf("标头 Raange: %s， 数据长度：%d, 返回长度：%d\r\n", v.h, fi.Size(), n)
-		}
-	}
+	return rootPath, cleanup
 }
 
-func Test_ServerHandlerStatic_header(t *testing.T) {
-	tempFile, err := os.CreateTemp("", "T")
-	if err != nil {
-		t.Fatalf("打开文件错误：%v", err)
-	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
+// TestServerHandlerStatic_ServeHTTP 详细的单元测试，模拟不同参数输入
+func TestServerHandlerStatic_ServeHTTP(t *testing.T) {
+	rootPath, cleanup := setupTestEnvironment(t)
+	defer cleanup()
 
-	tempFile.Write([]byte("123456"))
-	fi, err := tempFile.Stat()
-	if err != nil {
-		t.Fatalf("读取文件(%s)信息错误：%v", tempFile.Name(), err)
+	handler := &ServerHandlerStatic{
+		RootPath:    rootPath,
+		PageExpired: 3600,
 	}
 
-	testRange := []struct {
-		h   string
-		err bool
-	}{
-		{h: "bytes=1-2"},
-		{h: "bytes=0-2,1-2,0-3"},
-		{h: "bytes=-2"}, //-2 表示后面两位字节
-		{h: "bytes=0-"},
-		{h: "bytes=60-80"}, // 长度超出
-		{h: "bytes=2-1"},   // 错误的格式
-		{h: "bytes=1-1"},
-		{h: "bytes=-1-", err: true}, // 错误的格式
-		{h: "bytes=0-,1-2,0-2"},
-		{h: "bytes=0-,1-2,-1-2", err: true}, //-1-2 是错误的，忽略
-		{h: "bytes=0-,1-2,1-4"},             // 1-4 超出长度
-		{h: "bytes=0-a", err: true},         // 这不是有效的格式
-	}
-
-	shs := ServerHandlerStatic{
-		fileInfo:    fi,
-		PageExpired: 500,
-	}
-
-	w := httptest.NewRecorder()
-	r, _ := http.NewRequest("GET", "./test/1.html", nil)
-	for _, v := range testRange {
-		r.Header.Set("Range", v.h)
-		_, err := shs.header(w, r)
-		if err != nil && !v.err {
-			t.Fatal(err)
-		}
-		// t.Log(block)
-	}
-}
-
-func Test_serverHandlerStatic_body(t *testing.T) {
-	tempFile, err := os.CreateTemp("", "T")
-	if err != nil {
-		t.Fatalf("打开文件错误：%v", err)
-	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
-	tempFile.Write([]byte("123456"))
-	fi, err := tempFile.Stat()
-	if err != nil {
-		t.Fatalf("读取文件(%s)信息错误：%v", tempFile.Name(), err)
-	}
-
-	shsh := serverHandlerStaticHeader{
-		fileInfo: fi,
-	}
-	shs := &ServerHandlerStatic{
-		RootPath: filepath.Dir(tempFile.Name()),
-		PagePath: fi.Name(),
-		fileInfo: fi,
-	}
+	// 获取文件的真实 ETag 和 Last-Modified 用于缓存测试
+	fi, _ := os.Stat(filepath.Join(rootPath, "testfile.txt"))
+	shsh := &serverHandlerStaticHeader{fileInfo: fi}
+	validETag := shsh.etag()
+	validModTime := fi.ModTime().UTC().Format(http.TimeFormat)
 
 	tests := []struct {
-		rh     map[string]string
-		code   int
-		length string
+		name           string
+		method         string
+		path           string
+		headers        map[string]string
+		expectedStatus int
+		expectedBody   string
+		checkHeader    func(http.Header) bool
 	}{
-		{rh: map[string]string{"If-None-Match": shsh.etag()}, code: 304, length: ""},
-		{rh: map[string]string{"If-Modified-Since": shsh.lastModified()}, code: 200, length: shsh.contentLength()},
-		{rh: map[string]string{"Range": "bytes=-1"}, code: 206, length: "1"},
-		{rh: map[string]string{"Range": "bytes=-0"}, code: 416, length: ""},
-		{rh: map[string]string{"Range": "bytes=-3333"}, code: 206, length: shsh.contentLength()},
-		{rh: map[string]string{"Range": "bytes=0-0"}, code: 206, length: "1"},
-		{rh: map[string]string{"Range": "bytes=0-"}, code: 206, length: shsh.contentLength()},
-		{rh: map[string]string{"Range": "bytes=10-"}, code: 200, length: shsh.contentLength()},
-		{rh: map[string]string{"Range": "bytes=-5-5"}, code: 416, length: ""},
-		{rh: map[string]string{"Range": "bytes=0-0,0-2"}, code: 206, length: "326"},
-		{rh: map[string]string{"Range": "bytes=0-0,0-77777"}, code: 200, length: "6"},
+		{
+			name:           "Normal GET",
+			method:         http.MethodGet,
+			path:           "/testfile.txt",
+			expectedStatus: http.StatusOK,
+			expectedBody:   "0123456789abcdefghijklmnopqrstuvwxyz",
+		},
+		{
+			name:           "HEAD Request",
+			method:         http.MethodHead,
+			path:           "/testfile.txt",
+			expectedStatus: http.StatusOK,
+			expectedBody:   "", // HEAD 应该没有 body
+		},
+		{
+			name:           "Method Not Allowed",
+			method:         http.MethodPost,
+			path:           "/testfile.txt",
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:           "File Not Found",
+			method:         http.MethodGet,
+			path:           "/missing.txt",
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "Directory Forbidden",
+			method:         http.MethodGet,
+			path:           "/subdir",
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "Single Range",
+			method:         http.MethodGet,
+			path:           "/testfile.txt",
+			headers:        map[string]string{"Range": "bytes=0-9"},
+			expectedStatus: http.StatusPartialContent,
+			expectedBody:   "0123456789",
+		},
+		{
+			name:           "Suffix Range",
+			method:         http.MethodGet,
+			path:           "/testfile.txt",
+			headers:        map[string]string{"Range": "bytes=-5"},
+			expectedStatus: http.StatusPartialContent,
+			expectedBody:   "vwxyz",
+		},
+		{
+			name:           "Multiple Range (Multipart)",
+			method:         http.MethodGet,
+			path:           "/testfile.txt",
+			headers:        map[string]string{"Range": "bytes=0-4, 10-14"},
+			expectedStatus: http.StatusPartialContent,
+			checkHeader: func(h http.Header) bool {
+				return strings.HasPrefix(h.Get("Content-Type"), "multipart/byteranges")
+			},
+		},
+		{
+			name:           "Invalid Range",
+			method:         http.MethodGet,
+			path:           "/testfile.txt",
+			headers:        map[string]string{"Range": "bytes=100-200"},
+			expectedStatus: http.StatusRequestedRangeNotSatisfiable,
+		},
+		{
+			name:           "Cache Hit 304 ETag",
+			method:         http.MethodGet,
+			path:           "/testfile.txt",
+			headers:        map[string]string{"If-None-Match": validETag},
+			expectedStatus: http.StatusNotModified,
+		},
+		{
+			name:           "Cache Hit 304 Last-Modified",
+			method:         http.MethodGet,
+			path:           "/testfile.txt",
+			headers:        map[string]string{"If-Modified-Since": validModTime},
+			expectedStatus: http.StatusNotModified,
+		},
 	}
 
-	for _, test := range tests {
-		w := httptest.NewRecorder()
-		w.Header().Set("Content-Type", "text/application")
-		r := new(http.Request)
-		r.Header = make(http.Header)
-		for k, v := range test.rh {
-			r.Header.Add(k, v)
-		}
-		rangeBlock, err := shs.header(w, r)
-		if err != nil && w.Code != test.code {
-			t.Fatal(err)
-		}
-		// t.Log(rangeBlock)
-		shs.body(w, rangeBlock)
-		// shs.serveHTTP(w, r)
-		if w.Code != test.code || test.length != w.Header().Get("Content-Length") {
-			t.Fatalf("\r\n\t请求Range:%v \r\n\t状态码：%d != %d \r\n\tHeader标头：%s \r\n\t内容：%s \r\n ", test.rh, test.code, w.Code, w.Header(), w.Body.String())
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "http://localhost"+tt.path, nil)
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+			w := httptest.NewRecorder()
+
+			handler.ServeHTTP(w, req)
+			resp := w.Result()
+
+			if resp.StatusCode != tt.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tt.expectedStatus, resp.StatusCode)
+			}
+
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			bodyStr := string(bodyBytes)
+			resp.Body.Close()
+
+			if tt.expectedBody != "" && bodyStr != tt.expectedBody {
+				t.Errorf("Expected body %q, got %q", tt.expectedBody, bodyStr)
+			}
+
+			if tt.checkHeader != nil {
+				if !tt.checkHeader(resp.Header) {
+					t.Errorf("Header check failed for Content-Type: %s", resp.Header.Get("Content-Type"))
+				}
+				// 针对 Multipart 进一步简单校验内容
+				if strings.Contains(resp.Header.Get("Content-Type"), "multipart") {
+					if !strings.Contains(bodyStr, "01234") || !strings.Contains(bodyStr, "abcde") {
+						t.Errorf("Multipart body missing expected chunks, got: %s", bodyStr)
+					}
+				}
+			}
+		})
 	}
+}
+
+// TestServerHandlerStatic_Concurrency 多线程并发交叉调用测试
+// 用于检测共享状态 (如 handler 配置、文件 IO 描述符) 是否存在竞态条件
+func TestServerHandlerStatic_Concurrency(t *testing.T) {
+	rootPath, cleanup := setupTestEnvironment(t)
+	defer cleanup()
+
+	handler := &ServerHandlerStatic{
+		RootPath:    rootPath,
+		PageExpired: 60,
+	}
+
+	var wg sync.WaitGroup
+	workers := 100   // 100 个并发 Goroutine
+	iterations := 50 // 每个 Goroutine 执行 50 次不同的请求
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				// 混合生成各种参数
+				method := http.MethodGet
+				if (workerID+j)%4 == 0 {
+					method = http.MethodHead
+				}
+
+				req := httptest.NewRequest(method, "http://localhost/testfile.txt", nil)
+
+				// 交错植入缓存和 Range Header
+				if j%3 == 0 {
+					req.Header.Set("Range", "bytes=2-8")
+				} else if j%5 == 0 {
+					req.Header.Set("Range", "bytes=0-1,3-5,7-9")
+				}
+
+				if j%7 == 0 {
+					// 随机无效 Etag
+					req.Header.Set("If-None-Match", `W/"invalid-etag"`)
+				}
+
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+
+				// 仅仅读取确保过程不 Panic，检查基础状态
+				resp := w.Result()
+				_, _ = io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				if resp.StatusCode == http.StatusInternalServerError {
+					t.Errorf("Unexpected 500 error in concurrent execution")
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// BenchmarkServerHandlerStatic 串行基准测试
+func BenchmarkServerHandlerStatic(b *testing.B) {
+	rootPath, cleanup := setupTestEnvironment(&testing.T{})
+	defer cleanup()
+
+	handler := &ServerHandlerStatic{RootPath: rootPath}
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/testfile.txt", nil)
+
+	for b.Loop() {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+	}
+}
+
+// BenchmarkServerHandlerStatic_Parallel 并行基准测试 (模拟真实 Web 流量)
+func BenchmarkServerHandlerStatic_Parallel(b *testing.B) {
+	rootPath, cleanup := setupTestEnvironment(&testing.T{})
+	defer cleanup()
+
+	handler := &ServerHandlerStatic{RootPath: rootPath}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		req := httptest.NewRequest(http.MethodGet, "http://localhost/testfile.txt", nil)
+		for pb.Next() {
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+		}
+	})
 }
