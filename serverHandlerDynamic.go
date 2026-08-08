@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,16 +36,15 @@ func webError(rw http.ResponseWriter, v ...any) {
 type ServerHandlerDynamic struct {
 	// 必须的
 	RootPath string // 根目录
-	PagePath string // 主模板文件路径
 
 	// 可选的
 	Site   *Site                                       // 网站配置
 	Module func(name string) (DynamicTemplater, error) // 支持更动态文件类型
 
-	SaveStatic func(filePath string, r io.Reader, l int) (int, error)          // 静态结果。仅在 .ServeHTTP 方法中使用
-	ReadFile   func(filePath string, u *url.URL) (io.Reader, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
-	exec       DynamicTemplater
-	modeTime   time.Time
+	ReadFile func(filePath string, u *url.URL) (io.ReadCloser, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
+	mu       sync.RWMutex                                                        // 保护 exec / modeTime 的并发安全
+	exec     DynamicTemplater
+	modeTime time.Time
 }
 
 // ServeHTTP 服务HTTP
@@ -53,26 +53,27 @@ type ServerHandlerDynamic struct {
 //	req *http.Request         请求
 func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	var (
-		tplRead  io.Reader
+		tplRead  io.ReadCloser
 		modeTime time.Time
 		err      error
 	)
 
-	pagePath := T.PagePath
-	if T.PagePath == "" {
-		pagePath = path.Clean(req.URL.Path)
+	pagePath := path.Clean(req.URL.Path)
+	// 防止路径穿越（跨平台兼容）
+	if strings.Contains(pagePath, "..") {
+		// 简单安全检查，实际生产可更严格
+		pagePath = path.Clean("/" + strings.TrimPrefix(pagePath, "/"))
 	}
-	filePath := filepath.Join(T.RootPath, pagePath)
+	// 跨平台路径拼接
+	filePath := filepath.Join(T.RootPath, filepath.FromSlash(pagePath))
+
 	if T.ReadFile != nil {
 		tplRead, modeTime, err = T.ReadFile(filePath, req.URL)
 		if err != nil {
 			webError(rw, fmt.Sprintf("Failed to read the ReadFile! Error: %s", err.Error()))
 			return
 		}
-		if !modeTime.Equal(T.modeTime) {
-			T.exec = nil
-		}
-		T.modeTime = modeTime
+		defer tplRead.Close()
 	} else {
 		osFile, err := os.Open(filePath)
 		if err != nil {
@@ -85,22 +86,34 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 		// 记录文件修改时间，用于缓存文件
 		osFileInfo, err := osFile.Stat()
 		if err != nil {
-			T.exec = nil
-		} else {
-			modeTime = osFileInfo.ModTime()
-			if !modeTime.Equal(T.modeTime) {
-				T.exec = nil
+			webError(rw, fmt.Sprintf("Failed to stat file! Error: %s", err.Error()))
+			return
+		}
+		modeTime = osFileInfo.ModTime()
+	}
+
+	// 并发安全检查是否需要重新解析
+	T.mu.RLock()
+	needParse := T.exec == nil || !modeTime.Equal(T.modeTime)
+	exec := T.exec
+	T.mu.RUnlock()
+
+	if needParse {
+		T.mu.Lock()
+		// 双重检查
+		if T.exec == nil || !modeTime.Equal(T.modeTime) {
+			if T.exec != nil {
+				T.exec.Close() // 释放旧实例
+			}
+			if err = T.parse(pagePath, tplRead); err != nil {
+				T.mu.Unlock()
+				webError(rw, err.Error())
+				return
 			}
 			T.modeTime = modeTime
 		}
-	}
-
-	if T.exec == nil {
-		// 解析模板内容
-		if err = T.parse(tplRead); err != nil {
-			webError(rw, err.Error())
-			return
-		}
+		exec = T.exec
+		T.mu.Unlock()
 	}
 
 	// 模板点
@@ -112,16 +125,16 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 	defer dock.Close()
 
 	ctx := req.Context()
-	if site, ok := ctx.Value(SiteContextKey).(*Site); ok {
+	if site, ok := ctx.Value(SiteContextKey).(*Site); ok && site != nil {
 		dock.Site = site
 	}
 	dock.WithContext(ctx)
 
-	// 执行模板内容
+	// 执行模板内容（使用本地副本，避免持锁）
 	body := new(bytes.Buffer)
-	callName := entryname(req.URL.Path)
-	if err = T.execute(callName, body, dock); err != nil {
-		log.Printf("%s\n执行模板错误: \n%s\n", req.URL.Path, err.Error())
+	callName := entryname(pagePath)
+	if err = T.executeWith(exec, callName, body, dock); err != nil {
+		log.Printf("%s\n执行模板错误: \n%s\n", pagePath, err.Error())
 		if !dock.isWrited() {
 			webError(rw, err.Error())
 			return
@@ -133,7 +146,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 
 	if !dock.isWrited() {
 		// 写入到浏览器页面中去
-		if body.Len() != 0 {
+		if body.Len() > 0 {
 			body.WriteTo(rw)
 		}
 	}
@@ -161,6 +174,9 @@ func entryname(name string) string {
 func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
 	h, err := buf.Peek(8)
 	if err != nil {
+		if err == io.EOF {
+			return nil, errors.New("vweb: The file content is empty")
+		}
 		return nil, err
 	}
 
@@ -183,7 +199,7 @@ func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
 		return nil, errors.New("vweb: The first line of the file needs to confirm the dynamic type")
 	}
 
-	// 过滤换行符
+	// 过滤换行符（兼容 \n 与 \r\n）
 	drop := 0
 	if dynamicType[len(dynamicType)-1] == '\n' {
 		drop = 1
@@ -202,13 +218,13 @@ func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
 	return dynamicType, nil
 }
 
-func (T *ServerHandlerDynamic) parse(r io.Reader) (err error) {
+func (T *ServerHandlerDynamic) parse(pagePath string, r io.Reader) (err error) {
 	// 文件第一行，确认动态文件类型
 	if T.Module == nil {
 		return errors.New("vweb: the file type of the first line of the file is not recognized")
 	}
 
-	buf := bufio.NewReader(r)
+	buf := bufio.NewReaderSize(r, 64*1024) // 适当增大缓冲提升性能
 	dynmicType, err := fileFirstLine(buf)
 	if err != nil {
 		return err
@@ -219,12 +235,13 @@ func (T *ServerHandlerDynamic) parse(r io.Reader) (err error) {
 		return err
 	}
 
-	T.exec.SetPath(T.RootPath, T.PagePath)
+	T.exec.SetPath(T.RootPath, pagePath)
 	return T.exec.Parse(buf)
 }
 
-func (T *ServerHandlerDynamic) execute(name string, bufw io.Writer, dock any) (err error) {
-	if T.exec == nil {
+// executeWith 内部执行（支持传入已获取的 exec，避免额外加锁）
+func (T *ServerHandlerDynamic) executeWith(exec DynamicTemplater, name string, bufw io.Writer, dock any) (err error) {
+	if exec == nil {
 		return errors.New("vweb: Parse the template content first and then call the Execute")
 	}
 	defer func() {
@@ -236,12 +253,24 @@ func (T *ServerHandlerDynamic) execute(name string, bufw io.Writer, dock any) (e
 		}
 	}()
 
-	return T.exec.Execute(name, bufw, dock)
+	return exec.Execute(name, bufw, dock)
+}
+
+func (T *ServerHandlerDynamic) execute(name string, bufw io.Writer, dock any) (err error) {
+	T.mu.RLock()
+	exec := T.exec
+	T.mu.RUnlock()
+	return T.executeWith(exec, name, bufw, dock)
 }
 
 func (T *ServerHandlerDynamic) Close() error {
+	T.mu.Lock()
+	defer T.mu.Unlock()
 	if T.exec != nil {
-		return T.exec.Close()
+		err := T.exec.Close()
+		T.exec = nil
+		T.modeTime = time.Time{}
+		return err
 	}
 	return nil
 }
