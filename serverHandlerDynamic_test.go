@@ -31,13 +31,13 @@ func TestServerHandlerDynamic(t *testing.T) {
 			return nil, errors.New("vweb: the file type does not support dynamic parsing")
 		},
 	}
-
-	if err := shd.parse(strings.NewReader(fileContent)); err != nil {
+	exec, err := shd.parseTemplate(filename, strings.NewReader(fileContent))
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	body := bytes.NewBuffer(nil)
-	if err := shd.execute("", body, nil); err != nil {
+	if _, err := shd.executeWith(exec, "", body, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -119,7 +119,6 @@ func TestServerHandlerDynamic_ServeHTTP_PagePathFromRequest(t *testing.T) {
 
 	handler := &ServerHandlerDynamic{
 		RootPath: dir,
-		PagePath: "", // 留空，让它从 request 中获取
 		Module: func(name string) (DynamicTemplater, error) {
 			return &mockDynamicTemplater{executeBody: "Hello World"}, nil
 		},
@@ -145,13 +144,12 @@ func TestServerHandlerDynamic_ServeHTTP_PagePathPreset(t *testing.T) {
 
 	handler := &ServerHandlerDynamic{
 		RootPath: dir,
-		PagePath: "/" + filename,
 		Module: func(name string) (DynamicTemplater, error) {
 			return &mockDynamicTemplater{executeBody: "Hello Preset"}, nil
 		},
 	}
 
-	req := newRequest("GET", "/anything") // URL path 不影响
+	req := newRequest("GET", "/"+filename) // URL path 不影响
 	rw := httptest.NewRecorder()
 
 	handler.ServeHTTP(rw, req)
@@ -168,7 +166,6 @@ func TestServerHandlerDynamic_ServeHTTP_PagePathPreset(t *testing.T) {
 func TestServerHandlerDynamic_ServeHTTP_FileNotFound(t *testing.T) {
 	handler := &ServerHandlerDynamic{
 		RootPath: "/nonexistent/path",
-		PagePath: "/nofile.html",
 		Module: func(name string) (DynamicTemplater, error) {
 			return &mockDynamicTemplater{}, nil
 		},
@@ -182,7 +179,7 @@ func TestServerHandlerDynamic_ServeHTTP_FileNotFound(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "Failed to read the Open") {
+	if !strings.Contains(rw.Body.String(), "vweb: Failed to stat file! Error: nofile.html\n") {
 		t.Errorf("Expected open error message, got %q", rw.Body.String())
 	}
 }
@@ -194,9 +191,9 @@ func TestServerHandlerDynamic_ServeHTTP_CustomReadFile(t *testing.T) {
 	handler := &ServerHandlerDynamic{
 		RootPath: "/virtual",
 		PagePath: "/page.html",
-		ReadFile: func(filePath string, u *url.URL) (io.Reader, time.Time, error) {
+		ReadFile: func(filePath string, u *url.URL) (io.ReadCloser, time.Time, error) {
 			content := "//mock\nCustom Content"
-			return strings.NewReader(content), modTime, nil
+			return io.NopCloser(strings.NewReader(content)), modTime, nil
 		},
 		Module: func(name string) (DynamicTemplater, error) {
 			return &mockDynamicTemplater{executeBody: "Custom Content"}, nil
@@ -221,7 +218,7 @@ func TestServerHandlerDynamic_ServeHTTP_ReadFileError(t *testing.T) {
 	handler := &ServerHandlerDynamic{
 		RootPath: "/virtual",
 		PagePath: "/page.html",
-		ReadFile: func(filePath string, u *url.URL) (io.Reader, time.Time, error) {
+		ReadFile: func(filePath string, u *url.URL) (io.ReadCloser, time.Time, error) {
 			return nil, time.Time{}, errors.New("read file failed")
 		},
 		Module: func(name string) (DynamicTemplater, error) {
@@ -250,9 +247,9 @@ func TestServerHandlerDynamic_ServeHTTP_ReadFileModeTimeChanged(t *testing.T) {
 	handler := &ServerHandlerDynamic{
 		RootPath: "/virtual",
 		PagePath: "/page.html",
-		ReadFile: func(filePath string, u *url.URL) (io.Reader, time.Time, error) {
+		ReadFile: func(filePath string, u *url.URL) (io.ReadCloser, time.Time, error) {
 			content := "//mock\nContent"
-			return strings.NewReader(content), modTime, nil
+			return io.NopCloser(strings.NewReader(content)), modTime, nil
 		},
 		Module: func(name string) (DynamicTemplater, error) {
 			callCount++
@@ -637,7 +634,7 @@ func TestServerHandlerDynamic_ServeHTTP_ExecutePanic(t *testing.T) {
 		t.Errorf("Expected status 500, got %d", rw.Code)
 	}
 	body := rw.Body.String()
-	if !strings.Contains(body, "vweb: Dynamic code execute error。template panic!") {
+	if !strings.Contains(body, "vweb: Dynamic code execute error. template panic!\n") {
 		t.Errorf("Expected panic recovery error message, got %q", body)
 	}
 }
