@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -63,7 +64,7 @@ func (r *refCountedTemplater) Close() error {
 		return nil
 	}
 	r.destroyed = true
-	r.refs-- // 扣除缓存在 T.exec 的引用
+	r.refs-- // 扣除缓存持有的引用
 	shouldClose := r.refs <= 0
 	r.mu.Unlock()
 
@@ -95,6 +96,11 @@ func (r *refCountedTemplater) release() {
 	}
 }
 
+type pageCacheEntry struct {
+	exec     *refCountedTemplater
+	modeTime time.Time
+}
+
 // web错误调用
 func webError(rw http.ResponseWriter, v ...any) {
 	// 500 服务器遇到了意料不到的情况，不能完成客户的请求。
@@ -110,10 +116,24 @@ type ServerHandlerDynamic struct {
 	Site   *Site                                       // 网站配置
 	Module func(name string) (DynamicTemplater, error) // 支持更动态文件类型
 
-	ReadFile func(filePath string, u *url.URL) (io.ReadCloser, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
-	mu       sync.RWMutex                                                        // 保护 exec / modeTime 的并发安全
-	exec     *refCountedTemplater
-	modeTime time.Time
+	ReadFile  func(filePath string, u *url.URL) (io.ReadCloser, time.Time, error) // 读取文件。仅在 .ServeHTTP 方法中使用
+	mu        sync.RWMutex                                                        // 保护 pageCache / pathLocks 的并发安全
+	pageCache map[string]*pageCacheEntry
+	pathLocks map[string]*sync.Mutex // 同页缓存填充串行锁，不同页互不阻塞
+	closed    atomic.Bool
+}
+
+// getOrCreatePathLock 获取同页路径的串行解析锁（必须在持有 T.mu 写锁时调用）
+func (T *ServerHandlerDynamic) getOrCreatePathLockLocked(pagePath string) *sync.Mutex {
+	if T.pathLocks == nil {
+		T.pathLocks = make(map[string]*sync.Mutex)
+	}
+	if l := T.pathLocks[pagePath]; l != nil {
+		return l
+	}
+	l := &sync.Mutex{}
+	T.pathLocks[pagePath] = l
+	return l
 }
 
 // ServeHTTP 服务HTTP
@@ -123,6 +143,10 @@ type ServerHandlerDynamic struct {
 func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if T == nil {
 		webError(rw, "vweb: ServerHandlerDynamic is nil")
+		return
+	}
+	if T.closed.Load() {
+		webError(rw, "vweb: ServerHandlerDynamic is closed")
 		return
 	}
 
@@ -169,12 +193,13 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 	// 确定页面路径（URL 路径风格）
 	pagePath := T.PagePath
 	if pagePath == "" {
-		pagePath = path.Clean(req.URL.Path)
+		pagePath = req.URL.Path
 	}
+	pagePath = path.Clean(pagePath)
 	// 规范化并去除可能的前导斜杠，后续用 filepath 拼接
 	pagePath = strings.TrimPrefix(pagePath, "/")
 	if pagePath == "" || pagePath == "." {
-		pagePath = "index"
+		pagePath = "index.go"
 	}
 
 	// 跨平台路径拼接
@@ -190,24 +215,19 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 		return nil, fmt.Errorf("vweb: invalid file path: %w", err)
 	}
 	rel, err := filepath.Rel(rootAbs, fileAbs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.HasPrefix(rel, "../") {
+	if err != nil || !isLocalPath(rel) {
 		return nil, errors.New("vweb: path traversal detected")
 	}
 
 	// ---------- 快速路径：先检查缓存是否仍然有效（不打开文件内容） ----------
 	var modeTime time.Time
+	var reader io.ReadCloser // only set when we must parse
 	if T.ReadFile == nil {
 		// 本地文件系统：仅 Stat，避免不必要的 Open
 		fi, statErr := os.Stat(filePath)
 		if statErr != nil {
 			// 文件被删除或损坏时，自动清理陈旧缓存
-			T.mu.Lock()
-			if T.exec != nil {
-				T.exec.Close()
-				T.exec = nil
-				T.modeTime = time.Time{}
-			}
-			T.mu.Unlock()
+			T.cleanupCacheEntry(pagePath)
 			return nil, fmt.Errorf("vweb: Failed to stat file! Error: %s", rel)
 		}
 		if fi.IsDir() {
@@ -216,67 +236,82 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 		modeTime = fi.ModTime()
 	} else {
 		// 自定义 ReadFile：必须调用一次才能拿到时间戳。
-		r, mt, rfErr := T.ReadFile(filePath, req.URL)
-		if rfErr != nil {
-			T.mu.Lock()
-			if T.exec != nil {
-				T.exec.Close()
-				T.exec = nil
-				T.modeTime = time.Time{}
-			}
-			T.mu.Unlock()
+		reader, modeTime, err = T.ReadFile(filePath, req.URL)
+		if err != nil {
+			T.cleanupCacheEntry(pagePath)
 			return nil, fmt.Errorf("vweb: Failed to read the ReadFile! Error: %s", rel)
 		}
-		defer r.Close()
-
-		modeTime = mt
-		// 先检查缓存，命中则安全关闭 reader 并复用
-		T.mu.RLock()
-		cachedExec := T.exec
-		cachedTime := T.modeTime
-		if cachedExec != nil && !cachedTime.IsZero() && cachedTime.Equal(modeTime) {
-			if cachedExec.acquire() {
-				T.mu.RUnlock()
-				return cachedExec, nil
-			}
-		}
-		T.mu.RUnlock()
-
-		return T.parseAndCache(pagePath, r, modeTime)
+		defer reader.Close()
 	}
 
-	// 本地文件：检查缓存
+	// 查缓存（读锁）
 	T.mu.RLock()
-	cachedExec := T.exec
-	cachedTime := T.modeTime
-	if cachedExec != nil && !cachedTime.IsZero() && cachedTime.Equal(modeTime) {
-		if cachedExec.acquire() {
-			T.mu.RUnlock()
-			return cachedExec, nil
+	if T.pageCache != nil {
+		if e, ok := T.pageCache[pagePath]; ok && e.modeTime.Equal(modeTime) {
+			if e.exec.acquire() {
+				T.mu.RUnlock()
+				return e.exec, nil
+			}
 		}
 	}
 	T.mu.RUnlock()
 
-	// 需要重新解析：打开文件
-	osFile, openErr := os.OpenFile(filePath, os.O_RDONLY, 0)
-	if openErr != nil {
-		return nil, fmt.Errorf("vweb: Failed to open file! Error: %s", rel)
+	if reader == nil {
+		// 需要重新解析：打开文件
+		reader, err = os.OpenFile(filePath, os.O_RDONLY, 0)
+		if err != nil {
+			return nil, fmt.Errorf("vweb: Failed to open file! Error: %s", rel)
+		}
+		defer reader.Close()
 	}
-	defer osFile.Close()
 
-	return T.parseAndCache(pagePath, osFile, modeTime)
+	return T.parseAndCache(pagePath, reader, modeTime)
+}
+
+// cleanupCacheEntry 安全清理指定缓存条目（内部辅助，不导出）
+func (T *ServerHandlerDynamic) cleanupCacheEntry(pagePath string) {
+	T.mu.Lock()
+	defer T.mu.Unlock()
+	if T.pageCache != nil {
+		if e, ok := T.pageCache[pagePath]; ok {
+			e.exec.Close()
+			delete(T.pageCache, pagePath)
+		}
+	}
+	if T.pathLocks != nil {
+		delete(T.pathLocks, pagePath)
+	}
 }
 
 // parseAndCache 安全解析与替换缓存
 func (T *ServerHandlerDynamic) parseAndCache(pagePath string, r io.Reader, modeTime time.Time) (*refCountedTemplater, error) {
+	// 同页串行解析，不同页之间不互相阻塞
 	T.mu.Lock()
-	defer T.mu.Unlock()
+	if T.closed.Load() {
+		T.mu.Unlock()
+		return nil, errors.New("vweb: ServerHandlerDynamic is closed")
+	}
+	lock := T.getOrCreatePathLockLocked(pagePath)
+	T.mu.Unlock()
 
-	// 双重检查防止并发重复解析
-	if T.exec != nil && T.modeTime.Equal(modeTime) {
-		if T.exec.acquire() {
-			return T.exec, nil
+	lock.Lock()
+	defer lock.Unlock()
+
+	// 获取到同页锁后再次检查，避免重复解析
+	T.mu.RLock()
+	closed := T.closed.Load()
+	if !closed && T.pageCache != nil {
+		if e, ok := T.pageCache[pagePath]; ok && e.modeTime.Equal(modeTime) {
+			if e.exec.acquire() {
+				T.mu.RUnlock()
+				return e.exec, nil
+			}
+			// acquire 失败，稍后在写锁下清理
 		}
+	}
+	T.mu.RUnlock()
+	if closed {
+		return nil, errors.New("vweb: ServerHandlerDynamic is closed")
 	}
 
 	newExec, parseErr := T.parseTemplate(pagePath, r)
@@ -284,16 +319,30 @@ func (T *ServerHandlerDynamic) parseAndCache(pagePath string, r io.Reader, modeT
 		return nil, parseErr
 	}
 
-	wrapped := &refCountedTemplater{
-		DynamicTemplater: newExec,
-		refs:             1, // 1 表示当前被 T.exec 缓存所持有
+	T.mu.Lock()
+	defer T.mu.Unlock()
+
+	if T.closed.Load() {
+		newExec.Close()
+		return nil, errors.New("vweb: ServerHandlerDynamic is closed")
 	}
 
-	if T.exec != nil {
-		T.exec.Close()
+	wrapped := &refCountedTemplater{
+		DynamicTemplater: newExec,
+		refs:             1, // 1 表示当前被 pageCache 缓存所持有
 	}
-	T.exec = wrapped
-	T.modeTime = modeTime
+
+	// 多页模式
+	if T.pageCache == nil {
+		T.pageCache = make(map[string]*pageCacheEntry)
+	}
+	if old, ok := T.pageCache[pagePath]; ok {
+		old.exec.Close()
+	}
+	T.pageCache[pagePath] = &pageCacheEntry{
+		exec:     wrapped,
+		modeTime: modeTime,
+	}
 
 	// 增加当前执行请求的引用计数
 	wrapped.acquire()
@@ -304,16 +353,16 @@ func (T *ServerHandlerDynamic) parseAndCache(pagePath string, r io.Reader, modeT
 func (T *ServerHandlerDynamic) parseTemplate(pagePath string, r io.Reader) (DynamicTemplater, error) {
 	// 文件第一行，确认动态文件类型
 	if T.Module == nil {
-		return nil, errors.New("vweb: the file type of the first line of the file is not recognized")
+		return nil, errors.New("vweb: Module is nil; cannot determine dynamic file type")
 	}
 
 	buf := bufio.NewReaderSize(r, 64*1024) // 64KB 缓冲提升大模板解析性能
-	dynmicType, err := fileFirstLine(buf)
+	dynamicType, err := fileFirstLine(buf)
 	if err != nil {
 		return nil, err
 	}
 
-	exec, err := T.Module(string(dynmicType))
+	exec, err := T.Module(string(dynamicType))
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +477,7 @@ func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
 
 	// 提取类型信息
 	comment := trimmed[2:]
-	// 处理CRLF或LF
+	// 处理 CRLF 或 LF
 	comment = bytes.TrimRight(comment, "\r\n")
 	comment = bytes.TrimSpace(comment)
 
@@ -458,12 +507,46 @@ func (T *ServerHandlerDynamic) executeWith(exec DynamicTemplater, name string, b
 
 func (T *ServerHandlerDynamic) Close() error {
 	T.mu.Lock()
-	defer T.mu.Unlock()
-	if T.exec != nil {
-		err := T.exec.Close() // 递减引用计数，若无活动请求将在此触发真实的底层 Close()
-		T.exec = nil
-		T.modeTime = time.Time{}
-		return err
+	if T.closed.Swap(true) {
+		T.mu.Unlock()
+		return nil
 	}
-	return nil
+	entries := T.pageCache
+	T.pageCache = nil
+	T.pathLocks = nil
+	T.mu.Unlock()
+
+	var firstErr error
+	for _, e := range entries {
+		if err := e.exec.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// isLocalPath 判断相对路径是否安全（无越界）
+// 兼容 Windows 与 Unix，等价于 Go 1.20+ 的 filepath.IsLocal 逻辑
+func isLocalPath(rel string) bool {
+	if rel == "" || rel == "." {
+		return true
+	}
+	// 拒绝绝对路径、盘符路径或 UNC 路径
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	if filepath.VolumeName(rel) != "" {
+		return false
+	}
+	if strings.HasPrefix(rel, `\\`) || strings.HasPrefix(rel, "//") {
+		return false
+	}
+
+	// 检查中间是否存在 ".." 组件（同时兼容 / 与系统分隔符）
+	for _, part := range strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == filepath.Separator }) {
+		if part == ".." {
+			return false
+		}
+	}
+	return true
 }
