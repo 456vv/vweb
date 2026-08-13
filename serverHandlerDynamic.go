@@ -203,24 +203,25 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 	if pagePath == "" {
 		pagePath = req.URL.Path
 	}
-	pagePath = path.Clean(pagePath)
-	// 规范化并去除可能的前导斜杠，后续用 filepath 拼接
+	// 使用 path.Clean 规范化 URL 风格路径，并去掉前导斜杠
+	pagePath = path.Clean("/" + pagePath)
 	pagePath = strings.TrimPrefix(pagePath, "/")
 	if pagePath == "" || pagePath == "." {
 		pagePath = "index.go"
 	}
 
-	// 跨平台路径拼接
+	// 跨平台路径拼接（FromSlash 保证 Windows 上正确）
 	filePath := filepath.Join(T.RootPath, filepath.FromSlash(pagePath))
 
 	// 严格防止路径穿越：最终路径必须位于 RootPath 之下
 	rootAbs, err := filepath.Abs(T.RootPath)
 	if err != nil {
-		return nil, fmt.Errorf("vweb: invalid RootPath")
+		return nil, errors.New("vweb: invalid RootPath")
 	}
-	fileAbs, err := filepath.Abs(filePath)
+	// Clean + Abs 消除符号链接之外的 ".." 与多余分隔符
+	fileAbs, err := filepath.Abs(filepath.Clean(filePath))
 	if err != nil {
-		return nil, fmt.Errorf("vweb: invalid file path")
+		return nil, errors.New("vweb: invalid file path")
 	}
 	rel, err := filepath.Rel(rootAbs, fileAbs)
 	if err != nil || !isLocalPath(rel) {
@@ -232,7 +233,7 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 	var reader io.ReadCloser // only set when we must parse
 	if T.ReadFile == nil {
 		// 本地文件系统：仅 Stat，避免不必要的 Open
-		fi, statErr := os.Stat(filePath)
+		fi, statErr := os.Stat(fileAbs)
 		if statErr != nil {
 			// 文件被删除或损坏时，自动清理陈旧缓存
 			T.cleanupCacheEntry(pagePath)
@@ -244,7 +245,7 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 		modeTime = fi.ModTime()
 	} else {
 		// 自定义 ReadFile：必须调用一次才能拿到时间戳。
-		reader, modeTime, err = T.ReadFile(filePath, req.URL)
+		reader, modeTime, err = T.ReadFile(fileAbs, req.URL)
 		if err != nil {
 			T.cleanupCacheEntry(pagePath)
 			return nil, fmt.Errorf("vweb: Failed to read the ReadFile! Error: %s", rel)
@@ -267,7 +268,7 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 	// 本地文件系统：延迟打开文件，并获取最新的 mtime，避免 TOCTOU 竞态
 	if reader == nil {
 		// 需要重新解析：打开文件
-		reader, err = os.OpenFile(filePath, os.O_RDONLY, 0)
+		reader, err = os.OpenFile(fileAbs, os.O_RDONLY, 0)
 		if err != nil {
 			return nil, fmt.Errorf("vweb: Failed to open file! Error: %s", rel)
 		}
@@ -534,30 +535,4 @@ func (T *ServerHandlerDynamic) Close() error {
 		}
 	}
 	return firstErr
-}
-
-// isLocalPath 判断相对路径是否安全（无越界）
-// 兼容 Windows 与 Unix，等价于 Go 1.20+ 的 filepath.IsLocal 逻辑
-func isLocalPath1(rel string) bool {
-	if rel == "" || rel == "." {
-		return true
-	}
-	// 拒绝绝对路径、盘符路径或 UNC 路径
-	if filepath.IsAbs(rel) {
-		return false
-	}
-	if filepath.VolumeName(rel) != "" {
-		return false
-	}
-	if strings.HasPrefix(rel, `\\`) || strings.HasPrefix(rel, "//") {
-		return false
-	}
-
-	// 检查中间是否存在 ".." 组件（同时兼容 / 与系统分隔符）
-	for _, part := range strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == filepath.Separator }) {
-		if part == ".." {
-			return false
-		}
-	}
-	return true
 }

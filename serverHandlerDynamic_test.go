@@ -561,7 +561,7 @@ func TestServerHandlerDynamic_ServeHTTP_CompilerNil(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "not recognized") {
+	if !strings.Contains(rw.Body.String(), "vweb: Module is nil; cannot determine dynamic file type\n") {
 		t.Errorf("Expected 'not recognized' error, got %q", rw.Body.String())
 	}
 }

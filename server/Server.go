@@ -37,14 +37,6 @@ func (T *contextKey) String() string { return "server context value " + T.name }
 
 var ServerContextKey = &contextKey{"Server"}
 
-// 响应完成设置
-type atomicBool int32
-
-func (T *atomicBool) isTrue() bool   { return atomic.LoadInt32((*int32)(T)) != 0 }
-func (T *atomicBool) isFalse() bool  { return atomic.LoadInt32((*int32)(T)) != 1 }
-func (T *atomicBool) setTrue() bool  { return !atomic.CompareAndSwapInt32((*int32)(T), 0, 1) }
-func (T *atomicBool) setFalse() bool { return !atomic.CompareAndSwapInt32((*int32)(T), 1, 0) }
-
 // safeCache 是一个线程安全的缓存
 type safeCache struct {
 	mu   sync.RWMutex
@@ -73,7 +65,7 @@ type Server struct {
 	*http.Server // http服务器
 	Addr         string
 	l            listener
-	status       atomicBool
+	status       atomic.Bool
 	cServer      *config.Server // 用于服务器
 	cConn        *config.Conn   // 用于连接
 }
@@ -286,7 +278,7 @@ type Group struct {
 	extConfig safeCache
 	exit      chan bool // 退出
 
-	run atomicBool // 服务器启动了
+	run atomic.Bool // 服务器启动了
 
 	// 用于 .UpdateConfigFile 方法
 	configFileModTime time.Time
@@ -918,7 +910,7 @@ func (T *Group) UpdateConfig(conf *config.Config) error {
 		return fmt.Errorf("server: conf 为 nil, 无法更新。")
 	}
 	T.config = conf
-	if T.run.isTrue() {
+	if T.run.Load() {
 		// 更新网站配置
 		if err := T.updateConfigSites(conf.Sites); err != nil {
 			T.ErrorLog.Println(err.Error())
@@ -931,13 +923,13 @@ func (T *Group) UpdateConfig(conf *config.Config) error {
 
 // serve 启动服务器
 func (T *Group) serve(srv *Server) {
-	if srv.status.setTrue() {
+	if srv.status.Swap(true) {
 		return
 	}
 	T.srvMan.Set(srv.Addr, srv)
 	defer T.srvMan.Del(srv.Addr)
 	err := srv.ListenAndServe() // 阻塞
-	srv.status.setFalse()       // 退出
+	srv.status.Store(false)     // 退出
 	if err != nil {
 		T.ErrorLog.Printf("server: ip(%s), %s\n", srv.Addr, err.Error())
 	}
@@ -947,7 +939,7 @@ func (T *Group) serve(srv *Server) {
 //
 //	error   错误
 func (T *Group) Start() error {
-	if T.run.setTrue() {
+	if T.run.Swap(true) {
 		return fmt.Errorf("server: 服务组已经开启。")
 	}
 
@@ -965,7 +957,7 @@ func (T *Group) Start() error {
 //
 //	error   错误
 func (T *Group) Close() error {
-	if T.run.setFalse() {
+	if !T.run.Swap(false) {
 		return fmt.Errorf("server: 服务组已经关闭！")
 	}
 
