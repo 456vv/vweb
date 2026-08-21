@@ -346,7 +346,7 @@ func parsePlaceholderSegment(placeholderSeg string) ([]segmentPart, bool) {
 				return nil, false // 嵌套 { 非法
 			}
 			if currentBuffer.Len() > 0 {
-				parts = append(parts, segmentPart{false, currentBuffer.String()})
+				parts = append(parts, segmentPart{isPlaceholder: false, value: currentBuffer.String()})
 				currentBuffer.Reset()
 			}
 			inPlaceholder = true
@@ -357,7 +357,7 @@ func parsePlaceholderSegment(placeholderSeg string) ([]segmentPart, bool) {
 			if currentBuffer.Len() == 0 {
 				return nil, false // 空占位符 {}
 			}
-			parts = append(parts, segmentPart{true, currentBuffer.String()})
+			parts = append(parts, segmentPart{isPlaceholder: true, value: currentBuffer.String()})
 			currentBuffer.Reset()
 			inPlaceholder = false
 		default:
@@ -369,7 +369,7 @@ func parsePlaceholderSegment(placeholderSeg string) ([]segmentPart, bool) {
 		return nil, false // 未闭合
 	}
 	if currentBuffer.Len() > 0 {
-		parts = append(parts, segmentPart{false, currentBuffer.String()})
+		parts = append(parts, segmentPart{isPlaceholder: false, value: currentBuffer.String()})
 	}
 
 	// 禁止相邻占位符 {a}{b}

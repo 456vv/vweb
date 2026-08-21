@@ -35,7 +35,7 @@ var builtinTypes = map[string]reflect.Type{
 }
 
 func inDirect(v reflect.Value) reflect.Value {
-	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
 		if v.IsNil() {
 			return v
 		}
@@ -516,107 +516,188 @@ func typeSelect(v reflect.Value) any {
 	panic(fmt.Errorf("vweb: 该类型 %s，无法转换为 interface 类型", v.Kind()))
 }
 
-func typeConvert(dst, src reflect.Value) bool {
-	if !dst.CanSet() {
+// typeInit 初始化 nil 指针/接口，并可选择将最终值置为零值或指定初始容量。
+// isZero 为 true 时对 Map/Slice/Chan/Func 等进行零值或带参数初始化。
+// typeInit 初始化 nil 指针/接口，并可选择将最终值置为零值或指定初始容量。
+// isZero 为 true 时对 Map/Slice/Chan/Func 等进行零值或带参数初始化。
+func typeInit(v reflect.Value, isZero bool, args ...any) bool {
+	// Bug 3 修复：根值无效或不可设置时，直接返回（不 panic、不做无意义半初始化）
+	if !v.IsValid() || !v.CanSet() {
+		return false
+	}
+	return initChain(v, isZero, args)
+}
+
+// initChain 沿指针/接口链向下分配所有 nil 指针（含接口内部），
+// 若 isZero 则对最内层值做零值/容器初始化。
+func initChain(v reflect.Value, isZero bool, args ...any) bool {
+	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
+		switch v.Kind() {
+		case reflect.Interface:
+			if v.IsNil() {
+				return true // nil 接口无法猜测具体类型，保持 nil
+			}
+			// Bug 1 修复：非 nil 接口取出具体值，放入可设置副本递归初始化
+			// 内部指针链，再写回接口，从而支持“接口内嵌深层 nil 指针”完整分配。
+			inner := v.Elem()
+			p := reflect.New(inner.Type())
+			p.Elem().Set(inner)
+			if !initChain(p.Elem(), isZero, args) {
+				return false
+			}
+			v.Set(p.Elem())
+			return true // 内层链已在递归中完整处理，无需再下钻
+		case reflect.Pointer:
+			if v.IsNil() {
+				if !v.CanSet() {
+					return false // 指针不可设置（入口已保证根可设置，此处仅作保守防护）
+				}
+				nv := reflect.New(v.Type().Elem())
+				v.Set(nv)
+				v = nv.Elem()
+				continue
+			}
+			v = v.Elem()
+		}
+	}
+
+	if !isZero {
+		return true
+	}
+	if !v.IsValid() || !v.CanSet() {
+		return false
+	}
+	switch v.Kind() {
+	case reflect.Map:
+		l := sizeArg(args, 0)
+		v.Set(reflect.MakeMapWithSize(v.Type(), l))
+	case reflect.Slice:
+		l := sizeArg(args, 0)
+		c := l
+		if len(args) > 1 {
+			if n, ok := args[1].(int); ok {
+				c = n
+				if c < l {
+					c = l
+				}
+			}
+		}
+		v.Set(reflect.MakeSlice(v.Type(), l, c))
+	case reflect.Func:
+		if len(args) > 0 {
+			if f, ok := args[0].(func([]reflect.Value) []reflect.Value); ok {
+				v.Set(reflect.MakeFunc(v.Type(), f))
+				return true
+			}
+		}
+		v.Set(reflect.Zero(v.Type()))
+	case reflect.Chan:
+		l := sizeArg(args, 0)
+		v.Set(reflect.MakeChan(v.Type(), l))
+	default:
+		v.Set(reflect.Zero(v.Type()))
+	}
+	return true
+}
+
+// sizeArg 读取 int 类型的尺寸参数；负数钳制为 0，
+// 避免 MakeSlice/MakeChan/MakeMapWithSize 收到负数 panic（Bug 2 修复）。
+func sizeArg(args []any, idx int) int {
+	if len(args) > idx {
+		if n, ok := args[idx].(int); ok && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// canConvertSafely 判断 src 是否能安全转换到 typ。
+// 除类型层面（CanConvert）外，还处理运行期越界情形：
+// 切片→数组 / 切片→数组指针 要求长度匹配，否则 reflect.Convert 会 panic。
+func canConvertSafely(src reflect.Value, typ reflect.Type) bool {
+	if !src.CanConvert(typ) {
+		return false
+	}
+	// 切片→数组 / 数组指针：长度必须匹配
+	if src.Kind() == reflect.Slice && isArrayOrArrayPtr(typ) {
+		want := typ
+		if typ.Kind() == reflect.Pointer {
+			want = typ.Elem()
+		}
+		if src.Len() != want.Len() {
+			return false
+		}
+	}
+	return true
+}
+
+func isArrayOrArrayPtr(t reflect.Type) bool {
+	return t.Kind() == reflect.Array || (t.Kind() == reflect.Pointer && t.Elem().Kind() == reflect.Array)
+}
+
+// typeConvert 将 src 转换为 dst 的变量类型并写入，返回是否成功。
+// 约定：任何情况下都不应 panic；转换失败一律返回 false。
+func typeConvert(dst, src reflect.Value) (ok bool) {
+	// 安全网：任何未预期的 reflect 越界（如转换过程 panic）都当作失败，
+	// 确保函数对外始终不 panic，配合上面的长度守卫双保险。
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+
+	if !dst.IsValid() || !dst.CanSet() {
 		return false
 	}
 
-	for ; src.Kind() == reflect.Interface; src = src.Elem() {
+	// 剥离源接口层，直到得到具体类型
+	for src.Kind() == reflect.Interface {
+		if src.IsNil() {
+			return false
+		}
+		src = src.Elem()
 	}
-
-	if src.Kind() == reflect.Invalid {
+	if !src.IsValid() || src.Kind() == reflect.Invalid {
 		return false
 	}
 
-	if src.CanConvert(dst.Type()) {
+	// 1. 直接可转换（数值、字符串、切片/数组、命名↔底层类型等）
+	if canConvertSafely(src, dst.Type()) {
 		dst.Set(src.Convert(dst.Type()))
 		return true
 	}
 
+	// 2. 源是非 nil 指针，解引用后递归转换
 	if src.Kind() == reflect.Pointer && !src.IsNil() {
 		if typeConvert(dst, src.Elem()) {
 			return true
 		}
 	}
 
-	if src.Kind() == reflect.Struct {
-		tmpDst := dst
-
-		typeInit(tmpDst, false)
-
-		for ; tmpDst.Kind() == reflect.Pointer || tmpDst.Kind() == reflect.Interface; tmpDst = tmpDst.Elem() {
+	// 3. 目标是指针/接口时，先初始化再尝试转换到底层
+	if dst.Kind() == reflect.Pointer || dst.Kind() == reflect.Interface {
+		typeInit(dst, false)
+		if base := inDirect(dst); base.IsValid() && base.CanSet() {
+			if canConvertSafely(src, base.Type()) {
+				base.Set(src.Convert(base.Type()))
+				return true
+			}
+			// 源与目标均为结构体时，继续递归按底层转换
+			if src.Kind() == reflect.Struct && base.Kind() == reflect.Struct {
+				return typeConvert(base, src)
+			}
 		}
+	}
 
-		if tmpDst.IsValid() && tmpDst.CanSet() && src.CanConvert(tmpDst.Type()) {
-			tmpDst.Set(src.Convert(tmpDst.Type()))
+	// 4. 源是结构体，初始化目标底层后转换
+	if src.Kind() == reflect.Struct {
+		typeInit(dst, false)
+		if base := inDirect(dst); base.IsValid() && base.CanSet() &&
+			canConvertSafely(src, base.Type()) {
+			base.Set(src.Convert(base.Type()))
 			return true
 		}
 	}
 
 	return false
-}
-
-func typeInit(v reflect.Value, isZero bool, args ...any) {
-	pv := v
-	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
-		if v.IsNil() {
-			if v.Kind() == reflect.Interface {
-				break
-			}
-			if v.CanSet() {
-				nv := reflect.New(v.Type().Elem())
-				v.Set(nv)
-			} else if pv.CanSet() {
-				nv := reflect.New(v.Type().Elem())
-				pv.Set(nv)
-				v = pv
-				continue
-			} else {
-				break
-			}
-		}
-		pv = v
-		v = v.Elem()
-	}
-
-	if isZero && v.CanSet() {
-		switch v.Kind() {
-		case reflect.Map:
-			l := 0
-			if len(args) > 0 {
-				l, _ = args[0].(int)
-			}
-			v.Set(reflect.MakeMapWithSize(v.Type(), l))
-			return
-		case reflect.Slice:
-			l, c := 0, 0
-			if len(args) > 0 {
-				l, _ = args[0].(int)
-				c = l
-			}
-			if len(args) > 1 {
-				c, _ = args[1].(int)
-				if c < l {
-					c = l
-				}
-			}
-			v.Set(reflect.MakeSlice(v.Type(), l, c))
-			return
-		case reflect.Func:
-			if len(args) > 0 {
-				if f, ok := args[0].(func([]reflect.Value) []reflect.Value); ok {
-					v.Set(reflect.MakeFunc(v.Type(), f))
-					return
-				}
-			}
-		case reflect.Chan:
-			l := 0
-			if len(args) > 0 {
-				l, _ = args[0].(int)
-			}
-			v.Set(reflect.MakeChan(v.Type(), l))
-			return
-		}
-		v.Set(reflect.Zero(v.Type()))
-	}
 }

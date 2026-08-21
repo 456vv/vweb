@@ -29,6 +29,7 @@ type C struct {
 }
 
 func Test_copyStruct(t *testing.T) {
+	as := assert.New(t, true)
 	tests := []struct {
 		name string
 		f    func(t *testing.T) bool
@@ -38,7 +39,8 @@ func Test_copyStruct(t *testing.T) {
 			f: func(t *testing.T) bool {
 				a := B{G: []string{"1", "2", "3"}}
 				b := B{G: []string{"4", "5", "6"}}
-				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				err := copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				as.NotError(err)
 				b.G[0] = "-"
 				return fmt.Sprint(a.G) == "[4 5 6]"
 			},
@@ -47,7 +49,8 @@ func Test_copyStruct(t *testing.T) {
 			f: func(t *testing.T) bool {
 				a := B{G: []string{"1", "2", "3"}}
 				b := B1{G: []int{4, 5, 6}}
-				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				err := copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				as.NotError(err)
 				return fmt.Sprint(a.G) == "[1 2 3]"
 			},
 		}, {
@@ -59,7 +62,8 @@ func Test_copyStruct(t *testing.T) {
 						C: &C{D: 1},
 					},
 				}
-				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				err := copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				as.NotError(err)
 				return a.B.C.D == 1
 			},
 		}, {

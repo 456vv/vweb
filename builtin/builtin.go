@@ -949,33 +949,41 @@ func CopyStructDeep(dsc, src any, exclude func(name string, dsc, src reflect.Val
 	return copyStruct(reflect.ValueOf(dsc), reflect.ValueOf(src), "", exclude, true)
 }
 
-func copyStruct(dsc, src reflect.Value, name string, exclude func(name string, dsc reflect.Value, src reflect.Value) bool, deep bool) error {
+func copyStruct(dsc, src reflect.Value, name string, exclude func(name string, dsc, src reflect.Value) bool, deep bool) error {
 	va := inDirect(dsc)
 	vb := inDirect(src)
+
+	if !va.IsValid() || !vb.IsValid() {
+		return fmt.Errorf("无效的值，dsc(%v)，src(%v)", va.Kind(), vb.Kind())
+	}
 	if va.Kind() != vb.Kind() || va.Kind() != reflect.Struct {
 		return fmt.Errorf("仅支持struct类型，dsc(%s)，src(%s)", va.Kind(), vb.Kind())
 	}
 
 	bt := vb.Type()
-	for i := 0; i < bt.NumField(); i++ {
-
+	numField := bt.NumField()
+	for i := range numField {
 		bvField := vb.Field(i)
 		if !bvField.IsValid() {
 			continue
 		}
 
 		info := bt.Field(i)
+		fieldName := name + info.Name
 		avField := va.FieldByName(info.Name)
 
-		if exclude != nil && exclude(name+info.Name, avField, bvField) {
+		if exclude != nil && exclude(fieldName, avField, bvField) {
 			continue
 		}
 		if !avField.IsValid() {
 			continue
 		}
 
+		// 解引用后的实际值
 		avfi := inDirect(avField)
 		bvfi := inDirect(bvField)
+
+		// 目标为 nil 指针/接口且源有效时，尝试初始化
 		if !avfi.IsValid() && bvfi.IsValid() {
 			typeInit(avField, false)
 			avfi = inDirect(avField)
@@ -984,12 +992,16 @@ func copyStruct(dsc, src reflect.Value, name string, exclude func(name string, d
 		afKind := avfi.Kind()
 		bfKind := bvfi.Kind()
 
-		if deep && afKind == bfKind && afKind == reflect.Struct {
-			copyStruct(avField, bvField, info.Name+".", exclude, deep)
+		// 深度复制嵌套结构体（值类型）
+		if deep && afKind == reflect.Struct && bfKind == reflect.Struct {
+			if err := copyStruct(avField, bvField, info.Name+".", exclude, true); err != nil {
+				return err
+			}
 			continue
 		}
 
-		if afKind == bfKind && afKind == reflect.Map {
+		// Map 复制（支持键值类型转换，深度时对结构体值递归）
+		if afKind == reflect.Map && bfKind == reflect.Map {
 			if bvfi.IsNil() {
 				continue
 			}
@@ -999,43 +1011,113 @@ func copyStruct(dsc, src reflect.Value, name string, exclude func(name string, d
 			if !bfType.Key().ConvertibleTo(afType.Key()) || !bfType.Elem().ConvertibleTo(afType.Elem()) {
 				continue
 			}
+
+			// 目标为 nil 时分配新 Map（仅可设置时）
 			if avfi.IsNil() {
-				if !avfi.CanSet() { // 修复盲区：未公开字段不可复制 Map 分配
+				if !avfi.CanSet() {
 					continue
 				}
 				mt := reflect.MapOf(afType.Key(), afType.Elem())
 				mv := reflect.MakeMapWithSize(mt, bvfi.Len())
 				avfi.Set(mv)
 			}
+
 			bfmr := bvfi.MapRange()
 			for bfmr.Next() {
 				key := bfmr.Key().Convert(afType.Key())
-				val := bfmr.Value().Convert(afType.Elem())
-				avfi.SetMapIndex(key, val)
+				val := bfmr.Value()
+
+				if deep && val.Kind() == reflect.Struct {
+					newVal := reflect.New(afType.Elem()).Elem()
+					if err := copyStruct(newVal, val, fieldName+".", exclude, true); err != nil {
+						return err
+					}
+					avfi.SetMapIndex(key, newVal.Convert(afType.Elem()))
+				} else {
+					avfi.SetMapIndex(key, val.Convert(afType.Elem()))
+				}
 			}
 			continue
 		}
 
-		if afKind == bfKind && afKind == reflect.Slice {
-			if bvfi.IsNil() || avField.Type() != bvField.Type() {
+		// Slice 复制
+		if afKind == reflect.Slice && bfKind == reflect.Slice {
+			if bvfi.IsNil() {
 				continue
 			}
-			nv := reflect.MakeSlice(bvField.Type(), 0, bvField.Cap())
-			if bvField.Len() > 0 {
-				nv = reflect.AppendSlice(nv, bvField)
+			// 类型必须完全一致（保持原逻辑）
+			if avField.Type() != bvField.Type() && avfi.Type() != bvfi.Type() {
+				continue
 			}
-			if avField.CanSet() { // 修复盲区补充防崩
+
+			srcSlice := bvfi
+			if !srcSlice.IsValid() {
+				srcSlice = bvField
+			}
+
+			nv := reflect.MakeSlice(srcSlice.Type(), 0, srcSlice.Cap())
+			if srcSlice.Len() > 0 {
+				nv = reflect.AppendSlice(nv, srcSlice)
+			}
+
+			// 深度时对元素递归（仅元素为 Struct 时）
+			if deep && srcSlice.Len() > 0 {
+				elemKind := srcSlice.Type().Elem().Kind()
+				if elemKind == reflect.Struct {
+					for j := 0; j < nv.Len(); j++ {
+						elem := nv.Index(j)
+						if err := copyStruct(elem, srcSlice.Index(j), fieldName+".", exclude, true); err != nil {
+							return err
+						}
+					}
+				}
+			}
+
+			if avField.CanSet() {
 				avField.Set(nv)
+			} else if avfi.CanSet() {
+				avfi.Set(nv)
 			}
 			continue
 		}
 
+		// Array（定长数组）复制
+		if afKind == reflect.Array && bfKind == reflect.Array {
+			if avfi.Type() != bvfi.Type() {
+				continue
+			}
+			if !avfi.CanSet() {
+				continue
+			}
+			reflect.Copy(avfi, bvfi)
+
+			// 深度时对元素递归
+			if deep {
+				elemKind := avfi.Type().Elem().Kind()
+				if elemKind == reflect.Struct {
+					for j := 0; j < avfi.Len(); j++ {
+						if err := copyStruct(avfi.Index(j), bvfi.Index(j), fieldName+".", exclude, true); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		// 普通字段赋值 / 类型转换
 		if avField.CanSet() {
 			if bvField.Type().AssignableTo(avField.Type()) {
 				avField.Set(bvField)
 			} else if bvField.Type().ConvertibleTo(avField.Type()) {
-				bvv := bvField.Convert(avField.Type())
-				avField.Set(bvv)
+				avField.Set(bvField.Convert(avField.Type()))
+			}
+		} else if avfi.CanSet() {
+			// 解引用后的值可设置时（例如指针目标）
+			if bvfi.Type().AssignableTo(avfi.Type()) {
+				avfi.Set(bvfi)
+			} else if bvfi.Type().ConvertibleTo(avfi.Type()) {
+				avfi.Set(bvfi.Convert(avfi.Type()))
 			}
 		}
 	}
