@@ -518,8 +518,6 @@ func typeSelect(v reflect.Value) any {
 
 // typeInit 初始化 nil 指针/接口，并可选择将最终值置为零值或指定初始容量。
 // isZero 为 true 时对 Map/Slice/Chan/Func 等进行零值或带参数初始化。
-// typeInit 初始化 nil 指针/接口，并可选择将最终值置为零值或指定初始容量。
-// isZero 为 true 时对 Map/Slice/Chan/Func 等进行零值或带参数初始化。
 func typeInit(v reflect.Value, isZero bool, args ...any) bool {
 	// Bug 3 修复：根值无效或不可设置时，直接返回（不 panic、不做无意义半初始化）
 	if !v.IsValid() || !v.CanSet() {
@@ -535,17 +533,17 @@ func initChain(v reflect.Value, isZero bool, args ...any) bool {
 		switch v.Kind() {
 		case reflect.Interface:
 			if v.IsNil() {
-				return true // nil 接口无法猜测具体类型，保持 nil
+				return false // nil 接口无法猜测具体类型，保持 nil
 			}
-			// Bug 1 修复：非 nil 接口取出具体值，放入可设置副本递归初始化
+			// 非 nil 接口取出具体值，放入可设置副本递归初始化
 			// 内部指针链，再写回接口，从而支持“接口内嵌深层 nil 指针”完整分配。
 			inner := v.Elem()
-			p := reflect.New(inner.Type())
-			p.Elem().Set(inner)
-			if !initChain(p.Elem(), isZero, args) {
+			p := reflect.New(inner.Type()).Elem()
+			p.Set(inner)
+			if !initChain(p, isZero, args) {
 				return false
 			}
-			v.Set(p.Elem())
+			v.Set(p)
 			return true // 内层链已在递归中完整处理，无需再下钻
 		case reflect.Pointer:
 			if v.IsNil() {
@@ -576,10 +574,7 @@ func initChain(v reflect.Value, isZero bool, args ...any) bool {
 		c := l
 		if len(args) > 1 {
 			if n, ok := args[1].(int); ok {
-				c = n
-				if c < l {
-					c = l
-				}
+				c = max(n, l)
 			}
 		}
 		v.Set(reflect.MakeSlice(v.Type(), l, c))
