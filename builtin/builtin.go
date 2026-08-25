@@ -1,13 +1,72 @@
 package builtin
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 	"unsafe"
 )
 
+var (
+	ErrNilValue        = errors.New("value is nil")
+	ErrUnsupported     = errors.New("unsupported type")
+	ErrKeyType         = errors.New("invalid key type")
+	ErrIndexOutOfRange = errors.New("index out of range")
+	ErrFieldNotFound   = errors.New("field not found")
+	ErrMapKey          = errors.New("map key type mismatch")
+
+	ErrInvalidArgCount = errors.New("invalid argument count: Set(obj, key1, val1, key2, val2, ...)")
+	ErrUnaddressable   = errors.New("value is unaddressable or field is unexported; pass a pointer to exported field")
+	ErrNilMap          = errors.New("cannot set on nil map")
+	ErrImmutable       = errors.New("immutable type (string/number) cannot be modified by index")
+)
+
 var zeroVal reflect.Value
+
+// ---------------------------------------------------------------------------
+// unsafe 导出支持（运行时探测，兼容 Wasm / AppEngine / TinyGo 等）
+// ---------------------------------------------------------------------------
+// flagRO = flagStickyRO | flagEmbedRO = 1<<5 | 1<<6，自 Go 1.5 起稳定。
+const flagRO uintptr = 96
+
+type valueHeader struct {
+	typ  unsafe.Pointer
+	ptr  unsafe.Pointer
+	flag uintptr
+}
+
+var useUnsafeExport bool
+
+func init() {
+	defer func() {
+		if recover() != nil {
+			useUnsafeExport = false
+		}
+	}()
+
+	type dummy struct{ x int }
+	v := reflect.ValueOf(dummy{x: 42}).FieldByName("x")
+	if v.IsValid() && !v.CanInterface() {
+		ev := makeExported(v)
+		if ev.CanInterface() && ev.Interface() == 42 {
+			useUnsafeExport = true
+		}
+	}
+}
+
+// makeExported 清除 reflect.Value 的只读标志，使未导出字段可被 Interface()。
+func makeExported(v reflect.Value) reflect.Value {
+	if !v.IsValid() {
+		return v
+	}
+	vh := (*valueHeader)(unsafe.Pointer(&v))
+	vh.flag &^= flagRO
+	return v
+}
 
 // Value(v)
 func Value(v any) reflect.Value {
@@ -199,79 +258,711 @@ func Delete(m any, key any) {
 	reflect.ValueOf(m).SetMapIndex(reflect.ValueOf(key), zeroVal)
 }
 
-// Set([]T, 位置0,值1, 位置1,值2, 位置2,值3)
-// Set(map[T]T, 键名0,值1, 键名1,值2, 键名2,值3)
-// Set(struct{}, 名称0,值1, 名称1,值2, 名称2,值3)
-func Set(m any, args ...any) {
-	n := len(args)
-	if (n & 1) != 0 {
-		panic("call with invalid argument count: please use Set(obj, member1, val1, ...)")
+// Get 通用取值。
+//
+// 支持：
+//   - map[K]V          → key 可赋值/可转换/常见数字↔字符串互转
+//   - slice / array    → 整数索引（支持负索引）
+//   - string           → 整数索引（按字节，支持负索引）
+//   - struct / *struct → 字段名（精确 / 首字母大小写 / json·mapstructure 标签）或整数索引（支持负索引）
+//   - 数值类型         → 转为十进制字符串后按索引取字符
+//   - 指针 / interface → 自动多层解包
+//   - reflect.Value    → 直接接受
+//
+// 行为约定：
+//   - map 中不存在的 key          → (nil, nil)
+//   - 结构体找不到字段            → (nil, ErrFieldNotFound)
+//   - 索引越界                    → (nil, ErrIndexOutOfRange)
+//   - 类型不支持 / key 类型错误   → 对应错误
+func Get(m any, key any) (any, error) {
+	if m == nil {
+		return nil, ErrNilValue
 	}
-	o := reflect.Indirect(reflect.ValueOf(m))
-	switch o.Kind() {
-	case reflect.Slice, reflect.Array:
-		telem := o.Type().Elem() // 修复盲区：原来为 reflect.TypeOf(m) 会导致传指针时获取 Elem 错误
-		for i := 0; i < n; i += 2 {
-			index, ok := args[i].(int)
-			if !ok {
-				panic("slice position is not a valid `int` type")
-			}
-			val := autoConvert(telem, args[i+1])
 
-			idxRef := o.Index(index)
-			if !idxRef.CanSet() { // 修复盲区：如果用户传入的是 Array 的值而非指针，拦截原生恐慌
-				panic("array/slice element is unaddressable or unexported, please pass a pointer")
-			}
-			idxRef.Set(val)
+	var v reflect.Value
+	if rv, ok := m.(reflect.Value); ok {
+		v = rv
+	} else {
+		v = reflect.ValueOf(m)
+	}
+
+	// 多层解包指针与 interface
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil, ErrNilValue
 		}
+		v = v.Elem()
+	}
+	if !v.IsValid() {
+		return nil, ErrNilValue
+	}
+
+	switch v.Kind() {
 	case reflect.Map:
-		setMapMember(m, args...)
+		return getMap(v, key)
+	case reflect.Slice, reflect.Array:
+		return getIndexable(v, key)
+	case reflect.String:
+		return getString(v, key)
+	case reflect.Struct:
+		return getStruct(v, key)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64,
+		reflect.Complex64, reflect.Complex128:
+		return getNumber(v, key)
 	default:
-		setMember(m, args...)
+		return nil, fmt.Errorf("%w: %v", ErrUnsupported, v.Kind())
 	}
 }
 
-// Get(map[T]T, key)
-// Get([]T, index)
-// Get(struct{}, key)
-// Get(string, index)
-// Get(number, index)
-func Get(m any, key any) any {
-	o := reflect.Indirect(reflect.ValueOf(m))
-	var s string
-	switch o.Kind() {
-	case reflect.Map:
-		v := o.MapIndex(reflect.ValueOf(key))
-		if v.IsValid() {
-			return v.Interface()
-		}
-		return nil
-	case reflect.Slice, reflect.String, reflect.Array:
-		if idx, ok := key.(int); ok {
-			if o.Len() > idx {
-				return o.Index(idx).Interface()
-			}
-			panic(fmt.Errorf("index out of range [%d] with length %d", idx, o.Len()))
-		}
-		panic("slice/array/string key isn't an int type")
-	case reflect.Pointer, reflect.Interface, reflect.Struct:
-		return getMember(m, key)
-	case reflect.Complex64, reflect.Complex128:
-		return 0
+// ---------------------------------------------------------------------------
+// map
+// ---------------------------------------------------------------------------
+func getMap(v reflect.Value, key any) (any, error) {
+	kt := v.Type().Key()
+	k, ok := convertKey(key, kt)
+	if !ok {
+		return nil, fmt.Errorf("%w: need %v, got %T", ErrMapKey, kt, key)
+	}
+	res := v.MapIndex(k)
+	if !res.IsValid() {
+		return nil, nil // 与 map 语义一致：key 不存在返回 (nil, nil)
+	}
+	return valueToInterface(res), nil
+}
+
+// convertKey 将 key 安全转换为 map 所需的目标类型。
+// 支持：可赋值、可转换、字符串↔整数、常见数字类型互转。
+func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
+	if key == nil {
+		return reflect.Value{}, false
+	}
+	kv := reflect.ValueOf(key)
+	if kv.Type().AssignableTo(target) {
+		return kv, true
+	}
+	if kv.Type().ConvertibleTo(target) {
+		return kv.Convert(target), true
+	}
+
+	switch target.Kind() {
+	case reflect.String:
+		return reflect.ValueOf(fmt.Sprint(key)), true
+
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		s = strconv.Itoa(int(o.Int()))
+		var i int64
+		switch k := key.(type) {
+		case string:
+			var err error
+			i, err = strconv.ParseInt(k, 10, 64)
+			if err != nil {
+				return reflect.Value{}, false
+			}
+		default:
+			switch kv.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				i = kv.Int()
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+				i = int64(kv.Uint())
+			case reflect.Float32, reflect.Float64:
+				i = int64(kv.Float())
+			default:
+				return reflect.Value{}, false
+			}
+		}
+		tmp := reflect.ValueOf(i)
+		if tmp.Type().ConvertibleTo(target) {
+			return tmp.Convert(target), true
+		}
+
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		s = strconv.Itoa(int(o.Uint()))
-	}
-	if idx, ok := key.(int); ok {
-		if len(s) > idx {
-			return s[idx]
+		var u uint64
+		switch k := key.(type) {
+		case string:
+			var err error
+			u, err = strconv.ParseUint(k, 10, 64)
+			if err != nil {
+				return reflect.Value{}, false
+			}
+		default:
+			switch kv.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				if kv.Int() < 0 {
+					return reflect.Value{}, false
+				}
+				u = uint64(kv.Int())
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+				u = kv.Uint()
+			case reflect.Float32, reflect.Float64:
+				if kv.Float() < 0 {
+					return reflect.Value{}, false
+				}
+				u = uint64(kv.Float())
+			default:
+				return reflect.Value{}, false
+			}
 		}
-		if len(s) != 0 {
-			return 0
+		tmp := reflect.ValueOf(u)
+		if tmp.Type().ConvertibleTo(target) {
+			return tmp.Convert(target), true
 		}
 	}
-	panic(fmt.Errorf("type %v does not support %v get", o.Kind(), key))
+	return reflect.Value{}, false
+}
+
+// ---------------------------------------------------------------------------
+// slice / array
+// ---------------------------------------------------------------------------
+
+func getIndexable(v reflect.Value, key any) (any, error) {
+	idx, ok := toInt(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: slice/array key must be integer, got %T", ErrKeyType, key)
+	}
+	n := v.Len()
+	if idx < 0 {
+		idx += n
+	}
+	if idx < 0 || idx >= n {
+		return nil, fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, n)
+	}
+	return valueToInterface(v.Index(idx)), nil
+}
+
+// ---------------------------------------------------------------------------
+// string（按字节索引）
+// ---------------------------------------------------------------------------
+
+func getString(v reflect.Value, key any) (any, error) {
+	idx, ok := toInt(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: string key must be integer, got %T", ErrKeyType, key)
+	}
+	s := v.String()
+	n := len(s)
+	if idx < 0 {
+		idx += n
+	}
+	if idx < 0 || idx >= n {
+		if n == 0 {
+			return byte(0), nil
+		}
+		return nil, fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, n)
+	}
+	return s[idx], nil
+}
+
+// ---------------------------------------------------------------------------
+// 数值类型 → 十进制字符串后按索引取字符
+// ---------------------------------------------------------------------------
+
+func getNumber(v reflect.Value, key any) (any, error) {
+	var s string
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		s = strconv.FormatInt(v.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		s = strconv.FormatUint(v.Uint(), 10)
+	case reflect.Float32, reflect.Float64:
+		s = strconv.FormatFloat(v.Float(), 'f', -1, 64)
+	case reflect.Complex64, reflect.Complex128:
+		s = fmt.Sprintf("%g", v.Complex())
+	}
+	idx, ok := toInt(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: number key must be integer, got %T", ErrKeyType, key)
+	}
+	n := len(s)
+	if idx < 0 {
+		idx += n
+	}
+	if idx < 0 || idx >= n {
+		return byte(0), nil // 与历史行为保持一致：越界返回 0
+	}
+	return s[idx], nil
+}
+
+// ---------------------------------------------------------------------------
+// struct
+// ---------------------------------------------------------------------------
+
+func getStruct(v reflect.Value, key any) (any, error) {
+	switch k := key.(type) {
+	case string:
+		return getStructByName(v, k)
+	default:
+		if idx, ok := toInt(key); ok {
+			return getStructByIndex(v, idx)
+		}
+		return nil, fmt.Errorf("%w: struct key must be string or int, got %T", ErrKeyType, key)
+	}
+}
+
+type fieldIndex map[string]int
+
+// buildFieldIndex 构建并缓存某个 struct 类型的字段索引表。
+func buildFieldIndex(t reflect.Type) fieldIndex {
+	n := t.NumField()
+	m := make(fieldIndex, n*2) // 预留别名空间
+	for i := 0; i < n; i++ {
+		sf := t.Field(i)
+		if sf.PkgPath != "" { // 跳过未导出
+			continue
+		}
+		m[sf.Name] = i
+
+		// 首字母小写别名（与 capitalize 对称）
+		if r, size := utf8.DecodeRuneInString(sf.Name); unicode.IsUpper(r) {
+			lower := string(unicode.ToLower(r)) + sf.Name[size:]
+			if _, exists := m[lower]; !exists {
+				m[lower] = i
+			}
+		}
+
+		// json / mapstructure 标签
+		for _, tagName := range []string{"json", "mapstructure"} {
+			if tag := sf.Tag.Get(tagName); tag != "" {
+				name := strings.Split(tag, ",")[0]
+				if name != "" && name != "-" {
+					if _, exists := m[name]; !exists {
+						m[name] = i
+					}
+				}
+			}
+		}
+	}
+	return m
+}
+
+func getStructByName(v reflect.Value, name string) (any, error) {
+	t := v.Type()
+
+	idxMap := buildFieldIndex(t)
+
+	if idx, exists := idxMap[name]; exists {
+		return valueToInterface(v.Field(idx)), nil
+	}
+	// 缓存未命中时再尝试一次首字母大写（防止极端自定义类型名）
+	if capName := capitalize(name); capName != name {
+		if idx, exists := idxMap[capName]; exists {
+			return valueToInterface(v.Field(idx)), nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %q", ErrFieldNotFound, name)
+}
+
+func getStructByIndex(v reflect.Value, idx int) (any, error) {
+	n := v.NumField()
+	if idx < 0 {
+		idx += n
+	}
+	if idx < 0 || idx >= n {
+		return nil, fmt.Errorf("%w: field index [%d] with %d fields", ErrIndexOutOfRange, idx, n)
+	}
+	return valueToInterface(v.Field(idx)), nil
+}
+
+// ---------------------------------------------------------------------------
+// 核心：reflect.Value → any
+// 路径优先级：CanInterface → unsafe 清 flag → NewAt → 按 Kind 降级
+// ---------------------------------------------------------------------------
+
+func valueToInterface(v reflect.Value) any {
+	if !v.IsValid() {
+		return nil
+	}
+
+	// Fast path：导出字段
+	if v.CanInterface() {
+		return v.Interface()
+	}
+
+	// 未导出字段：优先使用已验证的 unsafe 方案
+	if useUnsafeExport {
+		ev := makeExported(v)
+		if ev.CanInterface() {
+			return ev.Interface()
+		}
+	}
+
+	// 可寻址时用 NewAt（官方推荐安全写法）
+	if v.CanAddr() {
+		ptr := unsafe.Pointer(v.UnsafeAddr())
+		exported := reflect.NewAt(v.Type(), ptr).Elem()
+		if exported.CanInterface() {
+			return exported.Interface()
+		}
+	}
+
+	// 最终降级：按 Kind 手动提取
+	return fallbackExport(v)
+}
+
+func fallbackExport(v reflect.Value) any {
+	switch v.Kind() {
+	case reflect.Bool:
+		return v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return v.Uint()
+	case reflect.Float32, reflect.Float64:
+		return v.Float()
+	case reflect.Complex64, reflect.Complex128:
+		return v.Complex()
+	case reflect.String:
+		return v.String()
+	case reflect.UnsafePointer:
+		return unsafe.Pointer(v.Pointer())
+
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			return nil
+		}
+		return valueToInterface(v.Elem())
+
+	case reflect.Struct:
+		t := v.Type()
+		m := make(map[string]any, t.NumField())
+		for i := 0; i < t.NumField(); i++ {
+			sf := t.Field(i)
+			if sf.PkgPath != "" {
+				continue
+			}
+			m[sf.Name] = valueToInterface(v.Field(i))
+		}
+		return m
+
+	case reflect.Slice, reflect.Array:
+		l := v.Len()
+		out := make([]any, l)
+		for i := 0; i < l; i++ {
+			out[i] = valueToInterface(v.Index(i))
+		}
+		return out
+
+	case reflect.Map:
+		out := make(map[any]any, v.Len())
+		iter := v.MapRange()
+		for iter.Next() {
+			out[valueToInterface(iter.Key())] = valueToInterface(iter.Value())
+		}
+		return out
+
+	default:
+		return nil
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 工具函数
+// ---------------------------------------------------------------------------
+
+// toInt 将常见整数类型（含自定义整型）转为 int，并做溢出保护。
+func toInt(key any) (int, bool) {
+	if key == nil {
+		return 0, false
+	}
+	switch k := key.(type) {
+	case int:
+		return k, true
+	case int8:
+		return int(k), true
+	case int16:
+		return int(k), true
+	case int32:
+		return int(k), true
+	case int64:
+		return int(k), true
+	case uint:
+		if k <= uint(^uint(0)>>1) {
+			return int(k), true
+		}
+	case uint8:
+		return int(k), true
+	case uint16:
+		return int(k), true
+	case uint32:
+		return int(k), true
+	case uint64:
+		if k <= uint64(^uint(0)>>1) {
+			return int(k), true
+		}
+	case uintptr:
+		if uint64(k) <= uint64(^uint(0)>>1) {
+			return int(k), true
+		}
+	case string:
+		if i, err := strconv.Atoi(k); err == nil {
+			return i, true
+		}
+	}
+
+	// 自定义整型
+	rv := reflect.ValueOf(key)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return int(rv.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		u := rv.Uint()
+		if u <= uint64(^uint(0)>>1) {
+			return int(u), true
+		}
+	}
+	return 0, false
+}
+
+// capitalize 将首个字符转为大写（替代已废弃的 strings.Title）。
+func capitalize(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	if unicode.IsUpper(r) {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
+}
+
+// Set 通用赋值，与 Get 功能、错误、转换规则精确对称。
+//
+// 支持：
+//   - map[K]V          → key 可赋值/可转换/常见数字↔字符串互转；值为 nil 时删除键
+//   - slice / array    → 整数索引（支持负索引）；slice 可自动扩容
+//   - struct / *struct → 字段名（精确 / 首字母大小写 / json·mapstructure 标签）或整数索引（支持负索引）
+//   - 指针 / interface → 自动多层解包
+//   - reflect.Value    → 直接接受（需最终可设置）
+//
+// 行为约定（与 Get 对应）：
+//   - 结构体找不到字段            → ErrFieldNotFound
+//   - 索引越界                    → ErrIndexOutOfRange
+//   - 类型不支持 / key 类型错误   → ErrUnsupported / ErrKeyType / ErrMapKey
+//   - 不可寻址或未导出字段        → ErrUnaddressable
+//   - 字符串 / 数值按索引修改     → ErrImmutable
+//   - map 为 nil                  → ErrNilMap
+//
+// 并发安全：函数本身无共享可变状态（字段缓存只读）。
+// 对同一个 map 的并发写仍需调用方加锁。
+func Set(m any, args ...any) error {
+	n := len(args)
+	if n == 0 || n&1 != 0 {
+		return ErrInvalidArgCount
+	}
+
+	v, err := resolveSettable(m)
+	if err != nil {
+		return err
+	}
+
+	switch v.Kind() {
+	case reflect.Map:
+		return setMap(v, args)
+	case reflect.Slice:
+		return setIndexable(v, args, true)
+	case reflect.Array:
+		return setIndexable(v, args, false)
+	case reflect.Struct:
+		return setStruct(v, args)
+	case reflect.String,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64,
+		reflect.Complex64, reflect.Complex128:
+		return ErrImmutable
+	default:
+		return fmt.Errorf("%w: %v", ErrUnsupported, v.Kind())
+	}
+}
+
+// resolveSettable 多层解包指针/interface/reflect.Value，得到最终操作目标。
+func resolveSettable(m any) (reflect.Value, error) {
+	if m == nil {
+		return reflect.Value{}, ErrNilValue
+	}
+
+	var v reflect.Value
+	if rv, ok := m.(reflect.Value); ok {
+		v = rv
+	} else {
+		v = reflect.ValueOf(m)
+	}
+
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return reflect.Value{}, ErrNilValue
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() {
+		return reflect.Value{}, ErrNilValue
+	}
+
+	switch v.Kind() {
+	case reflect.Map, reflect.Slice:
+		// 引用类型，即使不可寻址也可操作底层数据
+		return v, nil
+	case reflect.Struct, reflect.Array:
+		if !v.CanSet() && !v.CanAddr() {
+			return reflect.Value{}, ErrUnaddressable
+		}
+		return v, nil
+	case reflect.String,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64,
+		reflect.Complex64, reflect.Complex128:
+		return v, nil // 后续统一返回 ErrImmutable
+	default:
+		return reflect.Value{}, fmt.Errorf("%w: %v", ErrUnsupported, v.Kind())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// map
+// ---------------------------------------------------------------------------
+
+func setMap(mv reflect.Value, args []any) error {
+	if mv.IsNil() {
+		return ErrNilMap
+	}
+	kt := mv.Type().Key()
+	et := mv.Type().Elem()
+
+	for i := 0; i < len(args); i += 2 {
+		k, ok := convertKey(args[i], kt)
+		if !ok {
+			return fmt.Errorf("%w: need %v, got %T", ErrMapKey, kt, args[i])
+		}
+
+		var elem reflect.Value
+		if args[i+1] == nil {
+			// 与 reflect.SetMapIndex 一致：零 Value 删除键
+			elem = reflect.Value{}
+		} else {
+			converted, err := autoConvert(et, args[i+1])
+			if err != nil {
+				return err
+			}
+			elem = converted
+		}
+		mv.SetMapIndex(k, elem)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// slice / array
+// ---------------------------------------------------------------------------
+
+func setIndexable(sv reflect.Value, args []any, growable bool) error {
+	et := sv.Type().Elem()
+	length := sv.Len()
+
+	for i := 0; i < len(args); i += 2 {
+		idx, ok := toInt(args[i])
+		if !ok {
+			return fmt.Errorf("%w: slice/array key must be integer, got %T", ErrKeyType, args[i])
+		}
+
+		if idx < 0 {
+			idx += length
+		}
+		if idx < 0 {
+			return fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, length)
+		}
+
+		// 自动扩容（仅 slice）
+		if growable && idx >= length {
+			newLen := idx + 1
+			newCap := sv.Cap()
+			if newLen > newCap {
+				newCap = newLen * 2
+				if newCap < 4 {
+					newCap = 4
+				}
+			}
+			ns := reflect.MakeSlice(sv.Type(), newLen, newCap)
+			reflect.Copy(ns, sv)
+			sv.Set(ns)
+			length = newLen
+		}
+
+		if idx >= sv.Len() {
+			return fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, sv.Len())
+		}
+
+		elem := sv.Index(idx)
+		if !elem.CanSet() {
+			return ErrUnaddressable
+		}
+
+		converted, err := autoConvert(et, args[i+1])
+		if err != nil {
+			return err
+		}
+		elem.Set(converted)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// struct
+// ---------------------------------------------------------------------------
+
+func setStruct(sv reflect.Value, args []any) error {
+	t := sv.Type()
+	idxMap := buildFieldIndex(t)
+	n := t.NumField()
+
+	for i := 0; i < len(args); i += 2 {
+		key := args[i]
+		val := args[i+1]
+
+		var field reflect.Value
+
+		switch k := key.(type) {
+		case string:
+			idx, exists := idxMap[k]
+			if !exists {
+				if capName := capitalize(k); capName != k {
+					idx, exists = idxMap[capName]
+				}
+			}
+			if !exists {
+				return fmt.Errorf("%w: %q", ErrFieldNotFound, k)
+			}
+			field = sv.Field(idx)
+
+		default:
+			idx, ok := toInt(key)
+			if !ok {
+				return fmt.Errorf("%w: struct key must be string or int, got %T", ErrKeyType, key)
+			}
+			if idx < 0 {
+				idx += n
+			}
+			if idx < 0 || idx >= n {
+				return fmt.Errorf("%w: field index [%d] with %d fields", ErrIndexOutOfRange, idx, n)
+			}
+			// 与 Get 一致：按声明顺序取字段（未导出字段 Get 能读，Set 因 CanSet=false 会失败）
+			field = sv.Field(idx)
+		}
+
+		if !field.IsValid() {
+			return fmt.Errorf("%w: %v", ErrFieldNotFound, key)
+		}
+		if !field.CanSet() {
+			return fmt.Errorf("%w: field %v", ErrUnaddressable, key)
+		}
+
+		converted, err := autoConvert(field.Type(), val)
+		if err != nil {
+			return err
+		}
+		field.Set(converted)
+	}
+	return nil
 }
 
 func Len(a any) int {
@@ -936,9 +1627,8 @@ func Convert(a, b any) bool {
 	return typeConvert(av, bv)
 }
 
-func Init(v any) {
-	rv := toValue(v)
-	typeInit(rv, false)
+func Init(v any, isZero bool, args ...any) bool {
+	return typeInit(toValue(v), isZero, args...)
 }
 
 func CopyStruct(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool) error {

@@ -3,6 +3,7 @@ package builtin
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"unsafe"
 )
@@ -127,119 +128,89 @@ func asFloat(a any) float64 {
 	panic(fmt.Sprintf("Unable to convert, type is %s", rkind(a).String()))
 }
 
-// 核心改进：直接使用反射底层的 CanConvert，消除所有自定义类型和部分系统类型的转换盲区（替代原逻辑）。
-func autoConvert(telem reflect.Type, v any) reflect.Value {
+// autoConvert 将任意值转换为目标类型。
+// 规则与 Get 侧 valueToInterface / convertKey 精神一致：
+// 相同类型、Assignable、Convertible、接口/指针解包、目标为指针时自动取址、
+// 数字→字符串、结构体字段名+类型匹配时逐字段拷贝。
+func autoConvert(telem reflect.Type, v any) (reflect.Value, error) {
 	if v == nil {
-		return reflect.Zero(telem)
+		return reflect.Zero(telem), nil
 	}
-	val := reflect.ValueOf(v)
+	return autoConvertReflect(telem, reflect.ValueOf(v))
+}
 
-	// 1. 如果值的类型已经与目标类型相同，则无需转换，直接返回。
+func autoConvertReflect(telem reflect.Type, val reflect.Value) (reflect.Value, error) {
+	if !val.IsValid() {
+		return reflect.Zero(telem), nil
+	}
+
+	// 快速路径
 	if val.Type() == telem {
-		return val
+		return val, nil
 	}
-
-	// 2. 尝试使用 reflect.Value.Convert() 进行标准 Go 语言转换。
-	// 这涵盖了 []byte 到 string、MyInt 到 int (底层类型相同) 等情况。
+	if val.Type().AssignableTo(telem) {
+		return val, nil
+	}
 	if val.CanConvert(telem) {
-		return val.Convert(telem)
+		return val.Convert(telem), nil
 	}
 
-	// 3. 对具有相同底层结构但不同命名体的结构体进行特殊处理（例如 T1 到 T2）。
-	// 这种情况需要使用 unsafe 包来重新解释内存。
-	// 首先，检查源类型和目标类型是否都是结构体。
-	if val.Kind() == reflect.Struct && telem.Kind() == reflect.Struct {
-		// 验证源和目标结构体是否具有相同的字段数量和类型顺序。
-		// （假定字段名称和标签也相同，以确保内存布局完全一致。）
-		if val.NumField() == telem.NumField() {
-			fieldsMatch := true
-			for i := 0; i < val.NumField(); i++ {
-				srcField := val.Type().Field(i)
-				tgtField := telem.Field(i)
+	// 接口 / 指针解包
+	if val.Kind() == reflect.Interface || val.Kind() == reflect.Pointer {
+		if val.IsNil() {
+			return reflect.Zero(telem), nil
+		}
+		return autoConvertReflect(telem, val.Elem())
+	}
 
-				// 为了内存布局一致，字段类型必须匹配。
-				if srcField.Type != tgtField.Type {
-					fieldsMatch = false
-					break
-				}
-				// 通常，如果类型和顺序相同，偏移量也会自然匹配，因此无需额外检查偏移量。
+	// 目标是指针：先转元素再取址
+	if telem.Kind() == reflect.Pointer {
+		elem, err := autoConvertReflect(telem.Elem(), val)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+		ptr := reflect.New(telem.Elem())
+		ptr.Elem().Set(elem)
+		return ptr, nil
+	}
+
+	// 结构体：字段名、类型、嵌入标志一致则逐字段拷贝（安全替代 unsafe 内存重解释）
+	if val.Kind() == reflect.Struct && telem.Kind() == reflect.Struct && val.NumField() == telem.NumField() {
+		dst := reflect.New(telem).Elem()
+		match := true
+		for i := 0; i < val.NumField(); i++ {
+			sf := val.Type().Field(i)
+			tf := telem.Field(i)
+			if sf.Name != tf.Name || sf.Type != tf.Type || sf.Anonymous != tf.Anonymous {
+				match = false
+				break
 			}
-
-			if fieldsMatch {
-				// 为了使用 UnsafeAddr，reflect.Value 必须是可寻址的。
-				// 如果不是（例如，它是字面量或不可导出的字段），则创建一个可寻址的副本。
-				var addressableSrcValue reflect.Value
-				if val.CanAddr() {
-					addressableSrcValue = val
-				} else {
-					// 创建一个源类型的新可寻址值。
-					// 然后将 'val' 的内容复制到这个新的可寻址值中。
-					tempPtr := reflect.New(val.Type())
-					tempPtr.Elem().Set(val)
-					addressableSrcValue = tempPtr.Elem()
-				}
-
-				// 创建一个目标类型的新 reflect.Value，
-				// 将 srcPtr 处的内存解释为目标类型。
-				// reflect.NewAt 返回一个 Ptr 类型的 reflect.Value (例如，*T2)，
-				// 因此我们调用 .Elem() 来获取实际的值 (例如，T2)。
-				convertedVal := reflect.NewAt(telem, unsafe.Pointer(addressableSrcValue.UnsafeAddr())).Elem()
-				return convertedVal
+			if dst.Field(i).CanSet() {
+				dst.Field(i).Set(val.Field(i))
 			}
 		}
-	}
-
-	// 如果没有找到适用的转换路径，则 panic，因为测试用例预期转换是成功的。
-	panic("autoConvert: 无法将类型 " + val.Type().String() + " 的值转换为类型 " + telem.String() + "。未找到适用的转换规则。")
-}
-
-func setMapMember(m any, args ...any) any {
-	var val reflect.Value
-	o := reflect.ValueOf(m)
-	telem := o.Type().Elem()
-	for i := 0; i < len(args); i += 2 {
-		key := reflect.ValueOf(args[i])
-		t := args[i+1]
-		if t == nil {
-			val = zeroVal
-		} else {
-			val = autoConvert(telem, t)
+		if match {
+			return dst, nil
 		}
-		o.SetMapIndex(key, val)
-	}
-	return m
-}
-
-func setMember(m any, args ...any) {
-	o := reflect.ValueOf(m)
-	for ; o.Kind() == reflect.Pointer || o.Kind() == reflect.Interface; o = o.Elem() {
 	}
 
-	if o.Kind() == reflect.Struct {
-		setStructMember(o, args...)
-		return
-	}
-	panic(fmt.Sprintf("type `%v` doesn't support `set` operator", reflect.TypeOf(m)))
-}
-
-func setStructMember(o reflect.Value, args ...any) {
-	var field reflect.Value
-	for i := 0; i < len(args); i += 2 {
-		switch t := args[i].(type) {
-		case string:
-			field = o.FieldByName(strings.Title(t))
-		case int:
-			field = o.Field(t)
+	// 数字 / bool → 字符串（与 Get 的 getNumber 对称）
+	if telem.Kind() == reflect.String {
+		switch val.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return reflect.ValueOf(strconv.FormatInt(val.Int(), 10)), nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			return reflect.ValueOf(strconv.FormatUint(val.Uint(), 10)), nil
+		case reflect.Float32, reflect.Float64:
+			return reflect.ValueOf(strconv.FormatFloat(val.Float(), 'f', -1, 64)), nil
+		case reflect.Bool:
+			return reflect.ValueOf(strconv.FormatBool(val.Bool())), nil
+		case reflect.Complex64, reflect.Complex128:
+			return reflect.ValueOf(fmt.Sprintf("%g", val.Complex())), nil
 		}
-
-		if !field.IsValid() {
-			panic(fmt.Sprintf("struct `%v` doesn't has name `%v`", o.Type(), args[i]))
-		}
-		if !field.CanSet() {
-			panic(fmt.Sprintf("struct `%v` can't set name `%v`", o.Type(), args[i]))
-		}
-		field.Set(autoConvert(field.Type(), args[i+1]))
 	}
+
+	return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert %s to %s", val.Type(), telem)
 }
 
 func getMember(m any, key any) any {
@@ -473,7 +444,13 @@ func isTrue(val reflect.Value) bool {
 	return false
 }
 
+// typeSelect 安全且高性能地将 reflect.Value 转换为 go 接口类型，支持各类未导出字段及复杂类型
 func typeSelect(v reflect.Value) any {
+	if !v.IsValid() {
+		return nil
+	}
+
+	// 1. 处理基础数值及字符类型（保留原逻辑的拓宽转换，如 int32 转 int64）
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return v.Int()
@@ -485,32 +462,145 @@ func typeSelect(v reflect.Value) any {
 		return v.Bool()
 	case reflect.Complex64, reflect.Complex128:
 		return v.Complex()
-	case reflect.Invalid:
-		return nil
 	case reflect.String:
 		return v.String()
 	case reflect.UnsafePointer:
 		return v.Pointer()
-	case reflect.Slice, reflect.Array:
-		if v.CanInterface() {
-			return v.Interface()
-		}
+	case reflect.Invalid:
+		return nil
+	}
 
+	// 2. 如果是可直接导出的对象，直接返回 Interface() 性能最高
+	if v.CanInterface() {
+		return v.Interface()
+	}
+
+	// flagRO 是 reflect.Value 中只读标志位的掩码。
+	// 自 Go 1.5 至今，Go 运行时中的 flagRO = flagStickyRO | flagEmbedRO = 1<<5 | 1<<6 = 96
+	const flagRO uintptr = 96
+
+	// valueHeader 是对应 reflect.Value 底层内存布局的影子结构体，用于安全清除只读标志位。
+	type valueHeader struct {
+		typ  unsafe.Pointer
+		ptr  unsafe.Pointer
+		flag uintptr
+	}
+
+	// makeExported 动态清除 reflect.Value 的只读限制。
+	// 因为 v 是值拷贝传入，此处修改为局部安全修改，不影响外部，且并发安全。
+	makeExported := func(v reflect.Value) reflect.Value {
+		if !v.IsValid() {
+			return v
+		}
+		vh := (*valueHeader)(unsafe.Pointer(&v))
+		vh.flag &^= flagRO
+		return v
+	}
+
+	// 3. 针对非导出字段，尝试通过清除只读标志直接返回（O(1) 无内存分配）
+	exportedV := makeExported(v)
+	if exportedV.CanInterface() {
+		return exportedV.Interface()
+	}
+
+	// 4. 兜底回退：如果运行在不支持 unsafe 的特殊平台，使用纯反射递归重建，兼容所有平台
+	switch v.Kind() {
+	case reflect.Slice:
 		l := v.Len()
 		c := v.Cap()
-		vet := reflect.SliceOf(v.Elem().Type())
-		cv := reflect.MakeSlice(vet, l, c)
+		elemType := v.Type().Elem() // 修复原有 v.Elem().Type() 导致的 panic
+		// 创建长度为0，容量为c的切片，防止后续 Append 导致前端留空
+		cv := reflect.MakeSlice(reflect.SliceOf(elemType), 0, c)
 		for i := 0; i < l; i++ {
 			item := typeSelect(v.Index(i))
 			if item != nil {
-				cv = reflect.Append(cv, reflect.ValueOf(item))
+				itemVal := reflect.ValueOf(item)
+				// 自动处理类型转换兼容（如把 typeSelect 转换出的 int64 转回原切片的 int32）
+				if itemVal.Type().AssignableTo(elemType) {
+					cv = reflect.Append(cv, itemVal)
+				} else if itemVal.Type().ConvertibleTo(elemType) {
+					cv = reflect.Append(cv, itemVal.Convert(elemType))
+				} else {
+					cv = reflect.Append(cv, reflect.Zero(elemType))
+				}
+			} else {
+				cv = reflect.Append(cv, reflect.Zero(elemType))
 			}
 		}
 		return cv.Interface()
-	default:
-		if v.CanInterface() {
-			return v.Interface()
+
+	case reflect.Array:
+		l := v.Len()
+		elemType := v.Type().Elem()
+		cv := reflect.New(reflect.ArrayOf(l, elemType)).Elem()
+		for i := 0; i < l; i++ {
+			item := typeSelect(v.Index(i))
+			if item != nil {
+				itemVal := reflect.ValueOf(item)
+				if itemVal.Type().AssignableTo(elemType) {
+					cv.Index(i).Set(itemVal)
+				} else if itemVal.Type().ConvertibleTo(elemType) {
+					cv.Index(i).Set(itemVal.Convert(elemType))
+				}
+			}
 		}
+		return cv.Interface()
+
+	case reflect.Map:
+		mt := v.Type()
+		resMap := reflect.MakeMap(mt)
+		for _, key := range v.MapKeys() {
+			val := v.MapIndex(key)
+			rawKey := typeSelect(key)
+			rawVal := typeSelect(val)
+
+			var finalKey, finalVal reflect.Value
+			if rawKey != nil {
+				rk := reflect.ValueOf(rawKey)
+				if rk.Type().AssignableTo(mt.Key()) {
+					finalKey = rk
+				} else if rk.Type().ConvertibleTo(mt.Key()) {
+					finalKey = rk.Convert(mt.Key())
+				}
+			}
+			if rawVal != nil {
+				rv := reflect.ValueOf(rawVal)
+				if rv.Type().AssignableTo(mt.Elem()) {
+					finalVal = rv
+				} else if rv.Type().ConvertibleTo(mt.Elem()) {
+					finalVal = rv.Convert(mt.Elem())
+				}
+			}
+
+			if !finalKey.IsValid() {
+				finalKey = reflect.Zero(mt.Key())
+			}
+			if !finalVal.IsValid() {
+				finalVal = reflect.Zero(mt.Elem())
+			}
+			resMap.SetMapIndex(finalKey, finalVal)
+		}
+		return resMap.Interface()
+
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			return nil
+		}
+		return typeSelect(v.Elem())
+
+	case reflect.Struct:
+		// 未导出 Struct 在纯反射回退方案下转换为 key-value 的 Map 导出
+		t := v.Type()
+		res := make(map[string]any)
+		for i := 0; i < v.NumField(); i++ {
+			field := t.Field(i)
+			// 跳过非导出字段（小写开头）
+			if field.PkgPath != "" {
+				continue
+			}
+			res[field.Name] = typeSelect(v.Field(i))
+		}
+		return res
 	}
 
 	panic(fmt.Errorf("vweb: 该类型 %s，无法转换为 interface 类型", v.Kind()))
@@ -523,7 +613,7 @@ func typeInit(v reflect.Value, isZero bool, args ...any) bool {
 	if !v.IsValid() || !v.CanSet() {
 		return false
 	}
-	return initChain(v, isZero, args)
+	return initChain(v, isZero, args...)
 }
 
 // initChain 沿指针/接口链向下分配所有 nil 指针（含接口内部），
@@ -687,8 +777,7 @@ func typeConvert(dst, src reflect.Value) (ok bool) {
 	// 4. 源是结构体，初始化目标底层后转换
 	if src.Kind() == reflect.Struct {
 		typeInit(dst, false)
-		if base := inDirect(dst); base.IsValid() && base.CanSet() &&
-			canConvertSafely(src, base.Type()) {
+		if base := inDirect(dst); base.IsValid() && base.CanSet() && canConvertSafely(src, base.Type()) {
 			base.Set(src.Convert(base.Type()))
 			return true
 		}
