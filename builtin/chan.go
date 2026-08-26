@@ -1,18 +1,17 @@
 package builtin
 
 import (
-	"fmt"
 	"reflect"
 )
 
 type Chan struct {
-	Data reflect.Value
+	C reflect.Value
 }
 
 // 辅助函数：统一提取 channel 的 reflect.Value
 func getChanValue(a any) (reflect.Value, bool) {
 	if p, ok := a.(*Chan); ok {
-		return p.Data, true
+		return p.C, true
 	} else if rv, ok := a.(reflect.Value); ok && rv.Kind() == reflect.Chan {
 		return rv, true
 	} else {
@@ -92,39 +91,4 @@ func Close(a any) {
 		panic("Close: expected a channel")
 	}
 	ch.Close()
-}
-
-// ChanOf(T)
-func ChanOf(typ any) reflect.Type {
-	elemType := builtinType(typ)
-	if elemType == nil {
-		panic(fmt.Sprintf("ChanOf: invalid or unknown element type: %v", typ))
-	}
-	return reflect.ChanOf(reflect.BothDir, elemType)
-}
-
-// MakeChan(T, size)
-func MakeChan(typ any, buffer ...any) *Chan {
-	n := 0
-	if len(buffer) > 0 {
-		// 解决强制断言 panic 的问题，兼容多种整型
-		switch v := buffer[0].(type) {
-		case int:
-			n = v
-		case int32:
-			n = int(v)
-		case int64:
-			n = int(v)
-		default:
-			// 尝试通过反射转为 int
-			rv := reflect.ValueOf(buffer[0])
-			if rv.CanConvert(reflect.TypeOf(0)) {
-				n = int(rv.Convert(reflect.TypeOf(0)).Int())
-			} else {
-				panic("MakeChan: buffer size must be an integer")
-			}
-		}
-	}
-	t := ChanOf(typ)
-	return &Chan{Data: reflect.MakeChan(t, n)}
 }

@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
-	"strings"
-	"unsafe"
 )
+
+// ---------------------------------------------------------------------------
+// Internal type registry (read-mostly, concurrent-safe)
+// ---------------------------------------------------------------------------
 
 var builtinTypes = map[string]reflect.Type{
 	"uintptr":    reflect.TypeOf(uintptr(0)),
@@ -28,11 +30,12 @@ var builtinTypes = map[string]reflect.Type{
 	"string":     reflect.TypeOf(""),
 	"byte":       reflect.TypeOf(byte(0)),
 	"rune":       reflect.TypeOf(rune(0)),
-	"interface":  reflect.TypeOf((*any)(nil)).Elem(),
-	"value":      reflect.TypeOf((*reflect.Value)(nil)).Elem(),
-	"type":       reflect.TypeOf((*reflect.Type)(nil)).Elem(),
+	"any":        reflect.TypeOf((*any)(nil)).Elem(),
+	"interface":  reflect.TypeOf((*any)(nil)).Elem(), // alias
 	"error":      reflect.TypeOf((*error)(nil)).Elem(),
 	"struct":     reflect.TypeOf((*struct{})(nil)).Elem(),
+	"value":      reflect.TypeOf((*reflect.Value)(nil)).Elem(),
+	"type":       reflect.TypeOf((*reflect.Type)(nil)).Elem(),
 }
 
 func inDirect(v reflect.Value) reflect.Value {
@@ -43,89 +46,6 @@ func inDirect(v reflect.Value) reflect.Value {
 		v = v.Elem()
 	}
 	return v
-}
-
-func builtinType(typ any) reflect.Type {
-	if t, ok := typ.(string); ok {
-		ts := strings.Split(t, ":")
-		v0, ok0 := builtinTypes[ts[0]]
-
-		if len(ts) == 2 {
-			v1, ok1 := builtinTypes[ts[1]]
-			if ts[0] == "" && ok1 {
-				return reflect.SliceOf(v1)
-			} else if ok0 && ok1 {
-				return reflect.MapOf(v0, v1)
-			}
-		} else if ok0 {
-			return v0
-		}
-	} else if t, ok := typ.(reflect.Type); ok {
-		return t
-	} else if v, ok := typ.(reflect.Value); ok {
-		return v.Type()
-	}
-	return reflect.TypeOf(typ)
-}
-
-func rkind(a any) reflect.Kind {
-	return reflect.TypeOf(a).Kind()
-}
-
-func kind2Args(args []any, idx int) reflect.Kind {
-	kind := rkind(args[idx])
-	for i := 2; i < len(args); i += 2 {
-		if t := rkind(args[i+idx]); t != kind {
-			if kind == reflect.Float64 || kind == reflect.Int {
-				if t == reflect.Int {
-					continue
-				}
-				if t == reflect.Float64 {
-					kind = reflect.Float64
-					continue
-				}
-			}
-			return reflect.Invalid
-		}
-	}
-	return kind
-}
-
-func kindArgs(args []any) reflect.Kind {
-	kind := rkind(args[0])
-	for i := 1; i < len(args); i++ {
-		if t := rkind(args[i]); t != kind {
-			if kind == reflect.Float64 || kind == reflect.Int {
-				if t == reflect.Int {
-					continue
-				}
-				if t == reflect.Float64 {
-					kind = reflect.Float64
-					continue
-				}
-			}
-			return reflect.Invalid
-		}
-	}
-	return kind
-}
-
-func asInt(a any) int {
-	switch v := a.(type) {
-	case int:
-		return v
-	}
-	panic(fmt.Sprintf("Unable to convert, type is %s", rkind(a).String()))
-}
-
-func asFloat(a any) float64 {
-	switch v := a.(type) {
-	case float64:
-		return v
-	case int:
-		return float64(v)
-	}
-	panic(fmt.Sprintf("Unable to convert, type is %s", rkind(a).String()))
 }
 
 // autoConvert 将任意值转换为目标类型。
@@ -213,146 +133,6 @@ func autoConvertReflect(telem reflect.Type, val reflect.Value) (reflect.Value, e
 	return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert %s to %s", val.Type(), telem)
 }
 
-func getMember(m any, key any) any {
-	o := reflect.ValueOf(m)
-	for ; o.Kind() == reflect.Pointer || o.Kind() == reflect.Interface; o = o.Elem() {
-	}
-
-	if o.Kind() == reflect.Struct {
-		return getStructMember(o, key)
-	}
-	return nil
-}
-
-func getStructMember(o reflect.Value, key any) any {
-	var field reflect.Value
-	switch t := key.(type) {
-	case string:
-		field = o.FieldByName(strings.Title(t))
-	case int:
-		field = o.Field(t)
-	}
-	return typeSelect(field)
-}
-
-func appendInterface(a any, vals ...any) any {
-	va := reflect.ValueOf(a)
-	telem := va.Type().Elem()
-	x := make([]reflect.Value, len(vals))
-	for i, v := range vals {
-		x[i] = autoConvert(telem, v)
-	}
-	return reflect.Append(va, x...).Interface()
-}
-
-func appendFloats(a []float64, vals ...any) any {
-	for _, v := range vals {
-		switch val := v.(type) {
-		case float64:
-			a = append(a, val)
-		case float32:
-			a = append(a, float64(val))
-		case int:
-			a = append(a, float64(val))
-		default:
-			rv := reflect.ValueOf(v)
-			switch rv.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				a = append(a, float64(rv.Int()))
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				a = append(a, float64(rv.Uint()))
-			case reflect.Float32, reflect.Float64: // 修复盲区：恢复被注释遗弃的底层 Float 转回
-				a = append(a, rv.Float())
-			default:
-				panic("unsupported: []float64 append " + reflect.TypeOf(v).String())
-			}
-		}
-	}
-	return a
-}
-
-func appendInts(a []int, vals ...any) any {
-	for _, v := range vals {
-		switch val := v.(type) {
-		case int:
-			a = append(a, val)
-		case float32:
-			a = append(a, int(val))
-		case float64:
-			a = append(a, int(val))
-		default:
-			rv := reflect.ValueOf(v)
-			switch rv.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				a = append(a, int(rv.Int()))
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				a = append(a, int(rv.Uint()))
-			case reflect.Float32, reflect.Float64: // 修复盲区：恢复处理底层自定义 float -> int
-				a = append(a, int(rv.Float()))
-			default:
-				panic("unsupported: []int append " + reflect.TypeOf(v).String())
-			}
-		}
-	}
-	return a
-}
-
-func appendBytes(a []byte, vals ...any) any {
-	for _, v := range vals {
-		switch val := v.(type) {
-		case byte:
-			a = append(a, val)
-		default:
-			rv := reflect.ValueOf(v)
-			switch rv.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				a = append(a, byte(rv.Int()))
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				a = append(a, byte(rv.Uint()))
-			case reflect.Float32, reflect.Float64:
-				a = append(a, byte(rv.Float()))
-			default:
-				panic("unsupported: []byte append " + reflect.TypeOf(v).String())
-			}
-		}
-	}
-	return a
-}
-
-func appendRunes(a []rune, vals ...any) any {
-	for _, v := range vals {
-		switch val := v.(type) {
-		case rune:
-			a = append(a, val)
-		default:
-			rv := reflect.ValueOf(v)
-			switch rv.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				a = append(a, rune(rv.Int()))
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				a = append(a, rune(rv.Uint()))
-			case reflect.Float32, reflect.Float64:
-				a = append(a, rune(rv.Float()))
-			default:
-				panic("unsupported: []byte append " + reflect.TypeOf(v).String())
-			}
-		}
-	}
-	return a
-}
-
-func appendStrings(a []string, vals ...any) any {
-	for _, v := range vals {
-		switch val := v.(type) {
-		case string:
-			a = append(a, val)
-		default:
-			a = append(a, fmt.Sprint(val))
-		}
-	}
-	return a
-}
-
 func typeString(a any) string {
 	if a == nil {
 		return "nil"
@@ -369,54 +149,6 @@ func panicUnsupportedOp2(op string, a, b any) any {
 	ta := typeString(a)
 	tb := typeString(b)
 	panic("unsupported operator: " + ta + op + tb)
-}
-
-func panicUnsupportedFn(fn string, args ...any) any {
-	targs := make([]string, len(args))
-	for i, a := range args {
-		targs[i] = typeString(a)
-	}
-	panic("unsupported function: " + fn + "(" + strings.Join(targs, ",") + ")")
-}
-
-func maxInt(args []any) (max int) {
-	max = args[0].(int)
-	for i := 1; i < len(args); i++ {
-		if t := args[i].(int); t > max {
-			max = t
-		}
-	}
-	return
-}
-
-func maxFloat(args []any) (max float64) {
-	max = asFloat(args[0])
-	for i := 1; i < len(args); i++ {
-		if t := asFloat(args[i]); t > max {
-			max = t
-		}
-	}
-	return
-}
-
-func minInt(args []any) (min int) {
-	min = args[0].(int)
-	for i := 1; i < len(args); i++ {
-		if t := args[i].(int); t < min {
-			min = t
-		}
-	}
-	return
-}
-
-func minFloat(args []any) (min float64) {
-	min = asFloat(args[0])
-	for i := 1; i < len(args); i++ {
-		if t := asFloat(args[i]); t < min {
-			min = t
-		}
-	}
-	return
 }
 
 func isTrue(val reflect.Value) bool {
@@ -473,28 +205,6 @@ func typeSelect(v reflect.Value) any {
 	// 2. 如果是可直接导出的对象，直接返回 Interface() 性能最高
 	if v.CanInterface() {
 		return v.Interface()
-	}
-
-	// flagRO 是 reflect.Value 中只读标志位的掩码。
-	// 自 Go 1.5 至今，Go 运行时中的 flagRO = flagStickyRO | flagEmbedRO = 1<<5 | 1<<6 = 96
-	const flagRO uintptr = 96
-
-	// valueHeader 是对应 reflect.Value 底层内存布局的影子结构体，用于安全清除只读标志位。
-	type valueHeader struct {
-		typ  unsafe.Pointer
-		ptr  unsafe.Pointer
-		flag uintptr
-	}
-
-	// makeExported 动态清除 reflect.Value 的只读限制。
-	// 因为 v 是值拷贝传入，此处修改为局部安全修改，不影响外部，且并发安全。
-	makeExported := func(v reflect.Value) reflect.Value {
-		if !v.IsValid() {
-			return v
-		}
-		vh := (*valueHeader)(unsafe.Pointer(&v))
-		vh.flag &^= flagRO
-		return v
 	}
 
 	// 3. 针对非导出字段，尝试通过清除只读标志直接返回（O(1) 无内存分配）
@@ -603,7 +313,7 @@ func typeSelect(v reflect.Value) any {
 		return res
 	}
 
-	panic(fmt.Errorf("vweb: 该类型 %s，无法转换为 interface 类型", v.Kind()))
+	return nil
 }
 
 // typeInit 初始化 nil 指针/接口，并可选择将最终值置为零值或指定初始容量。
@@ -630,7 +340,7 @@ func initChain(v reflect.Value, isZero bool, args ...any) bool {
 			inner := v.Elem()
 			p := reflect.New(inner.Type()).Elem()
 			p.Set(inner)
-			if !initChain(p, isZero, args) {
+			if !initChain(p, isZero, args...) {
 				return false
 			}
 			v.Set(p)

@@ -1,32 +1,25 @@
 package builtin
+
 import (
-	"reflect"
+	"cmp"
 )
 
-//Max(a1, a2, ...)
-func Max(args ...any) (max any) {
-	if len(args) == 0 {
-		return 0
+func Max[T cmp.Ordered](first T, rest ...T) T {
+	max := first
+	for _, v := range rest {
+		if v > max {
+			max = v
+		}
 	}
-	switch kindArgs(args) {
-	case reflect.Int:
-		return maxInt(args)
-	case reflect.Float64:
-		return maxFloat(args)
-	}
-	return panicUnsupportedFn("max", args)
+	return max
 }
 
-//Min(a1, a2, ...)
-func Min(args ...any) (min any) {
-	if len(args) == 0 {
-		return 0
+func Min[T cmp.Ordered](first T, rest ...T) T {
+	min := first
+	for _, v := range rest {
+		if v < min {
+			min = v
+		}
 	}
-	switch kindArgs(args) {
-	case reflect.Int:
-		return minInt(args)
-	case reflect.Float64:
-		return minFloat(args)
-	}
-	return panicUnsupportedFn("min", args)
+	return min
 }
