@@ -29,6 +29,8 @@ var (
 var (
 	zeroVal   reflect.Value
 	builtinMu sync.RWMutex
+	// fieldIndexCache holds per-type field indexes. Concurrent-safe.
+	fieldIndexCache sync.Map // map[reflect.Type]fieldIndex
 )
 
 // ---------------------------------------------------------------------------
@@ -833,6 +835,7 @@ func getString(v reflect.Value, key any) (any, error) {
 	}
 	if idx < 0 || idx >= n {
 		if n == 0 {
+			// 空字符串越界：与历史行为一致返回 0
 			return byte(0), nil
 		}
 		return nil, fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, n)
@@ -886,18 +889,49 @@ func getStruct(v reflect.Value, key any) (any, error) {
 	}
 }
 
+// fieldByIndexSafe 安全地按索引路径取值。
+// 若路径上任意中间指针为 nil，返回 ErrNilValue，避免 FieldByIndex 的 panic。
+func fieldByIndexSafe(v reflect.Value, index []int) (reflect.Value, error) {
+	if len(index) == 1 {
+		return v.Field(index[0]), nil
+	}
+	for i, x := range index {
+		if i > 0 {
+			if v.Kind() == reflect.Pointer {
+				if v.IsNil() {
+					return reflect.Value{}, ErrNilValue
+				}
+				v = v.Elem()
+			}
+		}
+		if v.Kind() != reflect.Struct {
+			return reflect.Value{}, ErrNilValue
+		}
+		v = v.Field(x)
+	}
+	return v, nil
+}
+
 func getStructByName(v reflect.Value, name string) (any, error) {
 	t := v.Type()
 
 	idxMap := buildFieldIndex(t)
 
 	if idx, exists := idxMap[name]; exists {
-		return valueToInterface(v.Field(idx)), nil
+		fv, err := fieldByIndexSafe(v, idx)
+		if err != nil {
+			return nil, err
+		}
+		return valueToInterface(fv), nil
 	}
 	// 缓存未命中时再尝试一次首字母大写（防止极端自定义类型名）
 	if capName := capitalize(name); capName != name {
 		if idx, exists := idxMap[capName]; exists {
-			return valueToInterface(v.Field(idx)), nil
+			fv, err := fieldByIndexSafe(v, idx)
+			if err != nil {
+				return nil, err
+			}
+			return valueToInterface(fv), nil
 		}
 	}
 	return nil, fmt.Errorf("%w: %q", ErrFieldNotFound, name)
@@ -931,8 +965,8 @@ func getStructByIndex(v reflect.Value, idx int) (any, error) {
 //   - 字符串 / 数值按索引修改     → ErrImmutable
 //   - map 为 nil                  → ErrNilMap
 //
-// 并发安全：函数本身无共享可变状态（字段缓存只读）。
-// 对同一个 map 的并发写仍需调用方加锁。
+// 并发安全：函数本身无共享可变状态；字段索引使用 sync.Map 缓存（只读共享）。
+// 对同一个 map / slice 的并发写仍需调用方加锁。
 func Set(m any, args ...any) error {
 	n := len(args)
 	if n == 0 || n&1 != 0 {
@@ -989,7 +1023,8 @@ func resolveSettable(m any) (reflect.Value, error) {
 
 	switch v.Kind() {
 	case reflect.Map, reflect.Slice:
-		// 引用类型，即使不可寻址也可操作底层数据
+		// 引用类型，即使不可寻址也可操作底层数据（元素赋值）；
+		// 但 slice 扩容需要可设置的 header，由 setIndexable 检查。
 		return v, nil
 	case reflect.Struct, reflect.Array:
 		if !v.CanSet() && !v.CanAddr() {
@@ -1011,6 +1046,8 @@ func resolveSettable(m any) (reflect.Value, error) {
 // map
 // ---------------------------------------------------------------------------
 
+type undoFunc func()
+
 func setMap(mv reflect.Value, args []any) error {
 	if mv.IsNil() {
 		return ErrNilMap
@@ -1018,23 +1055,51 @@ func setMap(mv reflect.Value, args []any) error {
 	kt := mv.Type().Key()
 	et := mv.Type().Elem()
 
+	var undos []undoFunc
+
+	rollback := func() {
+		for i := len(undos) - 1; i >= 0; i-- {
+			undos[i]()
+		}
+	}
+
 	for i := 0; i < len(args); i += 2 {
 		k, ok := convertKey(args[i], kt)
 		if !ok {
+			rollback()
 			return fmt.Errorf("%w: need %v, got %T", ErrMapKey, kt, args[i])
 		}
 
+		old := mv.MapIndex(k)
+		existed := old.IsValid()
+
 		var elem reflect.Value
 		if args[i+1] == nil {
-			// 与 reflect.SetMapIndex 一致：零 Value 删除键
-			elem = reflect.Value{}
+			elem = reflect.Value{} // 删除
 		} else {
 			converted, err := autoConvert(et, args[i+1])
 			if err != nil {
+				rollback()
 				return err
 			}
 			elem = converted
 		}
+
+		// 记录 undo
+		if existed {
+			oldCopy := reflect.New(et).Elem()
+			oldCopy.Set(old) // 深拷贝一份，防止后续被覆盖
+			keyCopy := k     // key 本身不可变
+			undos = append(undos, func() {
+				mv.SetMapIndex(keyCopy, oldCopy)
+			})
+		} else {
+			keyCopy := k
+			undos = append(undos, func() {
+				mv.SetMapIndex(keyCopy, reflect.Value{}) // 删除
+			})
+		}
+
 		mv.SetMapIndex(k, elem)
 	}
 	return nil
@@ -1046,23 +1111,56 @@ func setMap(mv reflect.Value, args []any) error {
 
 func setIndexable(sv reflect.Value, args []any, growable bool) error {
 	et := sv.Type().Elem()
-	length := sv.Len()
+	origLen := sv.Len()
+	origCap := sv.Cap()
+
+	// 保存原始内容，便于整体回滚（尤其扩容场景）
+	var origSlice reflect.Value
+	if growable {
+		origSlice = reflect.MakeSlice(sv.Type(), origLen, origCap)
+		reflect.Copy(origSlice, sv)
+	}
+
+	var undos []undoFunc
+	rolledBack := false
+
+	rollback := func() {
+		if rolledBack {
+			return
+		}
+		rolledBack = true
+		if growable && sv.CanSet() {
+			// 整体还原 header + 内容
+			sv.Set(origSlice)
+			return
+		}
+		// 非扩容或不可设置时逐元素回滚
+		for i := len(undos) - 1; i >= 0; i-- {
+			undos[i]()
+		}
+	}
 
 	for i := 0; i < len(args); i += 2 {
 		idx, ok := toInt(args[i])
 		if !ok {
+			rollback()
 			return fmt.Errorf("%w: slice/array key must be integer, got %T", ErrKeyType, args[i])
 		}
 
 		if idx < 0 {
-			idx += length
+			idx += origLen // 负索引始终相对原始长度
 		}
 		if idx < 0 {
-			return fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, length)
+			rollback()
+			return fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, origLen)
 		}
 
 		// 自动扩容（仅 slice）
-		if growable && idx >= length {
+		if growable && idx >= sv.Len() {
+			if !sv.CanSet() {
+				rollback()
+				return ErrUnaddressable
+			}
 			newLen := idx + 1
 			newCap := sv.Cap()
 			if newLen > newCap {
@@ -1071,22 +1169,35 @@ func setIndexable(sv reflect.Value, args []any, growable bool) error {
 			ns := reflect.MakeSlice(sv.Type(), newLen, newCap)
 			reflect.Copy(ns, sv)
 			sv.Set(ns)
-			length = newLen
 		}
 
 		if idx >= sv.Len() {
+			rollback()
 			return fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, sv.Len())
 		}
 
 		elem := sv.Index(idx)
 		if !elem.CanSet() {
+			rollback()
 			return ErrUnaddressable
 		}
 
+		// 保存旧值
+		old := reflect.New(et).Elem()
+		old.Set(elem)
+
 		converted, err := autoConvert(et, args[i+1])
 		if err != nil {
+			rollback()
 			return err
 		}
+
+		// 记录 undo（仅在未整体还原的路径下使用）
+		curIdx := idx
+		undos = append(undos, func() {
+			sv.Index(curIdx).Set(old)
+		})
+
 		elem.Set(converted)
 	}
 	return nil
@@ -1101,11 +1212,20 @@ func setStruct(sv reflect.Value, args []any) error {
 	idxMap := buildFieldIndex(t)
 	n := t.NumField()
 
+	var undos []undoFunc
+
+	rollback := func() {
+		for i := len(undos) - 1; i >= 0; i-- {
+			undos[i]()
+		}
+	}
+
 	for i := 0; i < len(args); i += 2 {
 		key := args[i]
 		val := args[i+1]
 
 		var field reflect.Value
+		var fieldIdx []int // 用于 undo 时重新定位
 
 		switch k := key.(type) {
 		case string:
@@ -1116,36 +1236,55 @@ func setStruct(sv reflect.Value, args []any) error {
 				}
 			}
 			if !exists {
+				rollback()
 				return fmt.Errorf("%w: %q", ErrFieldNotFound, k)
 			}
-			field = sv.Field(idx)
+			field = sv.FieldByIndex(idx)
+			fieldIdx = idx
 
 		default:
 			idx, ok := toInt(key)
 			if !ok {
+				rollback()
 				return fmt.Errorf("%w: struct key must be string or int, got %T", ErrKeyType, key)
 			}
 			if idx < 0 {
 				idx += n
 			}
 			if idx < 0 || idx >= n {
+				rollback()
 				return fmt.Errorf("%w: field index [%d] with %d fields", ErrIndexOutOfRange, idx, n)
 			}
-			// 与 Get 一致：按声明顺序取字段（未导出字段 Get 能读，Set 因 CanSet=false 会失败）
 			field = sv.Field(idx)
+			fieldIdx = []int{idx}
 		}
 
 		if !field.IsValid() {
+			rollback()
 			return fmt.Errorf("%w: %v", ErrFieldNotFound, key)
 		}
 		if !field.CanSet() {
+			rollback()
 			return fmt.Errorf("%w: field %v", ErrUnaddressable, key)
 		}
 
+		// 保存旧值
+		old := reflect.New(field.Type()).Elem()
+		old.Set(field)
+
 		converted, err := autoConvert(field.Type(), val)
 		if err != nil {
+			rollback()
 			return err
 		}
+
+		// 记录 undo
+		idxCopy := make([]int, len(fieldIdx))
+		copy(idxCopy, fieldIdx)
+		undos = append(undos, func() {
+			sv.FieldByIndex(idxCopy).Set(old)
+		})
+
 		field.Set(converted)
 	}
 	return nil
@@ -1155,7 +1294,7 @@ func setStruct(sv reflect.Value, args []any) error {
 // 工具函数
 // ---------------------------------------------------------------------------
 
-// toInt 将常见整数类型（含自定义整型）转为 int，并做溢出保护。
+// toInt 将常见整数类型（含自定义整型）转为 int，并做溢出保护（兼容 32/64 位平台）。
 func toInt(key any) (int, bool) {
 	if key == nil {
 		return 0, false
@@ -1170,7 +1309,7 @@ func toInt(key any) (int, bool) {
 	case int32:
 		return int(k), true
 	case int64:
-		return int(k), true
+		return safeInt64(k)
 	case uint:
 		if k <= uint(^uint(0)>>1) {
 			return int(k), true
@@ -1189,22 +1328,28 @@ func toInt(key any) (int, bool) {
 		if uint64(k) <= uint64(^uint(0)>>1) {
 			return int(k), true
 		}
+	case float32:
+		return safeInt64(int64(k))
+	case float64:
+		return safeInt64(int64(k))
 	case string:
 		if i, err := strconv.Atoi(k); err == nil {
 			return i, true
 		}
 	}
 
-	// 自定义整型
+	// 自定义整型 / 浮点
 	rv := reflect.ValueOf(key)
 	switch rv.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return int(rv.Int()), true
+		return safeInt64(rv.Int())
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		u := rv.Uint()
 		if u <= uint64(^uint(0)>>1) {
 			return int(u), true
 		}
+	case reflect.Float32, reflect.Float64:
+		return safeInt64(int64(rv.Float()))
 	}
 	return 0, false
 }
@@ -1221,13 +1366,14 @@ func capitalize(s string) string {
 	return string(unicode.ToUpper(r)) + s[size:]
 }
 
-// convertKey 将 key 安全转换为 map 所需的目标类型。
-// 支持：可赋值、可转换、字符串↔整数、常见数字类型互转。
 func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 	if key == nil {
 		return reflect.Value{}, false
 	}
 	kv := reflect.ValueOf(key)
+	if !kv.IsValid() {
+		return reflect.Value{}, false
+	}
 	if kv.Type().AssignableTo(target) {
 		return kv, true
 	}
@@ -1237,6 +1383,9 @@ func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 
 	switch target.Kind() {
 	case reflect.String:
+		if kv.Kind() == reflect.String {
+			return kv, true
+		}
 		return reflect.ValueOf(fmt.Sprint(key)), true
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -1297,43 +1446,106 @@ func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 			return tmp.Convert(target), true
 		}
 	}
+
 	return reflect.Value{}, false
 }
 
-type fieldIndex map[string]int
+type fieldIndex map[string][]int
 
-// buildFieldIndex 构建并缓存某个 struct 类型的字段索引表。
+// buildFieldIndex 构建并缓存某个 struct 类型的字段索引表（含嵌入字段提升）。
+// 使用 FieldByIndex 路径，支持 json / mapstructure 标签及首字母大小写别名。
+// 同名冲突时：本层字段优先于嵌入字段（符合 Go 遮蔽规则）；同层冲突时先出现者优先。
+// 并发安全：sync.Map + LoadOrStore 保证每个类型只完整构建一次。
 func buildFieldIndex(t reflect.Type) fieldIndex {
-	n := t.NumField()
-	m := make(fieldIndex, n*2) // 预留别名空间
-	for i := range n {
-		sf := t.Field(i)
-		if sf.PkgPath != "" { // 跳过未导出
-			continue
-		}
-		m[sf.Name] = i
+	if v, ok := fieldIndexCache.Load(t); ok {
+		return v.(fieldIndex)
+	}
 
-		// 首字母小写别名（与 capitalize 对称）
-		if r, size := utf8.DecodeRuneInString(sf.Name); unicode.IsUpper(r) {
-			lower := string(unicode.ToLower(r)) + sf.Name[size:]
-			if _, exists := m[lower]; !exists {
-				m[lower] = i
+	m := make(fieldIndex, t.NumField()*2)
+
+	var walk func(tt reflect.Type, path []int)
+	walk = func(tt reflect.Type, path []int) {
+		n := tt.NumField()
+		type embedInfo struct {
+			ft  reflect.Type
+			idx []int
+		}
+		var embeds []embedInfo
+
+		// 第一遍：只登记本层直接字段（含标签/别名），暂不递归嵌入
+		for i := 0; i < n; i++ {
+			sf := tt.Field(i)
+			if sf.PkgPath != "" {
+				continue // 未导出字段不提升
 			}
-		}
 
-		// json / mapstructure 标签
-		for _, tagName := range []string{"json", "mapstructure"} {
-			if tag := sf.Tag.Get(tagName); tag != "" {
-				name, _, _ := strings.Cut(tag, ",")
-				if name != "" && name != "-" {
-					if _, exists := m[name]; !exists {
-						m[name] = i
+			idx := make([]int, len(path)+1)
+			copy(idx, path)
+			idx[len(path)] = i
+
+			// 精确名
+			if _, exists := m[sf.Name]; !exists {
+				m[sf.Name] = idx
+			}
+
+			// 首字母小写别名（如 Id → id）
+			if r, size := utf8.DecodeRuneInString(sf.Name); unicode.IsUpper(r) {
+				lower := string(unicode.ToLower(r)) + sf.Name[size:]
+				if _, exists := m[lower]; !exists {
+					m[lower] = idx
+				}
+			}
+
+			// 全小写别名（如 ID → id，URL → url），解决连续大写缩写无法被 "id" 匹配的问题
+			if fullLower := strings.ToLower(sf.Name); fullLower != sf.Name {
+				if _, exists := m[fullLower]; !exists {
+					m[fullLower] = idx
+				}
+			}
+
+			// json / mapstructure 标签
+			for _, tagName := range []string{"json", "mapstructure"} {
+				if tag := sf.Tag.Get(tagName); tag != "" {
+					name, _, _ := strings.Cut(tag, ",")
+					if name != "" && name != "-" {
+						if _, exists := m[name]; !exists {
+							m[name] = idx
+						}
 					}
 				}
 			}
+
+			// 记录匿名字段，稍后统一提升
+			if sf.Anonymous {
+				ft := sf.Type
+				if ft.Kind() == reflect.Pointer {
+					ft = ft.Elem()
+				}
+				if ft.Kind() == reflect.Struct {
+					embeds = append(embeds, embedInfo{ft: ft, idx: idx})
+				}
+			}
+		}
+
+		// 第二遍：只对尚未出现的名字做嵌入字段提升（外层优先）
+		for _, e := range embeds {
+			walk(e.ft, e.idx)
 		}
 	}
-	return m
+	walk(t, nil)
+
+	actual, _ := fieldIndexCache.LoadOrStore(t, m)
+	return actual.(fieldIndex)
+}
+
+// safeInt64 converts int64 to int with platform overflow check.
+func safeInt64(i int64) (int, bool) {
+	const maxInt = int(^uint(0) >> 1)
+	const minInt = -maxInt - 1
+	if i < int64(minInt) || i > int64(maxInt) {
+		return 0, false
+	}
+	return int(i), true
 }
 
 // Delete 删除 map 中的键。

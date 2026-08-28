@@ -596,431 +596,301 @@ func Test_autoConvert(t *testing.T) {
 		return &i
 	}
 
-	tests := []struct {
-		name string
-		f    func(*testing.T) bool
-	}{
-		// =============================================
-		// 1. 相同类型直接返回
-		// =============================================
-		{
-			name: "相同类型 int",
-			f: func(t *testing.T) bool {
-				v := 42
-				ret, _ := autoConvert(reflect.TypeOf(0), v)
-				return ret.Int() == 42
-			},
-		},
-		{
-			name: "相同类型 string",
-			f: func(t *testing.T) bool {
-				v := "hello"
-				ret, _ := autoConvert(reflect.TypeOf(""), v)
-				return ret.String() == "hello"
-			},
-		},
-		{
-			name: "相同类型 结构体",
-			f: func(t *testing.T) bool {
-				v := srcStruct1{A: 1, B: "x"}
-				ret, _ := autoConvert(reflect.TypeOf(srcStruct1{}), v)
-				rv := ret.Interface().(srcStruct1)
-				return rv.A == 1 && rv.B == "x"
-			},
-		},
+	// =============================================
+	// 1. 相同类型直接返回
+	// =============================================
+	t.Run("相同类型 int", func(t *testing.T) {
+		v := 42
+		ret, _ := autoConvert(reflect.TypeOf(0), v)
+		if ret.Int() != 42 {
+			t.Fatal("expected 42")
+		}
+	})
 
-		// =============================================
-		// 2. 标准可转换（reflect.Convert）
-		// =============================================
-		{
-			name: "int 转 int64",
-			f: func(t *testing.T) bool {
-				v := 100
-				ret, _ := autoConvert(reflect.TypeOf(int64(0)), v)
-				return ret.Int() == 100
-			},
-		},
-		{
-			name: "float64 转 int（截断）",
-			f: func(t *testing.T) bool {
-				v := 3.14
-				ret, _ := autoConvert(reflect.TypeOf(0), v)
-				return ret.Int() == 3
-			},
-		},
-		{
-			name: "string 转 []byte",
-			f: func(t *testing.T) bool {
-				v := "abc"
-				ret, _ := autoConvert(reflect.TypeOf([]byte{}), v)
-				return bytes.Equal(ret.Bytes(), []byte("abc"))
-			},
-		},
-		{
-			name: "[]byte 转 string",
-			f: func(t *testing.T) bool {
-				v := []byte("hello")
-				ret, _ := autoConvert(reflect.TypeOf(""), v)
-				return ret.String() == "hello"
-			},
-		},
-		{
-			name: "string 转 []rune",
-			f: func(t *testing.T) bool {
-				v := "hello"
-				ret, _ := autoConvert(reflect.TypeOf([]rune{}), v)
-				r := ret.Interface().([]rune)
-				return len(r) == 5 && string(r) == "hello"
-			},
-		},
+	t.Run("相同类型 string", func(t *testing.T) {
+		v := "hello"
+		ret, _ := autoConvert(reflect.TypeOf(""), v)
+		if ret.String() != "hello" {
+			t.Fatal("expected hello")
+		}
+	})
 
-		// =============================================
-		// 3. nil / 零值处理
-		// =============================================
-		{
-			name: "nil 接口转 string 返回零值",
-			f: func(t *testing.T) bool {
-				var v any = nil
-				ret, _ := autoConvert(reflect.TypeOf(""), v)
-				return ret.String() == ""
-			},
-		},
-		{
-			name: "nil 指针转 int 返回零值",
-			f: func(t *testing.T) bool {
-				var v *int = nil
-				ret, _ := autoConvert(reflect.TypeOf(0), v)
-				return ret.Int() == 0
-			},
-		},
-		{
-			name: "nil any 转 interface{} 返回 nil",
-			f: func(t *testing.T) bool {
-				var v any
-				ret, _ := autoConvert(reflect.TypeOf((*any)(nil)).Elem(), v)
-				return ret.IsNil()
-			},
-		},
+	t.Run("相同类型 结构体", func(t *testing.T) {
+		v := srcStruct1{A: 1, B: "x"}
+		ret, _ := autoConvert(reflect.TypeOf(srcStruct1{}), v)
+		rv := ret.Interface().(srcStruct1)
+		if rv.A != 1 || rv.B != "x" {
+			t.Fatal("expected {1 x}")
+		}
+	})
 
-		// =============================================
-		// 4. 指针解引用（源为指针）
-		// =============================================
-		{
-			name: "*int 转 int",
-			f: func(t *testing.T) bool {
-				x := 123
-				v := &x
-				ret, _ := autoConvert(reflect.TypeOf(0), v)
-				return ret.Int() == 123
-			},
-		},
-		{
-			name: "*string 转 string",
-			f: func(t *testing.T) bool {
-				s := "ptr"
-				v := &s
-				ret, _ := autoConvert(reflect.TypeOf(""), v)
-				return ret.String() == "ptr"
-			},
-		},
-		{
-			name: "***int 转 int（多层解引用）",
-			f: func(t *testing.T) bool {
-				x := 7
-				p1 := &x
-				p2 := &p1
-				p3 := &p2
-				ret, _ := autoConvert(reflect.TypeOf(0), p3)
-				return ret.Int() == 7
-			},
-		},
-		{
-			name: "nil 结构体指针转目标结构体零值",
-			f: func(t *testing.T) bool {
-				type A struct{ X int }
-				type B struct{ X int }
-				var v *A = nil
-				ret, _ := autoConvert(reflect.TypeOf(B{}), v)
-				// 注意：这里 v 是 nil 指针，autoConvert 会先解引用发现 nil 返回零值，所以 ret 是 B 的零值
-				rv := ret.Interface().(B)
-				return rv == (B{})
-			},
-		},
+	// =============================================
+	// 2. 标准可转换（reflect.Convert）
+	// =============================================
+	t.Run("int 转 int64", func(t *testing.T) {
+		v := 100
+		ret, _ := autoConvert(reflect.TypeOf(int64(0)), v)
+		if ret.Int() != 100 {
+			t.Fatal("expected 100")
+		}
+	})
 
-		// =============================================
-		// 5. 目标为指针（自动取址包装）
-		// =============================================
-		{
-			name: "int 转 *int",
-			f: func(t *testing.T) bool {
-				v := 456
-				ret, _ := autoConvert(reflect.TypeOf((*int)(nil)), v)
-				return ret.Kind() == reflect.Pointer && ret.Elem().Int() == 456
-			},
-		},
-		{
-			name: "string 转 *string",
-			f: func(t *testing.T) bool {
-				v := "str"
-				ret, _ := autoConvert(reflect.TypeOf((*string)(nil)), v)
-				return ret.Kind() == reflect.Pointer && ret.Elem().String() == "str"
-			},
-		},
-		{
-			name: "结构体 转 *结构体",
-			f: func(t *testing.T) bool {
-				v := srcStruct1{A: 99, B: "ptr"}
-				ret, _ := autoConvert(reflect.TypeOf((*srcStruct1)(nil)), v)
-				rv := ret.Interface().(*srcStruct1)
-				return rv.A == 99 && rv.B == "ptr"
-			},
-		},
-		{
-			name: "*int 转 **int（嵌套指针包装）",
-			f: func(t *testing.T) bool {
-				v := intPtr(42)
-				ret, _ := autoConvert(reflect.TypeOf((**int)(nil)), v)
-				return ret.Kind() == reflect.Pointer &&
-					ret.Elem().Kind() == reflect.Pointer &&
-					ret.Elem().Elem().Int() == 42
-			},
-		},
+	t.Run("float64 转 int（截断）", func(t *testing.T) {
+		v := 3.14
+		ret, _ := autoConvert(reflect.TypeOf(0), v)
+		if ret.Int() != 3 {
+			t.Fatal("expected 3")
+		}
+	})
 
-		// =============================================
-		// 6. 接口解包
-		// =============================================
-		{
-			name: "接口内包含 int，目标 int",
-			f: func(t *testing.T) bool {
-				var v any = 99
-				ret, _ := autoConvert(reflect.TypeOf(0), v)
-				return ret.Int() == 99
-			},
-		},
-		{
-			name: "接口内包含 string，目标 string",
-			f: func(t *testing.T) bool {
-				var v any = "world"
-				ret, _ := autoConvert(reflect.TypeOf(""), v)
-				return ret.String() == "world"
-			},
-		},
-		{
-			name: "接口内包含结构体，目标相同结构体",
-			f: func(t *testing.T) bool {
-				var v any = srcStruct1{A: 10, B: "test"}
-				ret, _ := autoConvert(reflect.TypeOf(srcStruct1{}), v)
-				rv := ret.Interface().(srcStruct1)
-				return rv.A == 10 && rv.B == "test"
-			},
-		},
-		{
-			name: "嵌套接口 any->any->int",
-			f: func(t *testing.T) bool {
-				var inner any = 42
-				var outer any = inner
-				ret, _ := autoConvert(reflect.TypeOf(0), outer)
-				return ret.Int() == 42
-			},
-		},
+	t.Run("string 转 []byte", func(t *testing.T) {
+		v := "abc"
+		ret, _ := autoConvert(reflect.TypeOf([]byte{}), v)
+		if !bytes.Equal(ret.Bytes(), []byte("abc")) {
+			t.Fatal("expected abc")
+		}
+	})
 
-		// =============================================
-		// 7. 结构体 unsafe 零拷贝（布局完全一致）
-		// =============================================
-		{
-			name: "srcStruct1 -> dstStruct1",
-			f: func(t *testing.T) bool {
-				v := srcStruct1{A: 55, B: "zero"}
-				ret, _ := autoConvert(reflect.TypeOf(dstStruct1{}), v)
-				rv := ret.Interface().(dstStruct1)
-				return rv.A == 55 && rv.B == "zero"
-			},
-		},
-		{
-			name: "srcStruct2 -> dstStruct2",
-			f: func(t *testing.T) bool {
-				v := srcStruct2{X: 12, Y: "xy"}
-				ret, _ := autoConvert(reflect.TypeOf(dstStruct2{}), v)
-				rv := ret.Interface().(dstStruct2)
-				return rv.X == 12 && rv.Y == "xy"
-			},
-		},
-		{
-			name: "匿名嵌入结构体 srcEmbed -> dstEmbed",
-			f: func(t *testing.T) bool {
-				v := srcEmbed{int: 88}
-				ret, _ := autoConvert(reflect.TypeOf(dstEmbed{}), v)
-				rv := ret.Interface().(dstEmbed)
-				return rv.int == 88
-			},
-		},
-		{
-			name: "不可寻址值的结构体转换（临时拷贝）",
-			f: func(t *testing.T) bool {
-				get := func() srcStruct1 { return srcStruct1{A: 77, B: "temp"} }
-				v := get()
-				ret, _ := autoConvert(reflect.TypeOf(dstStruct1{}), v)
-				rv := ret.Interface().(dstStruct1)
-				return rv.A == 77 && rv.B == "temp"
-			},
-		},
-		{
-			name: "结构体含指针字段",
-			f: func(t *testing.T) bool {
-				type A struct{ P *int }
-				type B struct{ P *int }
-				p := 42
-				v := A{P: &p}
-				ret, _ := autoConvert(reflect.TypeOf(B{}), v)
-				b := ret.Interface().(B)
-				return b.P != nil && *b.P == 42
-			},
-		},
-		{
-			name: "结构体含 slice 字段",
-			f: func(t *testing.T) bool {
-				type A struct{ S []int }
-				type B struct{ S []int }
-				v := A{S: []int{1, 2, 3}}
-				ret, _ := autoConvert(reflect.TypeOf(B{}), v)
-				b := ret.Interface().(B)
-				return len(b.S) == 3 && b.S[0] == 1
-			},
-		},
-		{
-			name: "嵌套嵌入结构体",
-			f: func(t *testing.T) bool {
-				type Base struct{ ID int }
-				type Derived struct {
-					Base
-					Name string
-				}
-				type Derived2 struct {
-					Base
-					Name string
-				}
-				v := Derived{Base: Base{ID: 1}, Name: "test"}
-				ret, _ := autoConvert(reflect.TypeOf(Derived2{}), v)
-				d := ret.Interface().(Derived2)
-				return d.ID == 1 && d.Name == "test"
-			},
-		},
+	t.Run("[]byte 转 string", func(t *testing.T) {
+		v := []byte("hello")
+		ret, _ := autoConvert(reflect.TypeOf(""), v)
+		if ret.String() != "hello" {
+			t.Fatal("expected hello")
+		}
+	})
 
-		// =============================================
-		// 8. 预期 panic 的错误场景（类型不匹配等）
-		// =============================================
-		{
-			name: "结构体字段名不同 -> panic",
-			f: func(t *testing.T) (ok bool) {
-				defer func() {
-					if r := recover(); r != nil {
-						ok = true
-					}
-				}()
-				v := srcStruct1{A: 1, B: "x"}
-				autoConvert(reflect.TypeOf(dstStruct2{}), v) // dstStruct2 有 X,Y
-				return false
-			},
-		},
-		{
-			name: "结构体字段类型不同 -> panic",
-			f: func(t *testing.T) (ok bool) {
-				defer func() {
-					if r := recover(); r != nil {
-						ok = true
-					}
-				}()
-				type Src struct{ A int }
-				type Dst struct{ A string }
-				v := Src{A: 1}
-				autoConvert(reflect.TypeOf(Dst{}), v)
-				return false
-			},
-		},
-		{
-			name: "结构体字段数量不同 -> panic",
-			f: func(t *testing.T) (ok bool) {
-				defer func() {
-					if r := recover(); r != nil {
-						ok = true
-					}
-				}()
-				v := srcStruct3{A: 1, B: "x", C: true}
-				autoConvert(reflect.TypeOf(srcStruct1{}), v) // 3 字段到 2 字段
-				return false
-			},
-		},
-		{
-			name: "结构体字段偏移量不同 -> panic",
-			f: func(t *testing.T) (ok bool) {
-				defer func() {
-					if r := recover(); r != nil {
-						ok = true
-					}
-				}()
-				v := srcDiffOffset{A: 1, B: 2}
-				autoConvert(reflect.TypeOf(dstDiffOffset{}), v)
-				return false
-			},
-		},
-		{
-			name: "int 转 bool -> panic",
-			f: func(t *testing.T) (ok bool) {
-				defer func() {
-					if r := recover(); r != nil {
-						ok = true
-					}
-				}()
-				v := 123
-				autoConvert(reflect.TypeOf(false), v)
-				return false
-			},
-		},
-		{
-			name: "结构体转 string -> panic",
-			f: func(t *testing.T) (ok bool) {
-				defer func() {
-					if r := recover(); r != nil {
-						ok = true
-					}
-				}()
-				type A struct{ X int }
-				autoConvert(reflect.TypeOf(""), A{})
-				return false
-			},
-		},
-		{
-			name: "切片转 int -> panic",
-			f: func(t *testing.T) (ok bool) {
-				defer func() {
-					if r := recover(); r != nil {
-						ok = true
-					}
-				}()
-				autoConvert(reflect.TypeOf(0), []int{1, 2})
-				return false
-			},
-		},
-		{
-			name: "map 转 string -> panic",
-			f: func(t *testing.T) (ok bool) {
-				defer func() {
-					if r := recover(); r != nil {
-						ok = true
-					}
-				}()
-				autoConvert(reflect.TypeOf(""), map[string]int{})
-				return false
-			},
-		},
-	}
+	t.Run("string 转 []rune", func(t *testing.T) {
+		v := "hello"
+		ret, _ := autoConvert(reflect.TypeOf([]rune{}), v)
+		r := ret.Interface().([]rune)
+		if len(r) != 5 || string(r) != "hello" {
+			t.Fatal("expected hello")
+		}
+	})
 
-	// 执行所有测试用例
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if !tt.f(t) {
-				t.Errorf("test %q failed", tt.name)
-			}
-		})
-	}
+	// =============================================
+	// 3. nil / 零值处理
+	// =============================================
+	t.Run("nil 接口转 string 返回零值", func(t *testing.T) {
+		var v any = nil
+		ret, _ := autoConvert(reflect.TypeOf(""), v)
+		if ret.String() != "" {
+			t.Fatal("expected empty string")
+		}
+	})
+
+	t.Run("nil 指针转 int 返回零值", func(t *testing.T) {
+		var v *int = nil
+		ret, _ := autoConvert(reflect.TypeOf(0), v)
+		if ret.Int() != 0 {
+			t.Fatal("expected 0")
+		}
+	})
+
+	t.Run("nil any 转 interface{} 返回 nil", func(t *testing.T) {
+		var v any
+		ret, _ := autoConvert(reflect.TypeOf((*any)(nil)).Elem(), v)
+		if !ret.IsNil() {
+			t.Fatal("expected nil")
+		}
+	})
+
+	// =============================================
+	// 4. 指针解引用（源为指针）
+	// =============================================
+	t.Run("*int 转 int", func(t *testing.T) {
+		x := 123
+		v := &x
+		ret, _ := autoConvert(reflect.TypeOf(0), v)
+		if ret.Int() != 123 {
+			t.Fatal("expected 123")
+		}
+	})
+
+	t.Run("*string 转 string", func(t *testing.T) {
+		s := "ptr"
+		v := &s
+		ret, _ := autoConvert(reflect.TypeOf(""), v)
+		if ret.String() != "ptr" {
+			t.Fatal("expected ptr")
+		}
+	})
+
+	t.Run("***int 转 int（多层解引用）", func(t *testing.T) {
+		x := 7
+		p1 := &x
+		p2 := &p1
+		p3 := &p2
+		ret, _ := autoConvert(reflect.TypeOf(0), p3)
+		if ret.Int() != 7 {
+			t.Fatal("expected 7")
+		}
+	})
+
+	t.Run("nil 结构体指针转目标结构体零值", func(t *testing.T) {
+		type A struct{ X int }
+		type B struct{ X int }
+		var v *A = nil
+		ret, _ := autoConvert(reflect.TypeOf(B{}), v)
+		rv := ret.Interface().(B)
+		if rv != (B{}) {
+			t.Fatal("expected zero B")
+		}
+	})
+
+	// =============================================
+	// 5. 目标为指针（自动取址包装）
+	// =============================================
+	t.Run("int 转 *int", func(t *testing.T) {
+		v := 456
+		ret, _ := autoConvert(reflect.TypeOf((*int)(nil)), v)
+		if ret.Kind() != reflect.Pointer || ret.Elem().Int() != 456 {
+			t.Fatal("expected pointer to 456")
+		}
+	})
+
+	t.Run("string 转 *string", func(t *testing.T) {
+		v := "str"
+		ret, _ := autoConvert(reflect.TypeOf((*string)(nil)), v)
+		if ret.Kind() != reflect.Pointer || ret.Elem().String() != "str" {
+			t.Fatal("expected pointer to str")
+		}
+	})
+
+	t.Run("结构体 转 *结构体", func(t *testing.T) {
+		v := srcStruct1{A: 99, B: "ptr"}
+		ret, _ := autoConvert(reflect.TypeOf((*srcStruct1)(nil)), v)
+		rv := ret.Interface().(*srcStruct1)
+		if rv.A != 99 || rv.B != "ptr" {
+			t.Fatal("expected {99 ptr}")
+		}
+	})
+
+	t.Run("*int 转 **int（嵌套指针包装）", func(t *testing.T) {
+		v := intPtr(42)
+		ret, _ := autoConvert(reflect.TypeOf((**int)(nil)), v)
+		if ret.Kind() != reflect.Pointer ||
+			ret.Elem().Kind() != reflect.Pointer ||
+			ret.Elem().Elem().Int() != 42 {
+			t.Fatal("expected **int to 42")
+		}
+	})
+
+	// =============================================
+	// 6. 接口解包
+	// =============================================
+	t.Run("接口内包含 int，目标 int", func(t *testing.T) {
+		var v any = 99
+		ret, _ := autoConvert(reflect.TypeOf(0), v)
+		if ret.Int() != 99 {
+			t.Fatal("expected 99")
+		}
+	})
+
+	t.Run("接口内包含 string，目标 string", func(t *testing.T) {
+		var v any = "world"
+		ret, _ := autoConvert(reflect.TypeOf(""), v)
+		if ret.String() != "world" {
+			t.Fatal("expected world")
+		}
+	})
+
+	t.Run("接口内包含结构体，目标相同结构体", func(t *testing.T) {
+		var v any = srcStruct1{A: 10, B: "test"}
+		ret, _ := autoConvert(reflect.TypeOf(srcStruct1{}), v)
+		rv := ret.Interface().(srcStruct1)
+		if rv.A != 10 || rv.B != "test" {
+			t.Fatal("expected {10 test}")
+		}
+	})
+
+	t.Run("嵌套接口 any->any->int", func(t *testing.T) {
+		var inner any = 42
+		var outer any = inner
+		ret, _ := autoConvert(reflect.TypeOf(0), outer)
+		if ret.Int() != 42 {
+			t.Fatal("expected 42")
+		}
+	})
+
+	// =============================================
+	// 7. 结构体 unsafe 零拷贝（布局完全一致）
+	// =============================================
+	t.Run("srcStruct1 -> dstStruct1", func(t *testing.T) {
+		v := srcStruct1{A: 55, B: "zero"}
+		ret, _ := autoConvert(reflect.TypeOf(dstStruct1{}), v)
+		rv := ret.Interface().(dstStruct1)
+		if rv.A != 55 || rv.B != "zero" {
+			t.Fatal("expected {55 zero}")
+		}
+	})
+
+	t.Run("srcStruct2 -> dstStruct2", func(t *testing.T) {
+		v := srcStruct2{X: 12, Y: "xy"}
+		ret, _ := autoConvert(reflect.TypeOf(dstStruct2{}), v)
+		rv := ret.Interface().(dstStruct2)
+		if rv.X != 12 || rv.Y != "xy" {
+			t.Fatal("expected {12 xy}")
+		}
+	})
+
+	t.Run("匿名嵌入结构体 srcEmbed -> dstEmbed", func(t *testing.T) {
+		v := srcEmbed{int: 88}
+		ret, _ := autoConvert(reflect.TypeOf(dstEmbed{}), v)
+		rv := ret.Interface().(dstEmbed)
+		if rv.int != 88 {
+			t.Fatal("expected 88")
+		}
+	})
+
+	t.Run("不可寻址值的结构体转换（临时拷贝）", func(t *testing.T) {
+		get := func() srcStruct1 { return srcStruct1{A: 77, B: "temp"} }
+		v := get()
+		ret, _ := autoConvert(reflect.TypeOf(dstStruct1{}), v)
+		rv := ret.Interface().(dstStruct1)
+		if rv.A != 77 || rv.B != "temp" {
+			t.Fatal("expected {77 temp}")
+		}
+	})
+
+	t.Run("结构体含指针字段", func(t *testing.T) {
+		type A struct{ P *int }
+		type B struct{ P *int }
+		p := 42
+		v := A{P: &p}
+		ret, _ := autoConvert(reflect.TypeOf(B{}), v)
+		b := ret.Interface().(B)
+		if b.P == nil || *b.P != 42 {
+			t.Fatal("expected pointer to 42")
+		}
+	})
+
+	t.Run("结构体含 slice 字段", func(t *testing.T) {
+		type A struct{ S []int }
+		type B struct{ S []int }
+		v := A{S: []int{1, 2, 3}}
+		ret, _ := autoConvert(reflect.TypeOf(B{}), v)
+		b := ret.Interface().(B)
+		if len(b.S) != 3 || b.S[0] != 1 {
+			t.Fatal("expected slice [1 2 3]")
+		}
+	})
+
+	t.Run("嵌套嵌入结构体", func(t *testing.T) {
+		type Base struct{ ID int }
+		type Derived struct {
+			Base
+			Name string
+		}
+		type Derived2 struct {
+			Base
+			Name string
+		}
+		v := Derived{Base: Base{ID: 1}, Name: "test"}
+		ret, _ := autoConvert(reflect.TypeOf(Derived2{}), v)
+		d := ret.Interface().(Derived2)
+		if d.ID != 1 || d.Name != "test" {
+			t.Fatal("expected {1 test}")
+		}
+	})
 }
