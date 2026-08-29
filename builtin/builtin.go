@@ -31,6 +31,8 @@ var (
 	builtinMu sync.RWMutex
 	// fieldIndexCache holds per-type field indexes. Concurrent-safe.
 	fieldIndexCache sync.Map // map[reflect.Type]fieldIndex
+
+	AllowUnexported bool // 默认 false，保持原行为
 )
 
 // ---------------------------------------------------------------------------
@@ -948,6 +950,108 @@ func getStructByIndex(v reflect.Value, idx int) (any, error) {
 	return valueToInterface(v.Field(idx)), nil
 }
 
+// GetRune 按 Unicode 字符（rune）取值，支持中文等多字节 UTF-8 字符串。
+//
+// 与 Get 的区别：
+//   - string / 数值类型：按 rune 索引（而不是字节）
+//   - 返回类型为 rune (int32)
+//   - 其余类型（map / slice / array / struct）行为与 Get 完全一致
+func GetRune(m any, key any) (any, error) {
+	if m == nil {
+		return nil, ErrNilValue
+	}
+
+	var v reflect.Value
+	if rv, ok := m.(reflect.Value); ok {
+		v = rv
+	} else {
+		v = reflect.ValueOf(m)
+	}
+
+	// 多层解包指针与 interface
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil, ErrNilValue
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() {
+		return nil, ErrNilValue
+	}
+
+	switch v.Kind() {
+	case reflect.Map:
+		return getMap(v, key)
+	case reflect.Slice, reflect.Array:
+		return getIndexable(v, key)
+	case reflect.String:
+		return getStringRune(v, key)
+	case reflect.Struct:
+		return getStruct(v, key)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64,
+		reflect.Complex64, reflect.Complex128:
+		return getNumberRune(v, key)
+	default:
+		return nil, fmt.Errorf("%w: %v", ErrUnsupported, v.Kind())
+	}
+}
+
+// getStringRune 按 rune 索引字符串
+func getStringRune(v reflect.Value, key any) (any, error) {
+	idx, ok := toInt(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: string key must be integer, got %T", ErrKeyType, key)
+	}
+
+	s := v.String()
+	runes := []rune(s)
+	n := len(runes)
+
+	if idx < 0 {
+		idx += n
+	}
+	if idx < 0 || idx >= n {
+		if n == 0 {
+			// 空字符串越界：与历史行为一致返回 0
+			return rune(0), nil
+		}
+		return nil, fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, n)
+	}
+	return runes[idx], nil
+}
+
+// getNumberRune 把数值转成十进制字符串后按 rune 索引
+func getNumberRune(v reflect.Value, key any) (any, error) {
+	var s string
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		s = strconv.FormatInt(v.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		s = strconv.FormatUint(v.Uint(), 10)
+	case reflect.Float32, reflect.Float64:
+		s = strconv.FormatFloat(v.Float(), 'f', -1, 64)
+	case reflect.Complex64, reflect.Complex128:
+		s = fmt.Sprintf("%g", v.Complex())
+	}
+
+	idx, ok := toInt(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: number key must be integer, got %T", ErrKeyType, key)
+	}
+
+	runes := []rune(s)
+	n := len(runes)
+	if idx < 0 {
+		idx += n
+	}
+	if idx < 0 || idx >= n {
+		return rune(0), nil // 与历史行为保持一致：越界返回 0
+	}
+	return runes[idx], nil
+}
+
 // Set 通用赋值，与 Get 功能、错误、转换规则精确对称。
 //
 // 支持：
@@ -1368,6 +1472,10 @@ func capitalize(s string) string {
 
 func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 	if key == nil {
+		switch target.Kind() {
+		case reflect.Interface, reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
+			return reflect.Zero(target), true
+		}
 		return reflect.Value{}, false
 	}
 	kv := reflect.ValueOf(key)
@@ -1377,77 +1485,135 @@ func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 	if kv.Type().AssignableTo(target) {
 		return kv, true
 	}
-	if kv.Type().ConvertibleTo(target) {
-		return kv.Convert(target), true
-	}
 
 	switch target.Kind() {
 	case reflect.String:
-		if kv.Kind() == reflect.String {
+		// 数字→字符串：用十进制表示，而不是 rune 转换（Convert 会把 1 变成 "\x01"）
+		switch kv.Kind() {
+		case reflect.String:
 			return kv, true
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return reflect.ValueOf(strconv.FormatInt(kv.Int(), 10)), true
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			return reflect.ValueOf(strconv.FormatUint(kv.Uint(), 10)), true
+		case reflect.Float32, reflect.Float64:
+			return reflect.ValueOf(strconv.FormatFloat(kv.Float(), 'f', -1, 64)), true
+		case reflect.Bool:
+			return reflect.ValueOf(strconv.FormatBool(kv.Bool())), true
+		default:
+			return reflect.ValueOf(fmt.Sprint(key)), true
 		}
-		return reflect.ValueOf(fmt.Sprint(key)), true
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		var i int64
-		switch k := key.(type) {
-		case string:
-			var err error
-			i, err = strconv.ParseInt(k, 10, 64)
-			if err != nil {
-				return reflect.Value{}, false
-			}
-		default:
-			switch kv.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				i = kv.Int()
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				i = int64(kv.Uint())
-			case reflect.Float32, reflect.Float64:
-				i = int64(kv.Float())
-			default:
-				return reflect.Value{}, false
-			}
+		i, ok := toInt64ForKey(kv, key)
+		if !ok {
+			return reflect.Value{}, false
 		}
-		tmp := reflect.ValueOf(i)
-		if tmp.Type().ConvertibleTo(target) {
-			return tmp.Convert(target), true
+		// 范围检查：必须能完整放入目标类型，禁止截断
+		bits := target.Bits()
+		min := -(int64(1) << (bits - 1))
+		max := (int64(1) << (bits - 1)) - 1
+		if i < min || i > max {
+			return reflect.Value{}, false
 		}
+		return reflect.ValueOf(i).Convert(target), true
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		var u uint64
-		switch k := key.(type) {
-		case string:
-			var err error
-			u, err = strconv.ParseUint(k, 10, 64)
-			if err != nil {
-				return reflect.Value{}, false
-			}
-		default:
-			switch kv.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				if kv.Int() < 0 {
-					return reflect.Value{}, false
-				}
-				u = uint64(kv.Int())
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				u = kv.Uint()
-			case reflect.Float32, reflect.Float64:
-				if kv.Float() < 0 {
-					return reflect.Value{}, false
-				}
-				u = uint64(kv.Float())
-			default:
-				return reflect.Value{}, false
-			}
+		u, ok := toUint64ForKey(kv, key)
+		if !ok {
+			return reflect.Value{}, false
 		}
-		tmp := reflect.ValueOf(u)
-		if tmp.Type().ConvertibleTo(target) {
-			return tmp.Convert(target), true
+		// 范围检查：必须能完整放入目标类型，禁止截断/wrap
+		if target.Bits() < 64 && u > (uint64(1)<<target.Bits())-1 {
+			return reflect.Value{}, false
 		}
+		return reflect.ValueOf(u).Convert(target), true
+
+	case reflect.Float32, reflect.Float64:
+		f, ok := toFloat64ForKey(kv, key)
+		if !ok {
+			return reflect.Value{}, false
+		}
+		return reflect.ValueOf(f).Convert(target), true
 	}
 
+	// 其它类型：仅在可安全 Convert 时放行（非数字/字符串的命名类型等）
+	if kv.Type().ConvertibleTo(target) {
+		return kv.Convert(target), true
+	}
 	return reflect.Value{}, false
+}
+
+// toInt64ForKey 将 key 转为 int64，失败返回 false。
+// 拒绝：无法解析的字符串、超出 int64 的 uint、NaN/Inf。
+func toInt64ForKey(kv reflect.Value, key any) (int64, bool) {
+	switch k := key.(type) {
+	case string:
+		i, err := strconv.ParseInt(k, 10, 64)
+		return i, err == nil
+	}
+	switch kv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return kv.Int(), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		u := kv.Uint()
+		if u > uint64(^uint64(0)>>1) { // > math.MaxInt64
+			return 0, false
+		}
+		return int64(u), true
+	case reflect.Float32, reflect.Float64:
+		f := kv.Float()
+		if f != f || f > float64(^uint64(0)>>1) || f < float64(-1<<63) { // NaN 或超出 int64
+			return 0, false
+		}
+		return int64(f), true
+	}
+	return 0, false
+}
+
+// toUint64ForKey 将 key 转为 uint64，失败返回 false。
+// 拒绝：负数、无法解析的字符串、NaN/Inf。
+func toUint64ForKey(kv reflect.Value, key any) (uint64, bool) {
+	switch k := key.(type) {
+	case string:
+		u, err := strconv.ParseUint(k, 10, 64)
+		return u, err == nil
+	}
+	switch kv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		i := kv.Int()
+		if i < 0 {
+			return 0, false
+		}
+		return uint64(i), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return kv.Uint(), true
+	case reflect.Float32, reflect.Float64:
+		f := kv.Float()
+		if f != f || f < 0 || f > float64(^uint64(0)) { // NaN / 负 / 超出 uint64
+			return 0, false
+		}
+		return uint64(f), true
+	}
+	return 0, false
+}
+
+// toFloat64ForKey 将 key 转为 float64。
+func toFloat64ForKey(kv reflect.Value, key any) (float64, bool) {
+	switch k := key.(type) {
+	case string:
+		f, err := strconv.ParseFloat(k, 64)
+		return f, err == nil
+	}
+	switch kv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return float64(kv.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return float64(kv.Uint()), true
+	case reflect.Float32, reflect.Float64:
+		return kv.Float(), true
+	}
+	return 0, false
 }
 
 type fieldIndex map[string][]int
@@ -1475,7 +1641,7 @@ func buildFieldIndex(t reflect.Type) fieldIndex {
 		// 第一遍：只登记本层直接字段（含标签/别名），暂不递归嵌入
 		for i := 0; i < n; i++ {
 			sf := tt.Field(i)
-			if sf.PkgPath != "" {
+			if sf.PkgPath != "" && !AllowUnexported {
 				continue // 未导出字段不提升
 			}
 
@@ -1488,20 +1654,20 @@ func buildFieldIndex(t reflect.Type) fieldIndex {
 				m[sf.Name] = idx
 			}
 
-			// 首字母小写别名（如 Id → id）
-			if r, size := utf8.DecodeRuneInString(sf.Name); unicode.IsUpper(r) {
-				lower := string(unicode.ToLower(r)) + sf.Name[size:]
-				if _, exists := m[lower]; !exists {
-					m[lower] = idx
-				}
-			}
+			// // 首字母小写别名（如 Id → id）
+			// if r, size := utf8.DecodeRuneInString(sf.Name); unicode.IsUpper(r) {
+			// 	lower := string(unicode.ToLower(r)) + sf.Name[size:]
+			// 	if _, exists := m[lower]; !exists {
+			// 		m[lower] = idx
+			// 	}
+			// }
 
-			// 全小写别名（如 ID → id，URL → url），解决连续大写缩写无法被 "id" 匹配的问题
-			if fullLower := strings.ToLower(sf.Name); fullLower != sf.Name {
-				if _, exists := m[fullLower]; !exists {
-					m[fullLower] = idx
-				}
-			}
+			// // 全小写别名（如 ID → id，URL → url），解决连续大写缩写无法被 "id" 匹配的问题
+			// if fullLower := strings.ToLower(sf.Name); fullLower != sf.Name {
+			// 	if _, exists := m[fullLower]; !exists {
+			// 		m[fullLower] = idx
+			// 	}
+			// }
 
 			// json / mapstructure 标签
 			for _, tagName := range []string{"json", "mapstructure"} {
