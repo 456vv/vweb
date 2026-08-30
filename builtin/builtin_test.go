@@ -174,10 +174,8 @@ func Test_Get_NormalExamples(t *testing.T) {
 
 // Test_Get_BugsAndUnexpected 汇集了经代码分析确存的、可能引发 bug 或意外的测试用例。
 func Test_Get_BugsAndUnexpected(t *testing.T) {
-	// ------------------------------------------------------------------------
-	// Bug 1: 匿名嵌入结构体指针为 nil 时引发 Panic (已修复安全防范测试)
-	// ------------------------------------------------------------------------
 	t.Run("Bug 1: Nil pointer in anonymous struct path should not panic", func(t *testing.T) {
+		// 匿名嵌入结构体指针为 nil 时引发 Panic (已修复安全防范测试)
 		type Inner struct {
 			Value int
 		}
@@ -194,10 +192,8 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// ------------------------------------------------------------------------
-	// 外部字段同名时未能正确遮蔽内部嵌入字段
-	// ------------------------------------------------------------------------
 	t.Run("Outer field should shadow inner embedded field of the same name", func(t *testing.T) {
+		// 外部字段同名时未能正确遮蔽内部嵌入字段
 		type Embed struct {
 			Target string
 		}
@@ -222,10 +218,8 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// ------------------------------------------------------------------------
-	// 大小写别名查找的不对称性限制
-	// ------------------------------------------------------------------------
-	t.Run("Bug 3: Case sensitivity asymmetry between Id and ID", func(t *testing.T) {
+	t.Run("Case sensitivity asymmetry between Id and ID", func(t *testing.T) {
+		// 大小写别名查找的不对称性限制
 		type S1 struct{ Id int }
 		type S2 struct{ ID int }
 
@@ -243,10 +237,8 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// ------------------------------------------------------------------------
-	// 浮点数索引被静默截断为整型
-	// ------------------------------------------------------------------------
-	t.Run("Bug 4: Float key silently truncated to int index in slice", func(t *testing.T) {
+	t.Run("Float key silently truncated to int index in slice", func(t *testing.T) {
+		// 浮点数索引被静默截断为整型
 		s := []string{"zero", "one"}
 		// 传入 0.9。对于切片，0.9 不是整数索引。
 		// 但 toInt() 中将 float64 强制转为了 int64(0.9) -> 0 且静默修改成功。
@@ -259,9 +251,6 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// ------------------------------------------------------------------------
-	// String 与 Number 越界错误行为不一致
-	// ------------------------------------------------------------------------
 	t.Run("Inconsistent out-of-bounds error behavior (String vs Number)", func(t *testing.T) {
 		// 1. 对于 string 类型，越界会返回 ErrIndexOutOfRange 错误
 		_, errStr := Get("hello", 10)
@@ -279,10 +268,8 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// ------------------------------------------------------------------------
-	// map[any]any 等包含接口键的 Map 中 nil 键查询
-	// ------------------------------------------------------------------------
 	t.Run("Nil key query in map of interface keys", func(t *testing.T) {
+		// map[any]any 等包含接口键的 Map 中 nil 键查询
 		m := map[any]string{
 			nil: "nil_value",
 		}
@@ -296,8 +283,8 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// 非 interface key 的 map 仍然应该拒绝 nil
 	t.Run("Nil key on non-interface map", func(t *testing.T) {
+		// 非 interface key 的 map 仍然应该拒绝 nil
 		m := map[string]string{"a": "b"}
 		_, err := Get(m, nil)
 		if !errors.Is(err, ErrMapKey) {
@@ -305,8 +292,8 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// 存在 nil key 但查不到时仍返回 (nil, nil)
 	t.Run("Nil key not present", func(t *testing.T) {
+		// 存在 nil key 但查不到时仍返回 (nil, nil)
 		m := map[any]string{"x": "y"}
 		_, err := Get(m, nil)
 		if err != nil {
@@ -314,10 +301,8 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// ------------------------------------------------------------------------
-	// 未导出结构体的切片导致静默数据丢失
-	// ------------------------------------------------------------------------
 	t.Run("Silent data loss when copying slice of unexported structs", func(t *testing.T) {
+		// 未导出结构体的切片导致静默数据丢失
 		type unexportedStruct struct {
 			Val int
 		}
@@ -342,10 +327,8 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		}
 	})
 
-	// ------------------------------------------------------------------------
-	// 未导出结构体键的 Map 导致静默覆盖与数据丢失
-	// ------------------------------------------------------------------------
-	t.Run("Bug 10: Silent data loss/key-overwrite in typeSelect for map of unexported types", func(t *testing.T) {
+	t.Run("Silent data loss/key-overwrite in typeSelect for map of unexported types", func(t *testing.T) {
+		// 未导出结构体键的 Map 导致静默覆盖与数据丢失
 		type unexportedStruct struct {
 			Val int
 		}
@@ -368,6 +351,139 @@ func Test_Get_BugsAndUnexpected(t *testing.T) {
 		mapVal := reflect.ValueOf(val)
 		if mapVal.Len() != 2 {
 			t.Log("确认存在数据丢失与键覆盖：由于类型不匹配，Map 发生了静默覆盖")
+		}
+	})
+}
+
+func Test_Set_Features_And_Bugs(t *testing.T) {
+	// ==================== 功能示例 (Features) ====================
+
+	t.Run("Struct setting features", func(t *testing.T) {
+		type User struct {
+			Name    string `json:"username"`
+			Age     int
+			Address string
+		}
+
+		u := User{Name: "Alice", Age: 18, Address: "Beijing"}
+
+		// 支持的功能：
+		// 1. "username" -> 匹配 json 标签
+		// 2. "age" -> 自动首字母大写匹配 Age 字段，且 "20" (string) 自动转换为 20 (int)
+		// 3. -1 -> 支持负整数索引定位最后一个字段 (Address)
+		err := Set(&u, "username", "Bob", "age", "20", -1, "Shanghai")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if u.Name != "Bob" || u.Age != 20 || u.Address != "Shanghai" {
+			t.Errorf("unexpected struct values: %+v", u)
+		}
+	})
+
+	t.Run("Pointer auto-allocation", func(t *testing.T) {
+		type Config struct {
+			MaxConnections *int
+		}
+
+		var cfg Config
+		// 功能：目标字段为指针类型时，直接传入基本类型会自动为其分配内存并填充值
+		err := Set(&cfg, "MaxConnections", 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if cfg.MaxConnections == nil {
+			t.Fatal("expected MaxConnections pointer to be allocated, but got nil")
+		}
+		if *cfg.MaxConnections != 100 {
+			t.Errorf("expected *MaxConnections to be 100, got %d", *cfg.MaxConnections)
+		}
+	})
+
+	t.Run("Slice growth and rollback on error", func(t *testing.T) {
+		slice := []int{1, 2}
+
+		// 功能：
+		// 1. 切片支持自动扩容（如索引 3 越界，自动扩容填充零值）
+		// 2. 参数对中如果后续参数设置失败（如索引 4 传入非数字字符串），触发整体回滚
+		err := Set(&slice, 3, 99, 4, "invalid_int_type")
+		if err == nil {
+			t.Fatal("expected error due to invalid type conversion, but got nil")
+		}
+
+		// 验证回滚：切片长度和值应保持初始状态
+		if len(slice) != 2 || slice[0] != 1 || slice[1] != 2 {
+			t.Errorf("slice failed to rollback to original state: %v", slice)
+		}
+	})
+
+	t.Run("Map key conversion and nil deletion", func(t *testing.T) {
+		m := map[int]string{1: "one", 2: "two"}
+
+		// 功能：
+		// 1. 支持 key 类型转换，"3" (string) -> 3 (int)
+		// 2. 值为 nil 时，删除对应的键 (删除 key 1)
+		err := Set(m, "3", "three", 1, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if m[3] != "three" {
+			t.Errorf("expected m[3] to be 'three', got %q", m[3])
+		}
+		if _, exists := m[1]; exists {
+			t.Error("expected key 1 to be deleted, but it still exists")
+		}
+	})
+
+	// ==================== Bug/意外检测示例 (Bugs) ====================
+
+	t.Run("Embedded pointer nil allocation", func(t *testing.T) {
+		type Inner struct {
+			Value int
+		}
+		type Outer struct {
+			*Inner // 嵌入的结构体指针
+		}
+
+		outer := &Outer{} // outer.Inner 为 nil
+
+		err := Set(outer, "Value", 42)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if outer.Inner == nil {
+			t.Fatal("expected Inner to be allocated, but it is nil")
+		}
+		if outer.Value != 42 {
+			t.Errorf("expected outer.Value to be 42, got %d", outer.Value)
+		}
+	})
+
+	t.Run("Unexported field settings", func(t *testing.T) {
+		type PrivateStruct struct {
+			secret int // 私有字段
+		}
+
+		ps := PrivateStruct{secret: 100}
+
+		err := SetUnexported(&ps, "secret", 200)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+
+		if ps.secret != 200 {
+			t.Errorf("secret value changed unexpectedly to %d", ps.secret)
+		}
+	})
+
+	t.Run("Asymmetric Key Conversion for Bool Keys", func(t *testing.T) {
+		m := map[bool]string{}
+
+		err := Set(m, "true", "yes")
+		if errors.Is(err, ErrMapKey) {
+			t.Errorf("expected ErrMapKey, got: %v", err)
 		}
 	})
 }

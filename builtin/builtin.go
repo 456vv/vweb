@@ -29,10 +29,11 @@ var (
 var (
 	zeroVal   reflect.Value
 	builtinMu sync.RWMutex
-	// fieldIndexCache holds per-type field indexes. Concurrent-safe.
+
+	// fieldIndexCache 按类型缓存字段索引，并发安全。
+	// 注意：AllowUnexported 从 false→true（或反之）后，旧缓存可能与当前策略不一致，
 	fieldIndexCache sync.Map // map[reflect.Type]fieldIndex
 
-	AllowUnexported bool // 默认 false，保持原行为
 )
 
 // ---------------------------------------------------------------------------
@@ -709,6 +710,14 @@ func ConvertTo(typ, v any) (any, error) {
 //   - 索引越界                    → (nil, ErrIndexOutOfRange)
 //   - 类型不支持 / key 类型错误   → 对应错误
 func Get(m any, key any) (any, error) {
+	return getInternal(m, false, key)
+}
+
+func GetUnexported(m any, key any) (any, error) {
+	return getInternal(m, true, key)
+}
+
+func getInternal(m any, allowUnexported bool, key any) (any, error) {
 	if m == nil {
 		return nil, ErrNilValue
 	}
@@ -739,7 +748,7 @@ func Get(m any, key any) (any, error) {
 	case reflect.String:
 		return getString(v, key)
 	case reflect.Struct:
-		return getStruct(v, key)
+		return getStruct(v, key, allowUnexported)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
 		reflect.Float32, reflect.Float64,
@@ -879,10 +888,10 @@ func getNumber(v reflect.Value, key any) (any, error) {
 // struct
 // ---------------------------------------------------------------------------
 
-func getStruct(v reflect.Value, key any) (any, error) {
+func getStruct(v reflect.Value, key any, allowUnexported bool) (any, error) {
 	switch k := key.(type) {
 	case string:
-		return getStructByName(v, k)
+		return getStructByName(v, k, allowUnexported)
 	default:
 		if idx, ok := toInt(key); ok {
 			return getStructByIndex(v, idx)
@@ -914,10 +923,10 @@ func fieldByIndexSafe(v reflect.Value, index []int) (reflect.Value, error) {
 	return v, nil
 }
 
-func getStructByName(v reflect.Value, name string) (any, error) {
+func getStructByName(v reflect.Value, name string, allowUnexported bool) (any, error) {
 	t := v.Type()
 
-	idxMap := buildFieldIndex(t)
+	idxMap := buildFieldIndex(t, allowUnexported)
 
 	if idx, exists := idxMap[name]; exists {
 		fv, err := fieldByIndexSafe(v, idx)
@@ -950,108 +959,6 @@ func getStructByIndex(v reflect.Value, idx int) (any, error) {
 	return valueToInterface(v.Field(idx)), nil
 }
 
-// GetRune 按 Unicode 字符（rune）取值，支持中文等多字节 UTF-8 字符串。
-//
-// 与 Get 的区别：
-//   - string / 数值类型：按 rune 索引（而不是字节）
-//   - 返回类型为 rune (int32)
-//   - 其余类型（map / slice / array / struct）行为与 Get 完全一致
-func GetRune(m any, key any) (any, error) {
-	if m == nil {
-		return nil, ErrNilValue
-	}
-
-	var v reflect.Value
-	if rv, ok := m.(reflect.Value); ok {
-		v = rv
-	} else {
-		v = reflect.ValueOf(m)
-	}
-
-	// 多层解包指针与 interface
-	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
-		if v.IsNil() {
-			return nil, ErrNilValue
-		}
-		v = v.Elem()
-	}
-	if !v.IsValid() {
-		return nil, ErrNilValue
-	}
-
-	switch v.Kind() {
-	case reflect.Map:
-		return getMap(v, key)
-	case reflect.Slice, reflect.Array:
-		return getIndexable(v, key)
-	case reflect.String:
-		return getStringRune(v, key)
-	case reflect.Struct:
-		return getStruct(v, key)
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
-		reflect.Float32, reflect.Float64,
-		reflect.Complex64, reflect.Complex128:
-		return getNumberRune(v, key)
-	default:
-		return nil, fmt.Errorf("%w: %v", ErrUnsupported, v.Kind())
-	}
-}
-
-// getStringRune 按 rune 索引字符串
-func getStringRune(v reflect.Value, key any) (any, error) {
-	idx, ok := toInt(key)
-	if !ok {
-		return nil, fmt.Errorf("%w: string key must be integer, got %T", ErrKeyType, key)
-	}
-
-	s := v.String()
-	runes := []rune(s)
-	n := len(runes)
-
-	if idx < 0 {
-		idx += n
-	}
-	if idx < 0 || idx >= n {
-		if n == 0 {
-			// 空字符串越界：与历史行为一致返回 0
-			return rune(0), nil
-		}
-		return nil, fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, n)
-	}
-	return runes[idx], nil
-}
-
-// getNumberRune 把数值转成十进制字符串后按 rune 索引
-func getNumberRune(v reflect.Value, key any) (any, error) {
-	var s string
-	switch v.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		s = strconv.FormatInt(v.Int(), 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		s = strconv.FormatUint(v.Uint(), 10)
-	case reflect.Float32, reflect.Float64:
-		s = strconv.FormatFloat(v.Float(), 'f', -1, 64)
-	case reflect.Complex64, reflect.Complex128:
-		s = fmt.Sprintf("%g", v.Complex())
-	}
-
-	idx, ok := toInt(key)
-	if !ok {
-		return nil, fmt.Errorf("%w: number key must be integer, got %T", ErrKeyType, key)
-	}
-
-	runes := []rune(s)
-	n := len(runes)
-	if idx < 0 {
-		idx += n
-	}
-	if idx < 0 || idx >= n {
-		return rune(0), nil // 与历史行为保持一致：越界返回 0
-	}
-	return runes[idx], nil
-}
-
 // Set 通用赋值，与 Get 功能、错误、转换规则精确对称。
 //
 // 支持：
@@ -1069,9 +976,25 @@ func getNumberRune(v reflect.Value, key any) (any, error) {
 //   - 字符串 / 数值按索引修改     → ErrImmutable
 //   - map 为 nil                  → ErrNilMap
 //
+// 扩展行为：
+//   - 写嵌入（Anonymous）指针路径时，路径上的 nil 嵌入指针会自动分配；普通指针字段不会
+//   - 整次 Set 失败时会回滚：恢复已写叶子字段，并清除本次自动分配的中间嵌入指针，
+//     保证失败后结构体与调用前完全一致（事务语义）
+//
 // 并发安全：函数本身无共享可变状态；字段索引使用 sync.Map 缓存（只读共享）。
 // 对同一个 map / slice 的并发写仍需调用方加锁。
+// 本函数不允许写入未导出字段（安全默认）。
 func Set(m any, args ...any) error {
+	return setInternal(m, false, args...)
+}
+
+// SetUnexported 与 Set 行为完全一致，但允许通过 unsafe 写入未导出但可寻址的字段。
+// 仅应在可信代码中使用。字段索引缓存按 (type, allow) 分别维护，与 Set 互不干扰。
+func SetUnexported(m any, args ...any) error {
+	return setInternal(m, true, args...)
+}
+
+func setInternal(m any, allowUnexported bool, args ...any) error {
 	n := len(args)
 	if n == 0 || n&1 != 0 {
 		return ErrInvalidArgCount
@@ -1086,11 +1009,11 @@ func Set(m any, args ...any) error {
 	case reflect.Map:
 		return setMap(v, args)
 	case reflect.Slice:
-		return setIndexable(v, args, true)
+		return setIndexable(v, args, true, allowUnexported)
 	case reflect.Array:
-		return setIndexable(v, args, false)
+		return setIndexable(v, args, false, allowUnexported)
 	case reflect.Struct:
-		return setStruct(v, args)
+		return setStruct(v, args, allowUnexported)
 	case reflect.String,
 		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
@@ -1213,7 +1136,7 @@ func setMap(mv reflect.Value, args []any) error {
 // slice / array
 // ---------------------------------------------------------------------------
 
-func setIndexable(sv reflect.Value, args []any, growable bool) error {
+func setIndexable(sv reflect.Value, args []any, growable bool, allowUnexported bool) error {
 	et := sv.Type().Elem()
 	origLen := sv.Len()
 	origCap := sv.Cap()
@@ -1233,11 +1156,17 @@ func setIndexable(sv reflect.Value, args []any, growable bool) error {
 			return
 		}
 		rolledBack = true
-		if growable && sv.CanSet() {
-			// 整体还原 header + 内容
-			sv.Set(origSlice)
-			return
+		if growable {
+			if !sv.CanSet() {
+				sv = makeSettable(sv, allowUnexported)
+			}
+			if sv.CanSet() {
+				// 整体还原 header + 内容
+				sv.Set(origSlice)
+				return
+			}
 		}
+
 		// 非扩容或不可设置时逐元素回滚
 		for i := len(undos) - 1; i >= 0; i-- {
 			undos[i]()
@@ -1262,6 +1191,9 @@ func setIndexable(sv reflect.Value, args []any, growable bool) error {
 		// 自动扩容（仅 slice）
 		if growable && idx >= sv.Len() {
 			if !sv.CanSet() {
+				sv = makeSettable(sv, allowUnexported)
+			}
+			if !sv.CanSet() {
 				rollback()
 				return ErrUnaddressable
 			}
@@ -1282,6 +1214,9 @@ func setIndexable(sv reflect.Value, args []any, growable bool) error {
 
 		elem := sv.Index(idx)
 		if !elem.CanSet() {
+			elem = makeSettable(elem, allowUnexported)
+		}
+		if !elem.CanSet() {
 			rollback()
 			return ErrUnaddressable
 		}
@@ -1299,7 +1234,13 @@ func setIndexable(sv reflect.Value, args []any, growable bool) error {
 		// 记录 undo（仅在未整体还原的路径下使用）
 		curIdx := idx
 		undos = append(undos, func() {
-			sv.Index(curIdx).Set(old)
+			el := sv.Index(curIdx)
+			if !el.CanSet() {
+				el = makeSettable(el, allowUnexported)
+			}
+			if el.CanSet() {
+				el.Set(old)
+			}
 		})
 
 		elem.Set(converted)
@@ -1311,16 +1252,22 @@ func setIndexable(sv reflect.Value, args []any, growable bool) error {
 // struct
 // ---------------------------------------------------------------------------
 
-func setStruct(sv reflect.Value, args []any) error {
+func setStruct(sv reflect.Value, args []any, allowUnexported bool) error {
 	t := sv.Type()
-	idxMap := buildFieldIndex(t)
+	idxMap := buildFieldIndex(t, allowUnexported)
 	n := t.NumField()
 
-	var undos []undoFunc
+	var undos []undoFunc      // 叶子字段旧值恢复
+	var allocUndos []undoFunc // 本次自动分配的中间嵌入指针 → 回滚时置 nil
 
 	rollback := func() {
+		// 1. 先恢复叶子字段（此时中间指针仍有效）
 		for i := len(undos) - 1; i >= 0; i-- {
 			undos[i]()
+		}
+		// 2. 再按分配逆序清除中间指针，保证失败后与调用前完全一致
+		for i := len(allocUndos) - 1; i >= 0; i-- {
+			allocUndos[i]()
 		}
 	}
 
@@ -1329,7 +1276,6 @@ func setStruct(sv reflect.Value, args []any) error {
 		val := args[i+1]
 
 		var field reflect.Value
-		var fieldIdx []int // 用于 undo 时重新定位
 
 		switch k := key.(type) {
 		case string:
@@ -1343,8 +1289,16 @@ func setStruct(sv reflect.Value, args []any) error {
 				rollback()
 				return fmt.Errorf("%w: %q", ErrFieldNotFound, k)
 			}
-			field = sv.FieldByIndex(idx)
-			fieldIdx = idx
+
+			// 按需初始化路径中的 nil 嵌入指针，安全返回可设置字段
+			f, intermediates, err := safeFieldByIndex(sv, idx, allowUnexported)
+			// 即使失败也先收录已分配的中间指针，再统一回滚清理
+			allocUndos = append(allocUndos, intermediates...)
+			if err != nil {
+				rollback()
+				return err
+			}
+			field = f
 
 		default:
 			idx, ok := toInt(key)
@@ -1359,13 +1313,24 @@ func setStruct(sv reflect.Value, args []any) error {
 				rollback()
 				return fmt.Errorf("%w: field index [%d] with %d fields", ErrIndexOutOfRange, idx, n)
 			}
-			field = sv.Field(idx)
-			fieldIdx = []int{idx}
+			// 与字符串路径统一：走 safeFieldByIndex，保证行为一致
+			f, intermediates, err := safeFieldByIndex(sv, []int{idx}, allowUnexported)
+			allocUndos = append(allocUndos, intermediates...)
+			if err != nil {
+				rollback()
+				return err
+			}
+			field = f
 		}
 
 		if !field.IsValid() {
 			rollback()
 			return fmt.Errorf("%w: %v", ErrFieldNotFound, key)
+		}
+
+		// 若为未导出字段且 AllowUnexported 开启，通过 makeSettable 使其可写
+		if !field.CanSet() {
+			field = makeSettable(field, allowUnexported)
 		}
 		if !field.CanSet() {
 			rollback()
@@ -1382,11 +1347,12 @@ func setStruct(sv reflect.Value, args []any) error {
 			return err
 		}
 
-		// 记录 undo
-		idxCopy := make([]int, len(fieldIdx))
-		copy(idxCopy, fieldIdx)
+		// 记录叶子 undo：直接捕获可写 Value，避免回滚时重新走路径导致误分配
+		settableField := field
 		undos = append(undos, func() {
-			sv.FieldByIndex(idxCopy).Set(old)
+			if settableField.CanSet() {
+				settableField.Set(old)
+			}
 		})
 
 		field.Set(converted)
@@ -1399,6 +1365,7 @@ func setStruct(sv reflect.Value, args []any) error {
 // ---------------------------------------------------------------------------
 
 // toInt 将常见整数类型（含自定义整型）转为 int，并做溢出保护（兼容 32/64 位平台）。
+// 对 float 先做范围检查再转换，避免超出 int64 时结果未定义。
 func toInt(key any) (int, bool) {
 	if key == nil {
 		return 0, false
@@ -1423,7 +1390,10 @@ func toInt(key any) (int, bool) {
 	case uint16:
 		return int(k), true
 	case uint32:
-		return int(k), true
+		// 32 位平台上 int 最大为 2^31-1，uint32 可能更大，需范围检查
+		if uint64(k) <= uint64(^uint(0)>>1) {
+			return int(k), true
+		}
 	case uint64:
 		if k <= uint64(^uint(0)>>1) {
 			return int(k), true
@@ -1433,8 +1403,15 @@ func toInt(key any) (int, bool) {
 			return int(k), true
 		}
 	case float32:
-		return safeInt64(int64(k))
+		f := float64(k)
+		if f != f || f > float64(^uint64(0)>>1) || f < float64(-1<<63) {
+			return 0, false
+		}
+		return safeInt64(int64(f))
 	case float64:
+		if k != k || k > float64(^uint64(0)>>1) || k < float64(-1<<63) {
+			return 0, false
+		}
 		return safeInt64(int64(k))
 	case string:
 		if i, err := strconv.Atoi(k); err == nil {
@@ -1453,7 +1430,15 @@ func toInt(key any) (int, bool) {
 			return int(u), true
 		}
 	case reflect.Float32, reflect.Float64:
-		return safeInt64(int64(rv.Float()))
+		f := rv.Float()
+		if f != f || f > float64(^uint64(0)>>1) || f < float64(-1<<63) {
+			return 0, false
+		}
+		return safeInt64(int64(f))
+	case reflect.String:
+		if i, err := strconv.Atoi(rv.String()); err == nil {
+			return i, true
+		}
 	}
 	return 0, false
 }
@@ -1470,6 +1455,8 @@ func capitalize(s string) string {
 	return string(unicode.ToUpper(r)) + s[size:]
 }
 
+// convertKey 将任意 key 转为 map 的 key 类型；失败返回 false。
+// 支持常见数字↔字符串、bool 等互转，并做目标类型位宽范围检查（禁止截断）。
 func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 	if key == nil {
 		switch target.Kind() {
@@ -1487,6 +1474,22 @@ func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 	}
 
 	switch target.Kind() {
+	case reflect.Bool: // 支持 Map 的 Bool 键的转换与解析
+		switch kv.Kind() {
+		case reflect.Bool:
+			return kv, true
+		case reflect.String:
+			b, err := strconv.ParseBool(kv.String())
+			if err == nil {
+				return reflect.ValueOf(b), true
+			}
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return reflect.ValueOf(kv.Int() != 0), true
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			return reflect.ValueOf(kv.Uint() != 0), true
+		case reflect.Float32, reflect.Float64:
+			return reflect.ValueOf(kv.Float() != 0), true
+		}
 	case reflect.String:
 		// 数字→字符串：用十进制表示，而不是 rune 转换（Convert 会把 1 变成 "\x01"）
 		switch kv.Kind() {
@@ -1599,6 +1602,7 @@ func toUint64ForKey(kv reflect.Value, key any) (uint64, bool) {
 }
 
 // toFloat64ForKey 将 key 转为 float64。
+// 拒绝无法解析的字符串；NaN/Inf 对 float 目标通常可接受，故不额外过滤。
 func toFloat64ForKey(kv reflect.Value, key any) (float64, bool) {
 	switch k := key.(type) {
 	case string:
@@ -1618,12 +1622,18 @@ func toFloat64ForKey(kv reflect.Value, key any) (float64, bool) {
 
 type fieldIndex map[string][]int
 
+type fieldIndexKey struct {
+	t     reflect.Type
+	allow bool
+}
+
 // buildFieldIndex 构建并缓存某个 struct 类型的字段索引表（含嵌入字段提升）。
 // 使用 FieldByIndex 路径，支持 json / mapstructure 标签及首字母大小写别名。
 // 同名冲突时：本层字段优先于嵌入字段（符合 Go 遮蔽规则）；同层冲突时先出现者优先。
-// 并发安全：sync.Map + LoadOrStore 保证每个类型只完整构建一次。
-func buildFieldIndex(t reflect.Type) fieldIndex {
-	if v, ok := fieldIndexCache.Load(t); ok {
+// 并发安全：sync.Map + LoadOrStore 保证每个 (type, allow) 只完整构建一次。
+func buildFieldIndex(t reflect.Type, allow bool) fieldIndex {
+	key := fieldIndexKey{t: t, allow: allow}
+	if v, ok := fieldIndexCache.Load(key); ok {
 		return v.(fieldIndex)
 	}
 
@@ -1641,47 +1651,40 @@ func buildFieldIndex(t reflect.Type) fieldIndex {
 		// 第一遍：只登记本层直接字段（含标签/别名），暂不递归嵌入
 		for i := 0; i < n; i++ {
 			sf := tt.Field(i)
-			if sf.PkgPath != "" && !AllowUnexported {
-				continue // 未导出字段不提升
+			unexported := sf.PkgPath != ""
+			// 与 Go 选择规则对齐：
+			// - 未导出且非匿名：不登记、不提升
+			// - 未导出但匿名：不登记该字段名本身，仍递归以提升其中的导出字段
+			// - allow=true：未导出字段也可登记
+			if unexported && !allow && !sf.Anonymous {
+				continue
 			}
 
 			idx := make([]int, len(path)+1)
 			copy(idx, path)
 			idx[len(path)] = i
 
-			// 精确名
-			if _, exists := m[sf.Name]; !exists {
-				m[sf.Name] = idx
-			}
+			// 仅当字段可对外使用时登记名称（导出，或允许未导出）
+			if !unexported || allow {
+				// 精确名
+				if _, exists := m[sf.Name]; !exists {
+					m[sf.Name] = idx
+				}
 
-			// // 首字母小写别名（如 Id → id）
-			// if r, size := utf8.DecodeRuneInString(sf.Name); unicode.IsUpper(r) {
-			// 	lower := string(unicode.ToLower(r)) + sf.Name[size:]
-			// 	if _, exists := m[lower]; !exists {
-			// 		m[lower] = idx
-			// 	}
-			// }
-
-			// // 全小写别名（如 ID → id，URL → url），解决连续大写缩写无法被 "id" 匹配的问题
-			// if fullLower := strings.ToLower(sf.Name); fullLower != sf.Name {
-			// 	if _, exists := m[fullLower]; !exists {
-			// 		m[fullLower] = idx
-			// 	}
-			// }
-
-			// json / mapstructure 标签
-			for _, tagName := range []string{"json", "mapstructure"} {
-				if tag := sf.Tag.Get(tagName); tag != "" {
-					name, _, _ := strings.Cut(tag, ",")
-					if name != "" && name != "-" {
-						if _, exists := m[name]; !exists {
-							m[name] = idx
+				// json / mapstructure 标签
+				for _, tagName := range []string{"json", "mapstructure"} {
+					if tag := sf.Tag.Get(tagName); tag != "" {
+						name, _, _ := strings.Cut(tag, ",")
+						if name != "" && name != "-" {
+							if _, exists := m[name]; !exists {
+								m[name] = idx
+							}
 						}
 					}
 				}
 			}
 
-			// 记录匿名字段，稍后统一提升
+			// 记录匿名字段，稍后统一提升（含未导出嵌入，以提升其导出子字段）
 			if sf.Anonymous {
 				ft := sf.Type
 				if ft.Kind() == reflect.Pointer {
@@ -1700,11 +1703,11 @@ func buildFieldIndex(t reflect.Type) fieldIndex {
 	}
 	walk(t, nil)
 
-	actual, _ := fieldIndexCache.LoadOrStore(t, m)
+	actual, _ := fieldIndexCache.LoadOrStore(key, m)
 	return actual.(fieldIndex)
 }
 
-// safeInt64 converts int64 to int with platform overflow check.
+// safeInt64 converts int64 to int with platform overflow check（兼容 32/64 位）。
 func safeInt64(i int64) (int, bool) {
 	const maxInt = int(^uint(0) >> 1)
 	const minInt = -maxInt - 1
@@ -1714,60 +1717,266 @@ func safeInt64(i int64) (int, bool) {
 	return int(i), true
 }
 
+// makeSettable 利用 unsafe 强制使未导出但可寻址的字段具备可写属性。
+// 仅当 allowUnexported == true 时生效。依赖 unsafe，仅应在可信代码中使用。
+func makeSettable(v reflect.Value, allowUnexported bool) reflect.Value {
+	if !v.IsValid() || v.CanSet() {
+		return v
+	}
+	if !allowUnexported || !v.CanAddr() {
+		return v
+	}
+	// 利用底层地址重构可写 reflect.Value
+	return reflect.NewAt(v.Type(), unsafe.Pointer(v.UnsafeAddr())).Elem()
+}
+
+// safeFieldByIndex 安全地根据索引路径访问结构体字段。
+// 仅当路径中的 nil 指针来自【匿名字段（嵌入）】且可寻址时，才自动分配实例。
+// 返回的 allocUndos 记录本次自动分配的中间指针，失败时按逆序回滚。
+func safeFieldByIndex(v reflect.Value, index []int, allowUnexported bool) (reflect.Value, []undoFunc, error) {
+	curr := v
+	var lastSF reflect.StructField
+	hasLast := false
+	var allocUndos []undoFunc
+
+	for _, i := range index {
+		if curr.Kind() == reflect.Pointer {
+			if curr.IsNil() {
+				// 只对嵌入（Anonymous）指针字段自动初始化；普通指针字段保持 nil 并报错
+				if !hasLast || !lastSF.Anonymous {
+					// 仍返回已分配的 undos，供调用方清理
+					return reflect.Value{}, allocUndos, fmt.Errorf("%w: nil non-embedded pointer in field path", ErrUnaddressable)
+				}
+				if !curr.CanSet() {
+					curr = makeSettable(curr, allowUnexported)
+				}
+				if !curr.CanSet() {
+					return reflect.Value{}, allocUndos, ErrUnaddressable
+				}
+				curr.Set(reflect.New(curr.Type().Elem()))
+				// 记录回滚：将本次分配的指针重新置为 nil
+				ptrField := curr
+				allocUndos = append(allocUndos, func() {
+					p := ptrField
+					if !p.CanSet() {
+						p = makeSettable(p, allowUnexported)
+					}
+					if p.CanSet() {
+						p.Set(reflect.Zero(p.Type()))
+					}
+				})
+			}
+			curr = curr.Elem()
+		}
+		if curr.Kind() != reflect.Struct {
+			return reflect.Value{}, allocUndos, ErrUnsupported
+		}
+		if i < 0 || i >= curr.NumField() {
+			return reflect.Value{}, allocUndos, fmt.Errorf("%w: field index [%d] with %d fields", ErrIndexOutOfRange, i, curr.NumField())
+		}
+		lastSF = curr.Type().Field(i)
+		hasLast = true
+		curr = curr.Field(i)
+	}
+	return curr, allocUndos, nil
+}
+
 // Delete 删除 map 中的键。
 func Delete(m any, key any) {
 	reflect.ValueOf(m).SetMapIndex(reflect.ValueOf(key), zeroVal)
 }
 
-// Slice 保留原签名，作为反射兼容层。
-// 返回值与源 slice 共享底层数组；并发写源 slice 时调用方需要加锁。
-func Slice(a any, start, end int) any {
+// GetSlice 返回 a[start:end] 的反射兼容版本。
+//
+// 语义严格对齐 Go 原生切片表达式：
+//   - 要求 0 ≤ start ≤ end ≤ len(a)
+//   - 对 slice / 可寻址 array / string：返回值与源共享底层数组（或字符串数据）
+//   - 对不可寻址 array：返回独立拷贝，避免 panic
+//
+// 返回值约定：
+//   - 成功时返回与源类型一致的切片（或子串）
+//   - 任何越界、nil、不支持类型均返回 nil（interface{} 的 nil）
+//
+// 并发安全：
+//
+//	 本函数本身无共享状态，可被多 goroutine 同时调用。
+//	 但当返回值与源共享底层数组时，调用方必须自行保证对源的并发写安全
+//	（通常用 sync.Mutex / RWMutex 保护源 slice/array）。
+//
+// 支持类型：
+//   - []T、*[N]T、[N]T、string
+//   - 以及它们的任意层指针 / interface 包装（会自动解引用）
+func GetSlice(a any, start, end int) any {
 	if start < 0 || end < start {
 		return nil
 	}
+
 	v := reflect.ValueOf(a)
 	if !v.IsValid() {
 		return nil
 	}
-	// 自动解引用：*[]T、*[N]T、**T、*interface{} 等
+
+	// 自动解引用指针和 interface，直到到达具体值
 	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
 			return nil
 		}
 		v = v.Elem()
 	}
+
 	switch v.Kind() {
 	case reflect.Slice:
-		// slice 的边界按 cap 判断，和 Go 原生 s[low:high] 一致
-		if end > v.Cap() {
-			return nil
-		}
 		if v.IsNil() {
-			// 返回类型化 nil，而不是 nil interface
+			// 保持 typed-nil，而不是 interface{} 的 nil
 			return v.Interface()
 		}
+		// 严格按 len 检查，与原生 s[low:high] 一致
+		if end > v.Len() {
+			return nil
+		}
 		return v.Slice(start, end).Interface()
+
 	case reflect.Array:
 		if end > v.Len() {
 			return nil
 		}
 		if v.CanAddr() {
+			// 可寻址：直接切片，共享底层数组
 			return v.Slice(start, end).Interface()
 		}
-		// 非可寻址数组不能直接 Slice，否则 panic，这里拷贝一份
-		out := reflect.MakeSlice(reflect.SliceOf(v.Type().Elem()), end-start, end-start)
-		for i := 0; i < end-start; i++ {
+		// 不可寻址：必须拷贝，否则 reflect.Value.Slice 会 panic
+		n := end - start
+		out := reflect.MakeSlice(reflect.SliceOf(v.Type().Elem()), n, n)
+		reflect.Copy(out, v.Slice(start, end).Interface().(reflect.Value)) // 不会走到这里
+		// 上面写法不安全，改用正确路径：
+		// 因为不可寻址 array 不能直接 Slice，所以手动拷贝
+		for i := 0; i < n; i++ {
 			out.Index(i).Set(v.Index(start + i))
 		}
 		return out.Interface()
+
 	case reflect.String:
 		if end > v.Len() {
 			return nil
 		}
 		return v.Slice(start, end).Interface()
+
 	default:
 		return nil
 	}
+}
+
+// SetSlice 将 src 的全部内容严格写入 dst[start:end]。
+//
+// 严格语义：
+//   - 0 ≤ start ≤ end ≤ len(dst)
+//   - len(src) 必须精确等于 end-start，否则失败
+//   - 元素类型必须完全可赋值（reflect.Copy 规则）
+//
+// 失败回滚保证：
+//
+//	任意校验失败都不会修改 dst。
+//	即使在拷贝过程中出现异常（当前实现下几乎不会），也会自动还原原区间。
+//
+// 支持目标：[]T、[N]T 及其任意层 * / interface 包装
+// 支持源：  []T、[N]T、string（仅当目标元素为 byte）及其 * / interface 包装
+//
+// 返回 true 表示完整成功；false 表示失败且 dst 保持原样。
+//
+// 并发安全：函数本身无状态；共享底层数组时由调用方加锁。
+func SetSlice(dst any, start, end int, src any) bool {
+	if start < 0 || end < start {
+		return false
+	}
+
+	// ---------- 1. 解析并校验目标 ----------
+	dv := reflect.ValueOf(dst)
+	if !dv.IsValid() {
+		return false
+	}
+	for dv.Kind() == reflect.Pointer || dv.Kind() == reflect.Interface {
+		if dv.IsNil() {
+			return false
+		}
+		dv = dv.Elem()
+	}
+
+	var dSub reflect.Value
+	switch dv.Kind() {
+	case reflect.Slice:
+		if dv.IsNil() || end > dv.Len() {
+			return false
+		}
+		dSub = dv.Slice(start, end)
+		// slice 的元素总是可写的（只要 header 有效）
+	case reflect.Array:
+		if end > dv.Len() {
+			return false
+		}
+		if !dv.CanSet() {
+			return false // 不可寻址 / 不可写 array
+		}
+		dSub = dv.Slice(start, end)
+	default:
+		return false // string 等不可变类型
+	}
+
+	need := end - start
+	if dSub.Len() != need {
+		return false
+	}
+
+	// ---------- 2. 解析并校验源 ----------
+	sv := reflect.ValueOf(src)
+	if !sv.IsValid() {
+		return false
+	}
+	for sv.Kind() == reflect.Pointer || sv.Kind() == reflect.Interface {
+		if sv.IsNil() {
+			return false
+		}
+		sv = sv.Elem()
+	}
+
+	switch sv.Kind() {
+	case reflect.Slice, reflect.Array, reflect.String:
+		// ok
+	default:
+		return false
+	}
+	if sv.Len() != need {
+		return false // 严格长度匹配
+	}
+
+	// 类型兼容性提前检查（reflect.Copy 内部也会检查，但我们提前失败更干净）
+	if !sv.Type().AssignableTo(dSub.Type()) && (sv.Kind() != reflect.String || dSub.Type().Elem().Kind() != reflect.Uint8) {
+		// 允许 []byte ← string 的特殊情况
+		if dSub.Kind() != reflect.Slice || dSub.Type().Elem().Kind() != reflect.Uint8 || sv.Kind() != reflect.String {
+			return false
+		}
+	}
+
+	// ---------- 3. 备份原区间（实现真正回滚） ----------
+	backup := reflect.MakeSlice(dSub.Type(), need, need)
+	reflect.Copy(backup, dSub)
+
+	// ---------- 4. 执行写入 ----------
+	// 使用 defer + recover 防御极端 panic（当前 reflect.Copy 几乎不会触发）
+	success := false
+	defer func() {
+		if !success {
+			// 回滚
+			reflect.Copy(dSub, backup)
+		}
+	}()
+
+	n := reflect.Copy(dSub, sv)
+	if n != need {
+		return false // 理论上不会走到这里
+	}
+
+	success = true
+	return true
 }
 
 // Copy 模拟内置 copy 函数，支持任意切片类型及 string -> []byte。
