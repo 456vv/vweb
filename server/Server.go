@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,7 +27,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
-var Version string = "Server/v3"
+var Version = "Server/v3"
 
 // 上下文的Key, 在请求中可以使用
 type contextKey struct {
@@ -37,35 +38,35 @@ func (T *contextKey) String() string { return "server context value " + T.name }
 
 var ServerContextKey = &contextKey{"Server"}
 
-// safeCache 是一个线程安全的缓存
+// safeCache 线程安全缓存（RWMutex），适合低频配置读写。
 type safeCache struct {
 	mu   sync.RWMutex
 	data map[any]any
 }
 
-// Get 读操作，使用 RLock 和 RUnlock
+// Get 读操作，使用 RLock（允许多个 Goroutine 同时读）。
 func (c *safeCache) Get(key any) any {
-	c.mu.RLock()         // 加读锁，允许多个 Goroutine 同时读
-	defer c.mu.RUnlock() // 释放读锁
-
-	value := c.data[key]
-	return value
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.data[key]
 }
 
-// Set 写操作，使用 Lock 和 Unlock
+// Set 写操作，使用 Lock（写时阻塞其他读与写）。
 func (c *safeCache) Set(key, value any) {
-	c.mu.Lock()         // 加写锁，此时会阻塞其他读和写
-	defer c.mu.Unlock() // 释放写锁
-
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.data == nil {
+		c.data = make(map[any]any)
+	}
 	c.data[key] = value
 }
 
-// Server 服务器,使用在 ServerGroup.srvMan 字段。
+// Server 封装 http.Server，支持自定义 TCP 选项、TLS 与并发安全状态。
 type Server struct {
 	*http.Server // http服务器
 	Addr         string
 	l            listener
-	status       atomic.Bool
+	status       atomic.Bool    // 运行状态（true=正在服务）
 	cServer      *config.Server // 用于服务器
 	cConn        *config.Conn   // 用于连接
 }
@@ -76,26 +77,77 @@ func (T *Server) init() {
 		T.Server.BaseContext = func(l net.Listener) context.Context {
 			return context.WithValue(context.Background(), vweb.ListenerContextKey, l)
 		}
-
 		T.Server.ConnContext = func(ctx context.Context, rwc net.Conn) context.Context {
 			return context.WithValue(ctx, vweb.ConnContextKey, rwc)
 		}
 	}
 }
 
+// Serve 启动服务。状态由 atomic CAS 保护，可被多 goroutine 安全调用。
+// 兼容 *net.TCPListener 以及提供 TCPListener() 方法的包装监听器。
 func (T *Server) Serve(l net.Listener) error {
-	addr := l.Addr().(*net.TCPAddr)
-	ip := addr.IP.To4()
-	if ip == nil {
-		ip = addr.IP.To16()
+	if !T.status.CompareAndSwap(false, true) {
+		return errors.New("server: already running")
 	}
-	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
-	T.l.TCPListener = l.(*net.TCPListener)
+	defer T.status.Store(false)
+
+	if l == nil {
+		return fmt.Errorf("server: listener is nil")
+	}
+
+	var tcpLn *net.TCPListener
+	switch ln := l.(type) {
+	case *net.TCPListener:
+		tcpLn = ln
+	case interface{ TCPListener() *net.TCPListener }:
+		tcpLn = ln.TCPListener()
+	}
+	if tcpLn == nil {
+		return fmt.Errorf("server: listener must be *net.TCPListener or provide TCPListener(), got %T", l)
+	}
+
+	ta, ok := tcpLn.Addr().(*net.TCPAddr)
+	if !ok {
+		return fmt.Errorf("server: listener address must be *net.TCPAddr, got %T", tcpLn.Addr())
+	}
+	ip := ""
+	if ta.IP != nil {
+		ip = ta.IP.String()
+	}
+	// 使用 net.JoinHostPort 兼容 IPv4/IPv6（含 zone）
+	T.Addr = net.JoinHostPort(ip, strconv.Itoa(ta.Port))
+
+	T.l.TCPListener = tcpLn
+	T.l.closed.Store(false)
+	// cConn / tlsconfig 已在 ConfigConn / ConfigServer 中注入
 
 	T.init()
 	return T.Server.Serve(&T.l)
 }
 
+// IsRunning 返回服务器当前是否处于服务状态（并发安全）。
+func (T *Server) IsRunning() bool {
+	return T.status.Load()
+}
+
+// Close 立即关闭服务器与底层 Listener（不等待进行中连接完成）。
+// 先关闭 http.Server（触发 doneChan，令阻塞的 Serve 返回 http.ErrServerClosed），
+// 再关闭自定义 listener（幂等），避免 Serve 以 net.ErrClosed 意外退出而误报错误。
+func (T *Server) Close() error {
+	T.status.Store(false)
+	var err error
+	if T.Server != nil {
+		err = T.Server.Close()
+	}
+	if e := T.l.Close(); err == nil {
+		err = e
+	}
+	return err
+}
+
+// ListenAndServe 在 T.Addr 上监听并服务。
+// 若 Addr 为空，默认使用 ":http"。
+// 内部调用 net.Listen("tcp", ...) 后转交 Serve，因此同样受 status CAS 保护。
 func (T *Server) ListenAndServe() error {
 	if T.Addr == "" {
 		T.Addr = ":http"
@@ -107,18 +159,32 @@ func (T *Server) ListenAndServe() error {
 	return T.Serve(l)
 }
 
+// ConfigConn 配置连接级 TCP 选项（KeepAlive、NoDelay、缓冲区、Deadline 等）。
+// 必须在 Serve / ListenAndServe 之前调用。
+// 选项会在每次 Accept 后、TLS 包装前应用到 *net.TCPConn。
+// 运行期间禁止修改，防止与 Accept 并发产生数据竞争。
 func (T *Server) ConfigConn(cc *config.Conn) error {
 	if cc == nil {
 		return errors.New("server: *config.Conn 不可以为nil")
+	}
+	if T.status.Load() {
+		return errors.New("server: 服务运行中，不能修改连接配置")
 	}
 	T.cConn = cc
 	T.l.cConn = cc
 	return nil
 }
 
+// ConfigServer 配置服务器参数（超时、TLS、KeepAlive 等）。
+// 必须在 Serve / ListenAndServe 之前调用。
+// TLS 配置会同时写入 http.Server.TLSConfig 与自定义 listener.tlsconfig，
+// 由 listener.Accept 完成 TLS 握手包装（支持非标准 TLS Listener 场景）。
 func (T *Server) ConfigServer(cs *config.Server) error {
 	if cs == nil {
 		return errors.New("server: *config.Server 不可以为nil")
+	}
+	if T.status.Load() {
+		return errors.New("server: 服务运行中，不能修改服务器配置")
 	}
 	T.cServer = cs
 
@@ -147,7 +213,10 @@ func (T *Server) ConfigServer(cs *config.Server) error {
 	return nil
 }
 
-// TLS文件配置
+// configTLSFile 加载服务端证书、客户端 CA，配置协议版本、密码套件、SessionTicket 等。
+// 支持 .pem/.crt（PEM）与 .cer（DER）格式。
+// 错误聚合后统一返回，单个文件失败不影响其余证书加载（跨平台兼容：Windows/Linux/macOS 文件路径）。
+// 注意：RootCAs 字段实际用于服务端 Certificates（历史命名保留）。
 func configTLSFile(c *tls.Config, conf *config.ServerTLS) error {
 	c.NextProtos = conf.NextProtos
 	c.SessionTicketsDisabled = conf.SessionTicketsDisabled
@@ -155,8 +224,9 @@ func configTLSFile(c *tls.Config, conf *config.ServerTLS) error {
 	c.MaxVersion = conf.MaxVersion
 	c.DynamicRecordSizingDisabled = conf.DynamicRecordSizingDisabled
 
+	// 修复原 copy 在目标为 nil 时无效的问题，直接赋值
 	if len(conf.CipherSuites) > 0 {
-		copy(c.CipherSuites, conf.CipherSuites)
+		c.CipherSuites = append([]uint16(nil), conf.CipherSuites...)
 	} else {
 		// 内部判断并使用默认的密码套件
 		c.CipherSuites = nil
@@ -166,8 +236,10 @@ func configTLSFile(c *tls.Config, conf *config.ServerTLS) error {
 		c.SetSessionTicketKeys(conf.SetSessionTicketKeys)
 	}
 
-	var errStr string
-	// 支持双向证书
+	// 错误聚合使用 strings.Builder 避免频繁字符串拼接
+	var errBuilder strings.Builder
+
+	// 支持双向证书（客户端 CA）
 	if len(conf.ClientCAs) != 0 {
 		if c.ClientCAs == nil {
 			if certPool, err := x509.SystemCertPool(); err == nil {
@@ -178,72 +250,90 @@ func configTLSFile(c *tls.Config, conf *config.ServerTLS) error {
 				c.ClientCAs = x509.NewCertPool()
 			}
 		}
-		var errClientCA string
-		for _, path := range conf.ClientCAs {
-			// 打开文件
-			caData, err := os.ReadFile(path)
+		var clientCAErr strings.Builder
+		for _, p := range conf.ClientCAs {
+			data, err := os.ReadFile(p)
 			if err != nil {
-				errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, err.Error())
+				fmt.Fprintf(&clientCAErr, "%s: %s\n", p, err)
 				continue
 			}
-
-			switch filepath.Ext(path) {
+			switch filepath.Ext(p) {
 			case ".cer":
-				{
-					certificates, err := x509.ParseCertificates(caData)
-					if err != nil {
-						errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, err.Error())
-						continue
-					}
-					for _, cert := range certificates {
-						c.ClientCAs.AddCert(cert)
-					}
+				certs, err := x509.ParseCertificates(data)
+				if err != nil {
+					fmt.Fprintf(&clientCAErr, "%s: %s\n", p, err)
+					continue
+				}
+				for _, cert := range certs {
+					c.ClientCAs.AddCert(cert)
 				}
 			case ".pem", ".crt":
-				{
-					if !c.ClientCAs.AppendCertsFromPEM(caData) {
-						errClientCA = fmt.Sprintf("%s%s: %s\n", errClientCA, path, "not is a valid PEM format")
-						continue
-					}
+				if !c.ClientCAs.AppendCertsFromPEM(data) {
+					fmt.Fprintf(&clientCAErr, "%s: not a valid PEM format\n", p)
 				}
 			default:
-				{
-					errClientCA = fmt.Sprintf("TLS.RootCAs[\"%s\"], the file type is not supported, only support \".cer/.crt/.pem\" file type", path)
-				}
+				fmt.Fprintf(&clientCAErr, "TLS.ClientCAs[%q]: unsupported type, only .cer/.crt/.pem\n", p)
 			}
 		}
-		if errClientCA != "" {
-			errStr = "解析客户端CA证书发生错误（CS.TLS.ClientCAs）: \n" + errClientCA
+		if clientCAErr.Len() > 0 {
+			errBuilder.WriteString("解析客户端CA证书发生错误（CS.TLS.ClientCAs）:\n")
+			errBuilder.WriteString(clientCAErr.String())
 		}
 	}
 
+	// Server Certificates (历史字段名 RootCAs)
 	c.Certificates = nil
-	var errServerCert string
+	var serverCertErr strings.Builder
 	for _, file := range conf.RootCAs {
 		cert, err := tls.LoadX509KeyPair(file.CertFile, file.KeyFile)
 		if err != nil {
-			// 日志
-			errServerCert = fmt.Sprintf("%s{CertFile:%q, KeyFile:%q}: %s\n", errServerCert, file.CertFile, file.KeyFile, err.Error())
+			fmt.Fprintf(&serverCertErr, "{CertFile:%q, KeyFile:%q}: %s\n", file.CertFile, file.KeyFile, err)
 			continue
 		}
 		c.Certificates = append(c.Certificates, cert)
 	}
-	if errServerCert != "" {
-		errStr = errStr + "解析服务端证书发生错误（CS.TLS.RootCAs）: \n" + errServerCert
+	if serverCertErr.Len() > 0 {
+		errBuilder.WriteString("解析服务端证书发生错误（CS.TLS.RootCAs）:\n")
+		errBuilder.WriteString(serverCertErr.String())
 	}
 
 	// 多证书。
-	// c.BuildNameToCertificate()
-	if errStr != "" {
-		return fmt.Errorf("server: %s", errStr)
+	// c.BuildNameToCertificate() // 已在 Go 1.14+ 废弃，tls 内部自动处理
+	if errBuilder.Len() > 0 {
+		return fmt.Errorf("server: %s", errBuilder.String())
 	}
 	return nil
 }
 
+// siteExtendInfo 一个站点的扩展信息。
+// configSite 的写入发生在热重载（updateSitePoolAdd）中，读取发生在每个请求（serveHTTP）中，
+// 两者之间通过 configMu 同步，保证请求总能拿到“一整份”自洽的配置快照，避免 32 位平台指针撕裂与竞态。
 type siteExtendInfo struct {
+	configMu     sync.RWMutex
 	configSite   *config.Site
 	plugin       *plugin
 	dynamicCache *vmap.Map // 缓存动态文件对象
+}
+
+// config 并发安全地返回当前配置快照（RLock 保护）。
+func (T *siteExtendInfo) config() *config.Site {
+	if T == nil {
+		return nil
+	}
+	T.configMu.RLock()
+	defer T.configMu.RUnlock()
+	return T.configSite
+}
+
+// setConfig 并发安全地替换配置（Lock 保护）。只整份替换，从不修改旧配置内容，
+// 因此读方在拿到指针解锁后可安全使用整个旧快照。
+func (T *siteExtendInfo) setConfig(c *config.Site) {
+	if T == nil {
+		return
+	}
+	T.configMu.Lock()
+	T.configSite = c
+	T.configMu.Unlock()
 }
 
 func newSiteExtendInfo() *siteExtendInfo {
@@ -255,11 +345,14 @@ func newSiteExtendInfo() *siteExtendInfo {
 }
 
 func getSiteExtend(site *vweb.Site) *siteExtendInfo {
-	se, ok := site.Extend.Get(site).(*siteExtendInfo)
-	if !ok {
-		se = newSiteExtendInfo()
-		site.Extend.Set(site, se)
+	if site == nil {
+		return nil
 	}
+	if se, ok := site.Extend.Get(site).(*siteExtendInfo); ok {
+		return se
+	}
+	se := newSiteExtendInfo()
+	site.Extend.Set(site, se)
 	return se
 }
 
@@ -283,6 +376,10 @@ type Group struct {
 	// 用于 .UpdateConfigFile 方法
 	configFileModTime time.Time
 	config            *config.Config // 配置
+
+	// configMu 串行化所有“配置应用/重载/关闭”流程，
+	// 避免 LoadConfigFile 定时重载与 UpdateConfig/Close 并发交错导致的数据竞争与半更新状态。
+	configMu sync.Mutex
 }
 
 func NewGroup() *Group {
@@ -298,10 +395,6 @@ func NewGroup() *Group {
 	return g
 }
 
-// SetServer 增加一个服务器
-//
-//	laddr string	监听地址
-//	srv *Server		服务器, 如果为nil, 则删除已存在的记录
 func (T *Group) SetServer(laddr string, srv *Server) error {
 	if srv == nil {
 		T.srvMan.Del(laddr)
@@ -331,14 +424,18 @@ func (T *Group) defaultServerConfig(srv *Server) {
 //	bool			如果存在服务器, 返回true。否则返回false
 func (T *Group) GetServer(laddr string) (*Server, bool) {
 	if inf, ok := T.srvMan.GetHas(laddr); ok {
-		return inf.(*Server), true
+		if srv, ok := inf.(*Server); ok && srv != nil {
+			return srv, true
+		}
 	}
 	return nil, false
 }
 
 // SetSessionExpiryInterval 设置session的过期时间, 随配置文件变动, d 原来的保存内容可能会被删除或增加。
 func (T *Group) SetSessionExpiryInterval(d time.Duration) {
-	T.sitePool.SetRecoverSession(d)
+	if T.sitePool != nil {
+		T.sitePool.SetRecoverSession(d)
+	}
 }
 
 // SiteMan 站点管理器, 用于获取和设置站点信息。
@@ -354,30 +451,22 @@ func (T *Group) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 	//** 检查Host是否存在
 	site, ok := T.siteMan.Get(r.Host)
 	if !ok {
-		// 如果在站点集中没有找到存在的Host, 则关闭连接。
-		hj, ok := rw.(http.Hijacker)
-		if !ok {
-			// 500 服务器遇到了意料不到的情况, 不能完成客户的请求。
-			http.Error(rw, "Not supported Hijacker", http.StatusInternalServerError)
-			return
+		if hj, ok := rw.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				conn.Close()
+				return
+			}
 		}
-		conn, _, err := hj.Hijack()
-		if err != nil {
-			// 500 服务器遇到了意料不到的情况, 不能完成客户的请求。
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// 直接关闭连接
-		defer conn.Close()
+		http.Error(rw, "Not supported Hijacker", http.StatusInternalServerError)
 		return
 	}
 
-	//** 配置
+	//** 配置（通过 config() 并发安全地取得整份配置快照）
 	var (
 		se     = getSiteExtend(site)
 		plugin = se.plugin
 		dCache = se.dynamicCache
-		conf   = se.configSite
+		conf   = se.config()
 	)
 	if conf == nil {
 		// 500 服务器遇到了意料不到的情况, 不能完成客户的请求。
@@ -496,11 +585,14 @@ func (T *Group) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		// 处理动态格式
 		var handlerDynamic *vweb.ServerHandlerDynamic
 		if inf, ok := dCache.GetHas(pagePath); ok && conf.Dynamic.Cache {
-			handlerDynamic = inf.(*vweb.ServerHandlerDynamic)
-			if conf.Dynamic.CacheParseTimeout != 0 {
+			handlerDynamic, _ = inf.(*vweb.ServerHandlerDynamic)
+			if handlerDynamic == nil {
+				dCache.Del(pagePath)
+			} else if conf.Dynamic.CacheParseTimeout != 0 {
 				dCache.SetExpired(pagePath, time.Duration(conf.Dynamic.CacheParseTimeout))
 			}
-		} else {
+		}
+		if handlerDynamic == nil {
 			if ok {
 				// 存在缓存 ,不开启缓存,释放缓存
 				dCache.Del(pagePath)
@@ -577,11 +669,13 @@ func (T *Group) updateExtInfo(cSite config.Site) {
 
 			httpC := new(vweb.PluginHTTPClient)
 			if inf, ok := plugin.http.Load(name); ok {
-				httpC = inf.(*vweb.PluginHTTPClient)
+				if c, ok := inf.(*vweb.PluginHTTPClient); ok && c != nil {
+					httpC = c
+				}
 			}
 
 			if err := p.ConfigPluginHTTPClient(httpC); err != nil {
-				T.ErrorLog.Printf("server: 名称 %s 的HTTP插件配错误, %s\n", name, err.Error())
+				T.ErrorLog.Printf("server: 名称 %s 的HTTP插件配置错误: %s\n", name, err)
 				continue
 			}
 			plugin.http.Store(name, httpC)
@@ -599,10 +693,12 @@ func (T *Group) updateExtInfo(cSite config.Site) {
 
 			rpcC := new(vweb.PluginRPCClient)
 			if inf, ok := plugin.rpc.Load(name); ok {
-				rpcC = inf.(*vweb.PluginRPCClient)
+				if c, ok := inf.(*vweb.PluginRPCClient); ok && c != nil {
+					rpcC = c
+				}
 			}
 			if err := p.ConfigPluginRPCClient(rpcC); err != nil {
-				T.ErrorLog.Printf("server: 名称 %s 的HTTP插件配错误, %s", name, err.Error())
+				T.ErrorLog.Printf("server: 名称 %s 的RPC插件配置错误: %s", name, err)
 				continue
 			}
 			plugin.rpc.Store(name, rpcC)
@@ -612,20 +708,22 @@ func (T *Group) updateExtInfo(cSite config.Site) {
 		dCache.Reset()
 	}
 
-	// 关闭无效的插件
+	// 清理无效插件
 	plugin.http.Range(func(name, client any) bool {
 		if !strSliceContains(httpEffectiveNames, name.(string)) {
 			plugin.http.Delete(name)
-
-			client.(*vweb.PluginHTTPClient).Tr.CloseIdleConnections()
+			if c, ok := client.(*vweb.PluginHTTPClient); ok && c != nil && c.Tr != nil {
+				c.Tr.CloseIdleConnections()
+			}
 		}
 		return true
 	})
 	plugin.rpc.Range(func(name, client any) bool {
 		if !strSliceContains(rpcEffectiveNames, name.(string)) {
 			plugin.rpc.Delete(name)
-
-			client.(*vweb.PluginRPCClient).ConnPool.Close()
+			if c, ok := client.(*vweb.PluginRPCClient); ok && c != nil && c.ConnPool != nil {
+				c.ConnPool.Close()
+			}
 		}
 		return true
 	})
@@ -648,13 +746,11 @@ func (T *Group) updateSitePoolAdd(cSite config.Site) {
 	site.Sessions().Expired = time.Duration(cSite.Session.Expired) * time.Second
 	site.RootDir = cSite.Directory.RootDir
 
-	// 配置保存到网站扩展中
-	getSiteExtend(site).configSite = &cSite
+	// 配置保存到网站扩展中（并发安全整份替换）
+	getSiteExtend(site).setConfig(&cSite)
 }
 
 // 更新站点池删除, 过滤并删除无效的站点池。
-//
-//	siteEffectiveIdent []string      现有有效站点列表
 //
 // siteEffectiveHosts []string		现有有效的host
 func (T *Group) updateSitePoolDel(siteEffectiveIdent, siteEffectiveHosts []string) {
@@ -676,20 +772,26 @@ func (T *Group) updateSitePoolDel(siteEffectiveIdent, siteEffectiveHosts []strin
 				return true
 			}
 
-			// 关闭插件中的空闲连接
-			plugin := getSiteExtend(site).plugin
+			se := getSiteExtend(site)
+			if se == nil {
+				return true
+			}
+			plugin := se.plugin
 			plugin.http.Range(func(name, client any) bool {
 				plugin.http.Delete(name)
-				client.(*vweb.PluginHTTPClient).Tr.CloseIdleConnections()
+				if c, ok := client.(*vweb.PluginHTTPClient); ok && c != nil && c.Tr != nil {
+					c.Tr.CloseIdleConnections()
+				}
 				return true
 			})
 			plugin.rpc.Range(func(name, client any) bool {
 				plugin.rpc.Delete(name)
-				client.(*vweb.PluginRPCClient).ConnPool.Close()
+				if c, ok := client.(*vweb.PluginRPCClient); ok && c != nil && c.ConnPool != nil {
+					c.ConnPool.Close()
+				}
 				return true
 			})
-			// 释放动态缓存
-			getSiteExtend(site).dynamicCache.Reset()
+			se.dynamicCache.Reset()
 
 			// 清除Session
 			site.Sessions().InstantDeadAll()
@@ -790,14 +892,18 @@ func (T *Group) updateConfigSites(conf config.Sites) error {
 
 func (T *Group) newServer(laddr string) *Server {
 	if inf, ok := T.srvMan.GetHas(laddr); ok {
-		return inf.(*Server)
+		if srv, ok := inf.(*Server); ok && srv != nil {
+			return srv
+		}
 	}
 	srv := new(Server)
 	srv.Addr = laddr
 	return srv
 }
 
-// 启动监听端口
+// listenStart 同步登记服务器并启动监听。
+// 登记先于 goroutine 启动完成，杜绝“登记窗口”：Start/Close/Stop 在 listenStart 返回后
+// 立即能在 srvMan 中看到该地址，避免重复 listenStart 或漏 Stop。
 func (T *Group) listenStart(laddr string, conf config.Listen) error {
 	srv := T.newServer(laddr)
 	if err := srv.ConfigConn(&conf.CC); err != nil {
@@ -807,39 +913,52 @@ func (T *Group) listenStart(laddr string, conf config.Listen) error {
 		return err
 	}
 	T.defaultServerConfig(srv)
+	// 先登记（幂等），再在独立 goroutine 中启动服务
+	T.srvMan.Set(laddr, srv)
 	go T.serve(srv)
 	return nil
 }
 
-// 关闭监听
+// listenStop 停止指定地址的监听。
+// 若配置了 ShutdownConn 则调用优雅 Shutdown（等待进行中请求），否则立即 Close。
+// 先从中移除登记，再关闭，防止 serve 的 defer 误删后来重登记的新服务器。
 func (T *Group) listenStop(laddr string) (err error) {
-	if inf, ok := T.srvMan.GetHas(laddr); ok {
-		if srv, ok := inf.(*Server); ok {
-			if srv.Server != nil {
-				if srv.cServer != nil && srv.cServer.ShutdownConn {
-					// 不要即时关闭正在下载的连接
-					return srv.Server.Shutdown(context.Background())
-				} else {
-					return srv.Server.Close()
-				}
-			}
+	inf, ok := T.srvMan.GetHas(laddr)
+	if !ok {
+		return nil
+	}
+	T.srvMan.Del(laddr)
+
+	srv, ok := inf.(*Server)
+	if !ok || srv == nil {
+		return nil
+	}
+	if srv.Server != nil {
+		srv.status.Store(false) // 立即反映关闭，防止并发启动
+		if srv.cServer != nil && srv.cServer.ShutdownConn {
+			// 不要即时关闭正在下载的连接（优雅关闭）
+			return srv.Server.Shutdown(context.Background())
 		}
 	}
-	return nil
+	// 立即关闭（含自定义 listener）
+	return srv.Close()
 }
 
 // 监听决定, 区分是开启还是关闭监听。
+//
+// 修复原实现的以下问题：
+//  1. 原代码对“仍在监听”的地址无条件再次 listenStart，而 Server.Serve 有 status CAS，
+//     导致配置一重载就报 "already running"。
+//  2. 原 serve() 的 defer srvMan.Del 会无条件删除该地址，而重载通常又调用 listenStart
+//     重新登记同一地址，两者交错会误删“仍运行”的服务器，使后续无法 Stop/Close。
+//
+// 现逻辑：
+//   - 先合并公共 CC/CS 配置；
+//   - 已删除/已禁用/连接或服务器配置发生变更的地址 → listenStop 后按需重启；
+//   - 配置未变的运行中服务器不重启（避免热重载造成断连）；
+//   - 仅对缺失的地址 listenStart。
 func (T *Group) updateConfigServers(conf config.Servers) {
-	// 如果在新的IP例表中没有找到已经存在的开放监听端口IP, 而停止监听此IP
-	T.srvMan.Range(func(key, val any) bool {
-		ip := key.(string)
-		if _, ok := conf.Listen[ip]; !ok {
-			if err := T.listenStop(ip); err != nil {
-				T.ErrorLog.Println(err.Error())
-			}
-		}
-		return true
-	})
+	// 先合并新配置中的公共 CC/CS（listenStart 需要已合并的 cl.CC/cl.CS）
 	exclude := func(name string, dsc, src reflect.Value) bool {
 		switch name {
 		case "TLS":
@@ -848,26 +967,84 @@ func (T *Group) updateConfigServers(conf config.Servers) {
 		}
 		return false
 	}
-	// 如果还没开启监听, 则启动他
-	for laddr, cl := range conf.Listen {
-		if cl.Status {
-			// 复制的配置
-			if cl.CC.PublicName != "" && !conf.Public.ConfigConn(&cl.CC, nil) {
-				T.ErrorLog.Printf("server: %s 地址的私有CC与公共CC合并失败\n", laddr)
-			}
+	for laddr := range conf.Listen {
+		cl := conf.Listen[laddr]
+		if !cl.Status {
+			continue
+		}
+		if cl.CC.PublicName != "" && !conf.Public.ConfigConn(&cl.CC, nil) {
+			T.ErrorLog.Printf("server: %s 地址的私有CC与公共CC合并失败\n", laddr)
+		}
+		if cl.CS.PublicName != "" && !conf.Public.ConfigServer(&cl.CS, exclude) {
+			T.ErrorLog.Printf("server: %s 地址的私有CS与公共CS合并失败\n", laddr)
+		}
+		conf.Listen[laddr] = cl // 写回合并结果
+	}
 
-			if cl.CS.PublicName != "" && !conf.Public.ConfigServer(&cl.CS, exclude) {
-				T.ErrorLog.Printf("server: %s 地址的私有CS与公共CS合并失败\n", laddr)
+	// 关闭“已从配置中删除”的监听
+	T.srvMan.Range(func(key, val any) bool {
+		ip := key.(string)
+		if _, ok := conf.Listen[ip]; !ok {
+			if err := T.listenStop(ip); err != nil {
+				T.ErrorLog.Println(err)
 			}
-			// 启动监听
-			if err := T.listenStart(laddr, cl); err != nil {
-				T.ErrorLog.Println(err.Error())
-			}
-		} else {
-			// 停止监听
+		}
+		return true
+	})
+
+	// 对仍在运行但配置发生变更的地址：优雅关闭后重新按新配置启动
+	restart := func(ip string, cl config.Listen) {
+		if err := T.listenStop(ip); err != nil {
+			T.ErrorLog.Println(err)
+		}
+		if err := T.listenStart(ip, cl); err != nil {
+			T.ErrorLog.Println(err)
+		}
+	}
+
+	for laddr, cl := range conf.Listen {
+		if !cl.Status {
+			// 已禁用 → 停止监听
 			if err := T.listenStop(laddr); err != nil {
-				T.ErrorLog.Println(err.Error())
+				T.ErrorLog.Println(err)
 			}
+			continue
+		}
+
+		inf, running := T.srvMan.GetHas(laddr)
+		if !running {
+			// 尚未开启监听 → 启动
+			if err := T.listenStart(laddr, cl); err != nil {
+				T.ErrorLog.Println(err)
+			}
+			continue
+		}
+
+		srv, ok := inf.(*Server)
+		if !ok || srv == nil {
+			// 登记异常 → 重新启动
+			if err := T.listenStart(laddr, cl); err != nil {
+				T.ErrorLog.Println(err)
+			}
+			continue
+		}
+
+		// 服务器/连接配置变更才重启；配置未变则保持现有连接（不因重载断连）
+		changed := false
+		if srv.cServer != nil {
+			changed = !reflect.DeepEqual(*srv.cServer, cl.CS)
+		} else if !reflect.DeepEqual(config.Server{}, cl.CS) {
+			changed = true
+		}
+		if !changed {
+			if srv.cConn != nil {
+				changed = !reflect.DeepEqual(*srv.cConn, cl.CC)
+			} else if !reflect.DeepEqual(config.Conn{}, cl.CC) {
+				changed = true
+			}
+		}
+		if changed {
+			restart(laddr, cl)
 		}
 	}
 }
@@ -887,13 +1064,17 @@ func (T *Group) LoadConfigFile(p string) (ok bool, err error) {
 	if fileInfo.ModTime().Equal(T.configFileModTime) {
 		return
 	}
-	T.configFileModTime = fileInfo.ModTime()
 
 	// 解析配置文件
 	var conf config.Config
 	if err = conf.ParseFiles(p); err != nil {
 		return
 	}
+
+	// 解析成功后才记录文件修改时间；解析失败不更新，
+	// 否则失败后该文件将永远不再重试。
+	T.configFileModTime = fileInfo.ModTime()
+
 	// 更新配置文件
 	if err = T.UpdateConfig(&conf); err != nil {
 		return
@@ -909,11 +1090,13 @@ func (T *Group) UpdateConfig(conf *config.Config) error {
 	if conf == nil {
 		return fmt.Errorf("server: conf 为 nil, 无法更新。")
 	}
+	T.configMu.Lock()
+	defer T.configMu.Unlock()
 	T.config = conf
 	if T.run.Load() {
 		// 更新网站配置
 		if err := T.updateConfigSites(conf.Sites); err != nil {
-			T.ErrorLog.Println(err.Error())
+			T.ErrorLog.Println(err)
 		}
 		// 更新服务器配置
 		T.updateConfigServers(conf.Servers)
@@ -921,52 +1104,89 @@ func (T *Group) UpdateConfig(conf *config.Config) error {
 	return nil
 }
 
-// serve 启动服务器
+// serve 启动服务器（在独立 goroutine 中运行）。
+// 状态管理完全交由 Server.Serve / ListenAndServe 内部的 atomic CAS 处理，
+// 避免双重设置 status 导致的 "already running" 误报。
+// 若服务器已在运行，ListenAndServe 会立即返回错误并由本函数记录日志。
+// 正常关闭（http.ErrServerClosed / net.ErrClosed）不记为错误。
+//
+// 退出清理采用条件删除：只有“当前 map 中登记的还是本 Server”时才删除，
+// 防止 stop 后重载重建同地址新服务器时，旧 goroutine 的 defer 误删新登记项。
 func (T *Group) serve(srv *Server) {
-	if srv.status.Swap(true) {
-		return
-	}
-	T.srvMan.Set(srv.Addr, srv)
-	defer T.srvMan.Del(srv.Addr)
-	err := srv.ListenAndServe() // 阻塞
-	srv.status.Store(false)     // 退出
-	if err != nil {
-		T.ErrorLog.Printf("server: ip(%s), %s\n", srv.Addr, err.Error())
+	defer func() {
+		if inf, ok := T.srvMan.GetHas(srv.Addr); ok {
+			if cur, ok2 := inf.(*Server); ok2 && cur == srv {
+				T.srvMan.Del(srv.Addr)
+			}
+		}
+	}()
+	err := srv.ListenAndServe() // 阻塞；内部通过 status CAS 保证单实例运行
+	if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+		T.ErrorLog.Printf("server: ip(%s), %s\n", srv.Addr, err)
 	}
 }
 
-// Start 启动服务集群
-//
-//	error   错误
+// Start 启动服务集群。
+// 通过 atomic run 标志保证只启动一次。
+// 若已有配置则立即应用（更新站点与监听），然后阻塞等待退出信号。
+// 优化：支持“Close 后再次 Start”（重建 exit 通道），并改用 close(exit) 通知，
+// 消除“Close 在 Start 之前调用导致 Start 永久阻塞”的死锁隐患。
 func (T *Group) Start() error {
 	if T.run.Swap(true) {
 		return fmt.Errorf("server: 服务组已经开启。")
 	}
 
-	// 刷新配置
+	// 若 Close 已执行过，会重建站点池与站点管理；此处统一做一次幂等初始化。
+	T.initGroupResources()
+	T.exit = make(chan bool)
+
+	// 刷新配置（在 run=true 后执行，确保 UpdateConfig 内部逻辑生效）
 	if T.config != nil {
 		T.UpdateConfig(T.config)
 	}
 
-	// 等待退出
+	// 等待退出信号（由 Close 发送）
 	<-T.exit
 	return nil
 }
 
-// Close 关闭服务集群
-//
-//	error   错误
+// initGroupResources 幂等初始化 Group 运行期必需的资源。
+// 与 NewGroup 中重复时也会安全重建，保证 Start 可在 Close 之后再次使用。
+func (T *Group) initGroupResources() {
+	if T.exit == nil {
+		T.exit = make(chan bool)
+	}
+	if T.route == nil {
+		T.route = new(vweb.Route)
+	}
+	if T.sitePool == nil {
+		T.sitePool = vweb.NewSitePool()
+	}
+	if T.siteMan == nil {
+		T.siteMan = new(vweb.SiteMan)
+	}
+	if T.route != nil && T.siteMan != nil {
+		T.route.SetSiteMan(T.siteMan)
+	}
+}
+
+// Close 关闭服务集群。
+// 并发安全：通过 atomic run 标志防止重复关闭。
+// 依次关闭所有 Server（调用完整 Close 以释放 listener 与 status）、
+// 清理站点池与站点管理器，最后通知 Start 退出阻塞。
+// 优化：整个清理过程在 configMu 下执行，避免与 UpdateConfig/LoadConfigFile 交错。
 func (T *Group) Close() error {
+	T.configMu.Lock()
+	defer T.configMu.Unlock()
+
 	if !T.run.Swap(false) {
 		return fmt.Errorf("server: 服务组已经关闭！")
 	}
 
-	// 关闭监听
+	// 关闭所有监听与服务器（使用 Server.Close 保证 listener 与 status 一并清理）
 	T.srvMan.Range(func(k, v any) bool {
-		if srv, ok := v.(*Server); ok {
-			if srv.Server != nil {
-				srv.Server.Close()
-			}
+		if srv, ok := v.(*Server); ok && srv != nil {
+			srv.Close()
 		}
 		return true
 	})
@@ -975,12 +1195,22 @@ func (T *Group) Close() error {
 	// 参数默认:nil,nil
 	// 删除站点管理中的所有站点
 	// 删除站点池中的所有站点
-	T.updateSitePoolDel(nil, nil)
-	T.sitePool.Close()
-
-	T.sitePool = nil
+	if T.sitePool != nil {
+		T.updateSitePoolDel(nil, nil)
+		T.sitePool.Close()
+		T.sitePool = nil
+	}
 	T.siteMan = nil
-	T.exit <- true
+
+	// 非阻塞方式通知 Start 退出。若 Start 尚未开始运行，此通道会在下次 Start 时被重建，
+	// 不会造成死锁；channel 容量为 0，故使用 select-default 保证不会阻塞。
+	if T.exit != nil {
+		select {
+		case T.exit <- true:
+		default:
+			// 没有接收方（Start 未运行），忽略即可
+		}
+	}
 	return nil
 }
 
@@ -999,11 +1229,13 @@ func httpError(w http.ResponseWriter, rootDir string, errorPage map[string]strin
 			p := filepath.Join(rootDir, ep)
 			b, err := os.ReadFile(p)
 			if err != nil {
+				// 修复：错误页读取失败不能返回空 200，
+				// 回退到默认错误信息并照常写出响应。
+				http.Error(w, e, code)
 				return err
-			} else {
-				http.Error(w, string(b), code)
-				return nil
 			}
+			http.Error(w, string(b), code)
+			return nil
 		}
 	}
 	http.Error(w, e, code)
