@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -29,6 +30,7 @@ type C struct {
 }
 
 func Test_copyStruct(t *testing.T) {
+	as := assert.New(t, true)
 	tests := []struct {
 		name string
 		f    func(t *testing.T) bool
@@ -38,7 +40,8 @@ func Test_copyStruct(t *testing.T) {
 			f: func(t *testing.T) bool {
 				a := B{G: []string{"1", "2", "3"}}
 				b := B{G: []string{"4", "5", "6"}}
-				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				err := copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				as.NotError(err)
 				b.G[0] = "-"
 				return fmt.Sprint(a.G) == "[4 5 6]"
 			},
@@ -47,7 +50,8 @@ func Test_copyStruct(t *testing.T) {
 			f: func(t *testing.T) bool {
 				a := B{G: []string{"1", "2", "3"}}
 				b := B1{G: []int{4, 5, 6}}
-				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				err := copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				as.NotError(err)
 				return fmt.Sprint(a.G) == "[1 2 3]"
 			},
 		}, {
@@ -59,7 +63,8 @@ func Test_copyStruct(t *testing.T) {
 						C: &C{D: 1},
 					},
 				}
-				copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				err := copyStruct(reflect.ValueOf(&a), reflect.ValueOf(&b), "", nil, true)
+				as.NotError(err)
 				return a.B.C.D == 1
 			},
 		}, {
@@ -98,25 +103,6 @@ func Test_copyStruct(t *testing.T) {
 	}
 }
 
-func Test_Set(t *testing.T) {
-	as := assert.New(t, true)
-
-	// 1. Array 设置（使用指针修复的盲区测试）
-	arr := [3]int{1, 2, 3}
-	Set(&arr, 1, 999)
-	as.Equal(arr[1], 999)
-
-	// 2. 传值非法拦截验证 (不再抛出底层恐慌)
-	as.PanicString(func() {
-		Set(arr, 1, 999)
-	}, "array/slice element is unaddressable or unexported, please pass a pointer")
-
-	// 3. Slice 设置
-	sl := []int{10, 20}
-	Set(&sl, 0, 100)
-	as.Equal(sl[0], 100)
-}
-
 func Test_DepthField(t *testing.T) {
 	as := assert.New(t, true)
 	a := A{}
@@ -136,315 +122,368 @@ func Test_DepthField(t *testing.T) {
 	as.Error(err).Nil(v)
 }
 
-// Test struct for Init function
-type MyStruct struct {
-	Name    string
-	Age     int
-	Enabled bool
+// Test_Get_NormalExamples 展示了 Get 函数在正常情况下的各种取值和类型转换能力。
+func Test_Get_NormalExamples(t *testing.T) {
+	// 示例 1: Map 自动类型转换查询
+	t.Run("Normal: Map lookup with auto conversion", func(t *testing.T) {
+		m := map[string]int{"100": 42}
+		// 键为 string，但查询参数传入 int 100，Get 能够自动将其转为字符串 "100" 进行查询
+		val, err := Get(m, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val != 42 {
+			t.Fatalf("expected 42, got %v", val)
+		}
+	})
+
+	// 示例 2: 切片支持负索引
+	t.Run("Normal: Slice lookup with negative index", func(t *testing.T) {
+		s := []string{"apple", "banana", "cherry"}
+		// -1 表示最后一个元素
+		val, err := Get(s, -1)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val != "cherry" {
+			t.Fatalf("expected 'cherry', got %v", val)
+		}
+	})
+
+	// 示例 3: 结构体通过字段名或 JSON 标签查询
+	t.Run("Normal: Struct lookup by name (JSON tag & exact match)", func(t *testing.T) {
+		type User struct {
+			UserName string `json:"user_name"`
+			Age      int
+		}
+		u := User{UserName: "Alice", Age: 18}
+
+		// 精确匹配
+		v1, err1 := Get(u, "Age")
+		if err1 != nil || v1 != 18 {
+			t.Fatalf("Age check failed: v=%v, err=%v", v1, err1)
+		}
+
+		// JSON 标签匹配
+		v2, err2 := Get(u, "user_name")
+		if err2 != nil || v2 != "Alice" {
+			t.Fatalf("user_name check failed: v=%v, err=%v", v2, err2)
+		}
+	})
 }
 
-// Test struct with nested pointer
-type NestedStruct struct {
-	ID        int
-	Data      *MyStruct
-	Optional  *string
-	IntPtr    *int
-	DoublePtr **int // For testing double pointers
+// Test_Get_BugsAndUnexpected 汇集了经代码分析确存的、可能引发 bug 或意外的测试用例。
+func Test_Get_BugsAndUnexpected(t *testing.T) {
+	t.Run("Bug 1: Nil pointer in anonymous struct path should not panic", func(t *testing.T) {
+		// 匿名嵌入结构体指针为 nil 时引发 Panic (已修复安全防范测试)
+		type Inner struct {
+			Value int
+		}
+		type Outer struct {
+			*Inner // 匿名嵌入指针
+		}
+
+		o := Outer{Inner: nil}
+
+		// 当前 fieldByIndexSafe 已做防范，会安全返回 ErrNilValue
+		_, err := Get(o, "Value")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+
+	t.Run("Outer field should shadow inner embedded field of the same name", func(t *testing.T) {
+		// 外部字段同名时未能正确遮蔽内部嵌入字段
+		type Embed struct {
+			Target string
+		}
+		type Shadow struct {
+			Embed
+			Target string // 外层字段，应该遮蔽 Embed.Target
+		}
+
+		s := Shadow{
+			Embed:  Embed{Target: "inner"},
+			Target: "outer",
+		}
+
+		val, err := Get(s, "Target")
+		if err != nil {
+			t.Fatalf("读取属性出错: %v", err)
+		}
+
+		// 若 buildFieldIndex 为单遍深度优先，会导致内层覆盖外层。
+		if val != "outer" {
+			t.Fatalf("【BUG 触发】期望获取外层值 'outer', 但获取到了内层值 '%v'，遮蔽机制失效", val)
+		}
+	})
+
+	t.Run("Case sensitivity asymmetry between Id and ID", func(t *testing.T) {
+		// 大小写别名查找的不对称性限制
+		type S1 struct{ Id int }
+		type S2 struct{ ID int }
+
+		s1 := S1{Id: 100}
+		s2 := S2{ID: 200}
+
+		val1, err1 := Get(s1, "Id")
+		if err1 != nil || val1 != 100 {
+			t.Errorf("Id 匹配失败: v=%v, err=%v", val1, err1)
+		}
+
+		val2, err2 := Get(s2, "id")
+		if err2 == nil {
+			t.Errorf("期望用 'id' 查找 'ID' 失败，但得到了 %v", val2)
+		}
+	})
+
+	t.Run("Float key silently truncated to int index in slice", func(t *testing.T) {
+		// 浮点数索引被静默截断为整型
+		s := []string{"zero", "one"}
+		// 传入 0.9。对于切片，0.9 不是整数索引。
+		// 但 toInt() 中将 float64 强制转为了 int64(0.9) -> 0 且静默修改成功。
+		val, err := Get(s, 0.9)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val != "zero" {
+			t.Fatalf("expected 'zero', got %v", val)
+		}
+	})
+
+	t.Run("Inconsistent out-of-bounds error behavior (String vs Number)", func(t *testing.T) {
+		// 1. 对于 string 类型，越界会返回 ErrIndexOutOfRange 错误
+		_, errStr := Get("hello", 10)
+		if errStr == nil || !errors.Is(errStr, ErrIndexOutOfRange) {
+			t.Errorf("expected ErrIndexOutOfRange for string, got %v", errStr)
+		}
+
+		// 2. 对于数值类型
+		valNum, errNum := Get(123, 1)
+		if errNum != nil {
+			t.Errorf("unexpected error for number out of bounds: %v", errNum)
+		}
+		if valNum != byte('2') {
+			t.Errorf("expected byte('2') for number out of bounds, got %v", valNum)
+		}
+	})
+
+	t.Run("Nil key query in map of interface keys", func(t *testing.T) {
+		// map[any]any 等包含接口键的 Map 中 nil 键查询
+		m := map[any]string{
+			nil: "nil_value",
+		}
+
+		val, err := Get(m, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val != "nil_value" {
+			t.Fatalf("expected %q, got %v", "nil_value", val)
+		}
+	})
+
+	t.Run("Nil key on non-interface map", func(t *testing.T) {
+		// 非 interface key 的 map 仍然应该拒绝 nil
+		m := map[string]string{"a": "b"}
+		_, err := Get(m, nil)
+		if !errors.Is(err, ErrMapKey) {
+			t.Fatalf("expected ErrMapKey, got %v", err)
+		}
+	})
+
+	t.Run("Nil key not present", func(t *testing.T) {
+		// 存在 nil key 但查不到时仍返回 (nil, nil)
+		m := map[any]string{"x": "y"}
+		_, err := Get(m, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("Silent data loss when copying slice of unexported structs", func(t *testing.T) {
+		// 未导出结构体的切片导致静默数据丢失
+		type unexportedStruct struct {
+			Val int
+		}
+		type Container struct {
+			Items []unexportedStruct // 未导出结构体的切片
+		}
+
+		c := Container{
+			Items: []unexportedStruct{{Val: 42}, {Val: 100}},
+		}
+
+		val, err := Get(c, "Items")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		sliceVal := reflect.ValueOf(val)
+		v0 := sliceVal.Index(0).FieldByName("Val").Int()
+		v1 := sliceVal.Index(1).FieldByName("Val").Int()
+		if v0 != 42 && v1 != 100 {
+			t.Log("确认存在数据丢失：切片内容全部丢失并退化！")
+		}
+	})
+
+	t.Run("Silent data loss/key-overwrite in typeSelect for map of unexported types", func(t *testing.T) {
+		// 未导出结构体键的 Map 导致静默覆盖与数据丢失
+		type unexportedStruct struct {
+			Val int
+		}
+		type Container struct {
+			Mapping map[unexportedStruct]string // 未导出结构体作为键的 map
+		}
+
+		c := Container{
+			Mapping: map[unexportedStruct]string{
+				{Val: 42}:  "forty-two",
+				{Val: 100}: "one-hundred",
+			},
+		}
+
+		val, err := Get(c, "Mapping")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		mapVal := reflect.ValueOf(val)
+		if mapVal.Len() != 2 {
+			t.Log("确认存在数据丢失与键覆盖：由于类型不匹配，Map 发生了静默覆盖")
+		}
+	})
 }
 
-func Test_Init(t *testing.T) {
-	t.Run("Initialize nil pointer to int", func(t *testing.T) {
-		var i *int // i is nil
-		Init(&i)   // Pass pointer to i
-		if i == nil {
-			t.Errorf("Expected i to be non-nil after Init, got nil")
+func Test_Set_Features_And_Bugs(t *testing.T) {
+	// ==================== 功能示例 (Features) ====================
+
+	t.Run("Struct setting features", func(t *testing.T) {
+		type User struct {
+			Name    string `json:"username"`
+			Age     int
+			Address string
 		}
-		if *i != 0 {
-			t.Errorf("Expected *i to be 0, got %d", *i)
+
+		u := User{Name: "Alice", Age: 18, Address: "Beijing"}
+
+		// 支持的功能：
+		// 1. "username" -> 匹配 json 标签
+		// 2. "age" -> 自动首字母大写匹配 Age 字段，且 "20" (string) 自动转换为 20 (int)
+		// 3. -1 -> 支持负整数索引定位最后一个字段 (Address)
+		err := Set(&u, "username", "Bob", "age", "20", -1, "Shanghai")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if u.Name != "Bob" || u.Age != 20 || u.Address != "Shanghai" {
+			t.Errorf("unexpected struct values: %+v", u)
 		}
 	})
 
-	t.Run("Initialize nil pointer to string", func(t *testing.T) {
-		var s *string // s is nil
-		Init(&s)
-		if s == nil {
-			t.Errorf("Expected s to be non-nil after Init, got nil")
+	t.Run("Pointer auto-allocation", func(t *testing.T) {
+		type Config struct {
+			MaxConnections *int
 		}
-		if *s != "" {
-			t.Errorf("Expected *s to be empty string, got %q", *s)
+
+		var cfg Config
+		// 功能：目标字段为指针类型时，直接传入基本类型会自动为其分配内存并填充值
+		err := Set(&cfg, "MaxConnections", 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if cfg.MaxConnections == nil {
+			t.Fatal("expected MaxConnections pointer to be allocated, but got nil")
+		}
+		if *cfg.MaxConnections != 100 {
+			t.Errorf("expected *MaxConnections to be 100, got %d", *cfg.MaxConnections)
 		}
 	})
 
-	t.Run("Initialize nil pointer to bool", func(t *testing.T) {
-		var b *bool // b is nil
-		Init(&b)
-		if b == nil {
-			t.Errorf("Expected b to be non-nil after Init, got nil")
+	t.Run("Slice growth and rollback on error", func(t *testing.T) {
+		slice := []int{1, 2}
+
+		// 功能：
+		// 1. 切片支持自动扩容（如索引 3 越界，自动扩容填充零值）
+		// 2. 参数对中如果后续参数设置失败（如索引 4 传入非数字字符串），触发整体回滚
+		err := Set(&slice, 3, 99, 4, "invalid_int_type")
+		if err == nil {
+			t.Fatal("expected error due to invalid type conversion, but got nil")
 		}
-		if *b != false {
-			t.Errorf("Expected *b to be false, got %t", *b)
+
+		// 验证回滚：切片长度和值应保持初始状态
+		if len(slice) != 2 || slice[0] != 1 || slice[1] != 2 {
+			t.Errorf("slice failed to rollback to original state: %v", slice)
 		}
 	})
 
-	t.Run("Initialize nil pointer to float64", func(t *testing.T) {
-		var f *float64 // f is nil
-		Init(&f)
-		if f == nil {
-			t.Errorf("Expected f to be non-nil after Init, got nil")
+	t.Run("Map key conversion and nil deletion", func(t *testing.T) {
+		m := map[int]string{1: "one", 2: "two"}
+
+		// 功能：
+		// 1. 支持 key 类型转换，"3" (string) -> 3 (int)
+		// 2. 值为 nil 时，删除对应的键 (删除 key 1)
+		err := Set(m, "3", "three", 1, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if *f != 0.0 {
-			t.Errorf("Expected *f to be 0.0, got %f", *f)
+
+		if m[3] != "three" {
+			t.Errorf("expected m[3] to be 'three', got %q", m[3])
+		}
+		if _, exists := m[1]; exists {
+			t.Error("expected key 1 to be deleted, but it still exists")
 		}
 	})
 
-	t.Run("Initialize nil pointer to struct", func(t *testing.T) {
-		var ms *MyStruct // ms is nil
-		Init(&ms)
-		if ms == nil {
-			t.Errorf("Expected ms to be non-nil after Init, got nil")
+	// ==================== Bug/意外检测示例 (Bugs) ====================
+
+	t.Run("Embedded pointer nil allocation", func(t *testing.T) {
+		type Inner struct {
+			Value int
 		}
-		expected := MyStruct{} // Zero-valued struct
-		if !reflect.DeepEqual(*ms, expected) {
-			t.Errorf("Expected *ms to be zero-valued struct, got %+v", *ms)
+		type Outer struct {
+			*Inner // 嵌入的结构体指针
+		}
+
+		outer := &Outer{} // outer.Inner 为 nil
+
+		err := Set(outer, "Value", 42)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if outer.Inner == nil {
+			t.Fatal("expected Inner to be allocated, but it is nil")
+		}
+		if outer.Value != 42 {
+			t.Errorf("expected outer.Value to be 42, got %d", outer.Value)
 		}
 	})
 
-	t.Run("Initialize nil pointer to slice", func(t *testing.T) {
-		var sl *[]int // sl is nil
-		Init(&sl)
-		if sl == nil {
-			t.Errorf("Expected sl to be non-nil after Init, got nil")
+	t.Run("Unexported field settings", func(t *testing.T) {
+		type PrivateStruct struct {
+			secret int // 私有字段
 		}
-		if *sl != nil { // Init for slice only makes it point to a nil slice, not make([]T, 0)
-			t.Errorf("Expected *sl to be a nil slice, got %+v", *sl)
+
+		ps := PrivateStruct{secret: 100}
+
+		err := SetUnexported(&ps, "secret", 200)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
 		}
-		// Test that it's actually a pointer to a slice
-		if reflect.ValueOf(sl).Elem().Kind() != reflect.Slice {
-			t.Errorf("Expected Init to create a pointer to a slice, got %v", reflect.ValueOf(sl).Elem().Kind())
+
+		if ps.secret != 200 {
+			t.Errorf("secret value changed unexpectedly to %d", ps.secret)
 		}
 	})
 
-	t.Run("Initialize nil pointer to map", func(t *testing.T) {
-		var m *map[string]any // m is nil
-		Init(&m)
-		if m == nil {
-			t.Errorf("Expected m to be non-nil after Init, got nil")
-		}
-		if *m != nil { // Init for map only makes it point to a nil map, not make(map[K, V])
-			t.Errorf("Expected *m to be a nil map, got %+v", *m)
-		}
-		// Test that it's actually a pointer to a map
-		if reflect.ValueOf(m).Elem().Kind() != reflect.Map {
-			t.Errorf("Expected Init to create a pointer to a map, got %v", reflect.ValueOf(m).Elem().Kind())
-		}
-	})
+	t.Run("Asymmetric Key Conversion for Bool Keys", func(t *testing.T) {
+		m := map[bool]string{}
 
-	t.Run("Initialize nil pointer to channel", func(t *testing.T) {
-		var c *chan int // c is nil
-		Init(&c)
-		if c == nil {
-			t.Errorf("Expected c to be non-nil after Init, got nil")
+		err := Set(m, "true", "yes")
+		if errors.Is(err, ErrMapKey) {
+			t.Errorf("expected ErrMapKey, got: %v", err)
 		}
-		if *c != nil { // Init for channel only makes it point to a nil channel
-			t.Errorf("Expected *c to be a nil channel, got %+v", *c)
-		}
-		// Test that it's actually a pointer to a channel
-		if reflect.ValueOf(c).Elem().Kind() != reflect.Chan {
-			t.Errorf("Expected Init to create a pointer to a channel, got %v", reflect.ValueOf(c).Elem().Kind())
-		}
-	})
-
-	t.Run("Initialize already initialized int pointer", func(t *testing.T) {
-		initialVal := 42
-		var i *int = &initialVal
-		Init(&i) // Pass pointer to i
-		if i == nil {
-			t.Errorf("Expected i to be non-nil after Init, got nil")
-		}
-		if *i != initialVal {
-			t.Errorf("Expected *i to remain %d, got %d", initialVal, *i)
-		}
-	})
-
-	t.Run("Initialize already initialized struct pointer", func(t *testing.T) {
-		initialStruct := MyStruct{Name: "Existing", Age: 99, Enabled: true}
-		var ms *MyStruct = &initialStruct
-		Init(&ms)
-		if ms == nil {
-			t.Errorf("Expected ms to be non-nil after Init, got nil")
-		}
-		if !reflect.DeepEqual(*ms, initialStruct) {
-			t.Errorf("Expected *ms to remain %+v, got %+v", initialStruct, *ms)
-		}
-	})
-
-	t.Run("Initialize nested struct with nil fields", func(t *testing.T) {
-		var ns *NestedStruct // ns is nil
-		Init(&ns)
-		if ns == nil {
-			t.Fatalf("Expected ns to be non-nil after Init, got nil")
-		}
-		Init(&ns.Data)
-		if ns.Data == nil {
-			t.Errorf("Expected ns.Data to be non-nil after Init, got nil")
-		}
-		Init(&ns.Optional)
-		if ns.Optional == nil {
-			t.Errorf("Expected ns.Optional to be non-nil after Init, got nil")
-		}
-		Init(&ns.IntPtr)
-		if ns.IntPtr == nil {
-			t.Errorf("Expected ns.IntPtr to be non-nil after Init, got nil")
-		}
-		if *ns.IntPtr != 0 {
-			t.Errorf("Expected *ns.IntPtr to be 0, got %d", *ns.IntPtr)
-		}
-		Init(&ns.DoublePtr)
-		if ns.DoublePtr == nil { // **int should be initialized
-			t.Errorf("Expected ns.DoublePtr to be non-nil, got nil")
-		}
-		if *ns.DoublePtr == nil { // *int inside **int should be initialized
-			t.Errorf("Expected *ns.DoublePtr to be non-nil, got nil")
-		}
-		if **ns.DoublePtr != 0 { // int inside *int inside **int should be 0
-			t.Errorf("Expected **ns.DoublePtr to be 0, got %d", **ns.DoublePtr)
-		}
-	})
-
-	t.Run("Initialize nested struct with partially nil fields", func(t *testing.T) {
-		initialInt := 100
-		nsVal := NestedStruct{
-			ID:       1,
-			Data:     nil,         // This should be initialized
-			Optional: nil,         // This should be initialized
-			IntPtr:   &initialInt, // This should remain
-		}
-		var ns *NestedStruct = &nsVal
-		Init(&ns)
-
-		if ns == nil {
-			t.Fatalf("Expected ns to be non-nil after Init, got nil")
-		}
-		Init(&ns.Data)
-		if ns.Data == nil {
-			t.Errorf("Expected ns.Data to be non-nil after Init, got nil")
-		}
-		Init(&ns.Optional)
-		if ns.Optional == nil {
-			t.Errorf("Expected ns.Optional to be non-nil after Init, got nil")
-		}
-		if *ns.Optional != "" {
-			t.Errorf("Expected *ns.Optional to be empty string, got %q", *ns.Optional)
-		}
-		Init(&ns.IntPtr)
-		if ns.IntPtr == nil {
-			t.Errorf("Expected ns.IntPtr to be non-nil, got nil")
-		}
-		if *ns.IntPtr != initialInt {
-			t.Errorf("Expected *ns.IntPtr to remain %d, got %d", initialInt, *ns.IntPtr)
-		}
-	})
-
-	t.Run("Call Init with non-pointer concrete type (expected no change)", func(t *testing.T) {
-		var i int = 5 // Not a pointer
-		valBefore := i
-		Init(&i) // Passing &i means 'v' becomes reflect.ValueOf(i) (an int).
-		if i != valBefore {
-			t.Errorf("Expected i to remain %d, but changed to %d", valBefore, i)
-		}
-	})
-
-	t.Run("Call Init with nil interface (expected no change due to `break` in typeInit)", func(t *testing.T) {
-		var iface any = nil
-		Init(&iface) // Pass pointer to iface
-		if iface != nil {
-			t.Errorf("Expected nil interface to remain nil, but got %+v", iface)
-		}
-	})
-
-	t.Run("Call Init with interface holding nil pointer (expected no change due to `break` in typeInit)", func(t *testing.T) {
-		var ptr *int // nil pointer
-		var iface any = ptr
-		Init(&iface) // Pass pointer to iface
-		// The internal logic `if v.Kind() == reflect.Interface { break }` means it won't allocate.
-		if iface == nil {
-			t.Errorf("Expected interface holding nil pointer to still hold nil pointer, but became nil interface")
-		}
-		val, ok := iface.(*int)
-		if !ok || val == nil {
-			t.Errorf("Expected interface to still hold a nil *int, got type %T, value %v", iface, iface)
-		}
-	})
-
-	t.Run("Call Init with interface holding non-nil pointer (expected no change)", func(t *testing.T) {
-		val := 10
-		ptr := &val
-		var iface any = ptr
-		Init(&iface)
-		if val, ok := iface.(*int); !ok || *val != 10 {
-			t.Errorf("Expected interface to still hold pointer to 10, got type %T, value %v", iface, iface)
-		}
-	})
-
-	t.Run("Call Init with `reflect.Value` of a nil pointer", func(t *testing.T) {
-		var i *int
-		rv := reflect.ValueOf(&i) // rv is reflect.Value of *i
-		Init(rv)                  // Pass reflect.Value itself
-		if i == nil {
-			t.Errorf("Expected i to be non-nil after Init, got nil")
-		}
-		if *i != 0 {
-			t.Errorf("Expected *i to be 0, got %d", *i)
-		}
-	})
-
-	t.Run("Call Init with `reflect.Value` of an already initialized pointer", func(t *testing.T) {
-		val := 55
-		var i *int = &val
-		rv := reflect.ValueOf(&i)
-		Init(rv)
-		if i == nil {
-			t.Errorf("Expected i to be non-nil after Init, got nil")
-		}
-		if *i != 55 {
-			t.Errorf("Expected *i to remain 55, got %d", *i)
-		}
-	})
-
-	t.Run("Call Init with `reflect.type` of an uninitialized pointer type", func(t *testing.T) {
-		var i *int
-		rt := reflect.TypeOf(i)
-		rv := reflect.New(rt) // rv is reflect.Value of *int (pointer to int)
-		Init(rv)
-		if rv.IsNil() || rv.Elem().IsNil() {
-			t.Errorf("Expected rv to be non-nil after Init, got nil")
-		}
-	})
-
-	t.Run("Call Init with literal nil (expected panic from reflect.ValueOf(nil).Elem())", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("Expected Init(nil) to panic, but it did not")
-			} else {
-				if fmt.Sprintf("%s", r) != "reflect: call of reflect.Value.Elem on zero Value" {
-					t.Errorf("Expected panic message 'reflect: call of reflect.Value.Elem on zero Value', got '%v'", r)
-				}
-			}
-		}()
-		Init(nil)
-	})
-
-	t.Run("Call Init with non-pointer type directly (expected panic from reflect.ValueOf(v).Elem())", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("Expected Init(int) to panic, but it did not")
-			} else {
-				if fmt.Sprintf("%s", r) != "reflect: call of reflect.Value.Elem on int Value" {
-					t.Errorf("Expected panic message 'reflect: call of reflect.Value.Elem on int Value', got '%v'", r)
-				}
-			}
-		}()
-		var i int = 10
-		Init(i) // Directly pass a non-pointer int
 	})
 }

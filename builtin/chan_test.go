@@ -1,32 +1,12 @@
 package builtin
 
 import (
-	"reflect"
 	"testing"
 	"time"
 )
 
-func TestMakeChan(t *testing.T) {
-	// 测试无缓冲
-	c1 := MakeChan("int")
-	if c1.Data.Type().Elem().Kind() != reflect.Int {
-		t.Errorf("Expected chan int, got %v", c1.Data.Type())
-	}
-
-	// 测试有缓冲，兼容不同整型
-	c2 := MakeChan("string", 10)
-	if c2.Data.Cap() != 10 {
-		t.Errorf("Expected cap 10, got %d", c2.Data.Cap())
-	}
-
-	c3 := MakeChan("string", int64(5)) // 测试非 int 类型的 buffer
-	if c3.Data.Cap() != 5 {
-		t.Errorf("Expected cap 5, got %d", c3.Data.Cap())
-	}
-}
-
 func TestSendAndRecv(t *testing.T) {
-	ch := MakeChan("int", 1)
+	ch := Make("chan int", 1)
 
 	// 测试阻塞发送 (其实有缓冲不阻塞)
 	Send(ch, 100)
@@ -39,7 +19,7 @@ func TestSendAndRecv(t *testing.T) {
 }
 
 func TestTrySendAndTryRecv(t *testing.T) {
-	ch := MakeChan("int", 1)
+	ch := Make("chan int", 1)
 
 	// 测试非阻塞发送
 	ok := TrySend(ch, 42)
@@ -67,7 +47,7 @@ func TestTrySendAndTryRecv(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	ch := MakeChan("int", 1)
+	ch := Make("chan int", 1)
 	Send(ch, 99)
 	Close(ch)
 
@@ -86,7 +66,7 @@ func TestClose(t *testing.T) {
 
 func TestNilSend(t *testing.T) {
 	// 测试发送 nil 给 chan any
-	ch := MakeChan("interface", 1) // 假设 "interface" 被解析为 any
+	ch := Make("chan interface", 1) // 假设 "interface" 被解析为 any
 
 	// 这是一个盲区修复的测试：原来这里会 panic
 	Send(ch, nil)
@@ -129,7 +109,7 @@ func TestNativeChannel(t *testing.T) {
 }
 
 func TestGoroutineBlocking(t *testing.T) {
-	ch := MakeChan("int") // 无缓冲
+	ch := Make("chan int") // 无缓冲
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)

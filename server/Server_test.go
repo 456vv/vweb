@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/456vv/vweb/v3/server/config"
-	"github.com/issue9/assert/v2"
+	"github.com/issue9/assert/v4"
 )
 
 var testCert = `

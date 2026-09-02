@@ -3,6 +3,7 @@ package vweb
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"path"
 	"regexp"
@@ -25,13 +26,18 @@ type routePathPlaceholder struct {
 	isSymbol      bool           // 如果路径包含通配符，表示这是一个通配符匹配的路由
 	isPlaceholder bool           // 如果路径包含占位符，表示这是一个占位符匹配的路由
 	handle        http.Handler
+	// 预解析的占位符段，避免每次请求重复解析，提升性能
+	parsedParts [][]segmentPart
+	// 原始注册的 url，用于 list 中删除定位
+	url string
 }
 
 type Route struct {
 	HandlerError http.HandlerFunc // 错误访问处理
-	rt           sync.Map         // 路由表 map[string]
+	rt           sync.Map         // 路由表 map[string]*routePathPlaceholder，精确匹配走此表
 	list         []*routePathPlaceholder
 	siteMan      *SiteMan
+	mu           sync.RWMutex // 保护 list 的并发读写
 }
 
 // SetSiteMan 设置站点管理，将会携带在请求上下文中
@@ -46,20 +52,31 @@ func (T *Route) SetSiteMan(siteMan *SiteMan) {
 //	handler func(w ResponseWriter, r *Request)    		处理函数
 func (T *Route) HandleFunc(url string, handler func(w http.ResponseWriter, r *http.Request)) {
 	if handler == nil {
-		T.rt.Delete(url)
+		T.removeHandle(url)
 		return
 	}
-
 	T.addHandle(url, http.Handler(http.HandlerFunc(handler)))
 }
 
 func (T *Route) HandleFuncDot(url string, handler ...func(Doter)) {
 	if handler == nil {
-		T.rt.Delete(url)
+		T.removeHandle(url)
 		return
 	}
-
 	T.addHandle(url, http.Handler(HandleFunc(handler)))
+}
+
+func (T *Route) removeHandle(url string) {
+	T.rt.Delete(url)
+	T.mu.Lock()
+	defer T.mu.Unlock()
+	for i, p := range T.list {
+		if p != nil && p.url == url {
+			// 保持顺序，原地删除
+			T.list = append(T.list[:i], T.list[i+1:]...)
+			return
+		}
+	}
 }
 
 func (T *Route) addHandle(url string, handle http.Handler) {
@@ -67,7 +84,9 @@ func (T *Route) addHandle(url string, handle http.Handler) {
 		isDir:        strings.HasSuffix(url, "/"),
 		pathSegments: strings.Split(url, "/"),
 		handle:       handle,
+		url:          url,
 	}
+
 	if strings.HasPrefix(url, "^") || strings.HasSuffix(url, "$") {
 		pathRegex, err := regexp.Compile(url)
 		if err != nil || !isRegex(pathRegex) {
@@ -80,9 +99,32 @@ func (T *Route) addHandle(url string, handle http.Handler) {
 		pathPlaceholder.isSymbol = true
 	} else if strings.ContainsAny(url, "{}") {
 		pathPlaceholder.isPlaceholder = true
+		// 预解析每个段的占位符结构，请求时只做匹配，不再解析语法
+		pathPlaceholder.parsedParts = make([][]segmentPart, len(pathPlaceholder.pathSegments))
+		for i, seg := range pathPlaceholder.pathSegments {
+			if strings.Contains(seg, "{") || strings.Contains(seg, "}") {
+				parts, ok := parsePlaceholderSegment(seg)
+				if !ok {
+					panic("invalid placeholder segment: " + seg)
+				}
+				pathPlaceholder.parsedParts[i] = parts
+			}
+		}
 	}
 
+	// 精确路径直接存 sync.Map，模式路径同时维护有序列表以保证匹配顺序确定
 	T.rt.Store(url, pathPlaceholder)
+
+	T.mu.Lock()
+	defer T.mu.Unlock()
+	// 若已存在同 url 的旧项则替换，保持注册顺序稳定
+	for i, p := range T.list {
+		if p != nil && p.url == url {
+			T.list[i] = pathPlaceholder
+			return
+		}
+	}
+	T.list = append(T.list, pathPlaceholder)
 }
 
 // ServeHTTP 服务HTTP
@@ -119,53 +161,65 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, RouterContextKey, Router(T))
 	r = r.WithContext(ctx)
 
-	// 处理 HandleFunc
 	userPath := r.URL.Path
 
-	inf, ok := T.rt.Load(userPath)
-	if !ok {
-		filteredUserSegments := strings.Split(userPath, "/")
-		isDir := strings.HasSuffix(userPath, "/")
-
-		T.rt.Range(func(k, v any) bool {
-			pathPattern := k.(string)
-			inf = v
-			pathPlaceholder := v.(*routePathPlaceholder)
-
-			//  基本检查：用户路径是否为目录必须与占位符路径的目录性匹配
-			if pathPlaceholder.isDir != isDir {
-				return true
-			}
-
-			// 正则检查路径是否匹配
-			if pathPlaceholder.isRegexp {
-				ok = pathPlaceholder.pathRegex.MatchString(userPath)
-				return !ok
-			}
-
-			// 通配符
-			if pathPlaceholder.isSymbol {
-				ok, _ = path.Match(pathPattern, userPath)
-				return !ok
-			}
-
-			// 占位符变量判断
-			if pathPlaceholder.isPlaceholder {
-				var param map[string]string
-				if param, ok = parsePathParams(filteredUserSegments, pathPlaceholder.pathSegments); ok {
-					r = r.WithContext(context.WithValue(r.Context(), "url-params", param))
-					return false
-				}
-			}
-
-			return true // false 退出
-		})
+	// 1. 精确匹配（O(1)）
+	if v, ok := T.rt.Load(userPath); ok {
+		pathPlaceholder := v.(*routePathPlaceholder)
+		// 只有当该条目本身不是模式路由时才直接命中；模式路由即使 key 相同也走下面逻辑
+		if !pathPlaceholder.isRegexp && !pathPlaceholder.isSymbol && !pathPlaceholder.isPlaceholder {
+			pathPlaceholder.handle.ServeHTTP(w, r)
+			return
+		}
 	}
 
-	if ok {
-		pathPlaceholder := inf.(*routePathPlaceholder)
-		pathPlaceholder.handle.ServeHTTP(w, r)
-		return
+	// 2. 模式匹配：按注册顺序遍历 list，保证确定性
+	filteredUserSegments := strings.Split(userPath, "/")
+	isDir := strings.HasSuffix(userPath, "/")
+
+	T.mu.RLock()
+	list := T.list
+	T.mu.RUnlock()
+
+	for _, pathPlaceholder := range list {
+		if pathPlaceholder == nil {
+			continue
+		}
+		// 目录性必须一致
+		if pathPlaceholder.isDir != isDir {
+			continue
+		}
+
+		if pathPlaceholder.isRegexp {
+			if pathPlaceholder.pathRegex.MatchString(userPath) {
+				pathPlaceholder.handle.ServeHTTP(w, r)
+				return
+			}
+			continue
+		}
+
+		if pathPlaceholder.isSymbol {
+			if matched, _ := path.Match(pathPlaceholder.url, userPath); matched {
+				pathPlaceholder.handle.ServeHTTP(w, r)
+				return
+			}
+			continue
+		}
+
+		if pathPlaceholder.isPlaceholder {
+			if param, ok := parsePathParamsPreparsed(filteredUserSegments, pathPlaceholder.pathSegments, pathPlaceholder.parsedParts); ok {
+				r = r.WithContext(context.WithValue(r.Context(), "url-params", param))
+				pathPlaceholder.handle.ServeHTTP(w, r)
+				return
+			}
+			continue
+		}
+
+		// 纯文字但因某种原因进入 list 的路径（理论上不应出现）
+		if pathPlaceholder.url == userPath {
+			pathPlaceholder.handle.ServeHTTP(w, r)
+			return
+		}
 	}
 
 	// 处理错误的请求
@@ -176,7 +230,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 默认的错误处理
 	w.Header().Set("Connection", "close")
-	http.Error(w, fmt.Sprintf("The path does not exist (%s)", userPath), 404)
+	http.Error(w, fmt.Sprintf("The path does not exist (%s)", userPath), http.StatusNotFound)
 }
 
 // segmentPart 结构用于内部解析占位符片段，区分文字部分和占位符名称
@@ -185,43 +239,37 @@ type segmentPart struct {
 	value         string // 占位符名称或文字内容
 }
 
-// parsePathParams1 根据 userPath 和 pathPlaceholder 解析路径参数
-// 不使用正则表达式
-func parsePathParams(filteredUserSegments, pathSegments []string) (result map[string]string, ok bool) {
-	// 基本检查：用户路径的段数必须与占位符路径的段数匹配
-	if len(filteredUserSegments) != len(pathSegments) {
+// parsePathParamsPreparsed 使用注册时预解析的 segmentPart，避免每次请求重新解析语法
+func parsePathParamsPreparsed(userSegments, pathSegments []string, preParsed [][]segmentPart) (result map[string]string, ok bool) {
+	if len(userSegments) != len(pathSegments) {
 		return nil, false
 	}
 
-	result = make(map[string]string)
-	// 遍历每个段进行匹配和参数提取
-	for i := range filteredUserSegments {
+	result = make(map[string]string, 4) // 预分配小容量，减少扩容
+	for i := range userSegments {
 		placeholderSegment := pathSegments[i]
-		userSegment := filteredUserSegments[i]
+		userSegment := userSegments[i]
 
-		// 检查占位符段是否包含占位符标记 "{}"
+		// 纯文字段必须精确匹配
 		if !strings.Contains(placeholderSegment, "{") && !strings.Contains(placeholderSegment, "}") {
-			// 如果不包含占位符，说明这是纯文字段，必须精确匹配
 			if placeholderSegment != userSegment {
-				return nil, false // 文字段不匹配，返回空 map
+				return nil, false
 			}
-			// 无需提取参数，继续下一个段
 			continue
 		}
 
-		// 段中包含占位符，调用辅助函数提取参数
-		params, ok := extractParamsFromSegment(placeholderSegment, userSegment)
-		if !ok {
-			// 提取失败（例如格式不匹配或占位符语法错误），返回空 map
+		var params map[string]string
+		var okExtract bool
+		if preParsed != nil && i < len(preParsed) && preParsed[i] != nil {
+			params, okExtract = extractParamsFromSegmentPreparsed(preParsed[i], userSegment)
+		} else {
+			params, okExtract = extractParamsFromSegment(placeholderSegment, userSegment)
+		}
+		if !okExtract {
 			return nil, false
 		}
-
-		// 将提取到的参数合并到最终结果 map 中
-		for k, v := range params {
-			result[k] = v
-		}
+		maps.Copy(result, params)
 	}
-
 	return result, true
 }
 
@@ -229,117 +277,106 @@ func parsePathParams(filteredUserSegments, pathSegments []string) (result map[st
 // 例如，placeholderSeg="b{id}b", userSeg="b10b"，将提取 "id":"10"。
 // 成功返回参数map和true，失败返回nil和false。
 func extractParamsFromSegment(placeholderSeg, userSeg string) (map[string]string, bool) {
-	result := make(map[string]string)
-
-	// 首先解析占位符段，得到文字和占位符的序列
 	parsedParts, ok := parsePlaceholderSegment(placeholderSeg)
 	if !ok {
-		return nil, false // 占位符段本身有语法错误
+		return nil, false
 	}
+	return extractParamsFromSegmentPreparsed(parsedParts, userSeg)
+}
 
-	userSegIdx := 0 // 当前在 userSeg 中匹配到的位置
+// extractParamsFromSegmentPreparsed 使用已解析的 parts，仅做字符串匹配与切片
+func extractParamsFromSegmentPreparsed(parsedParts []segmentPart, userSeg string) (map[string]string, bool) {
+	result := make(map[string]string, len(parsedParts)/2+1)
+	userSegIdx := 0
+	userSegLen := len(userSeg)
 
 	for i, part := range parsedParts {
-		if !part.isPlaceholder { // 当前部分是文字 (literal)
-			// 检查 userSeg 中是否有足够的长度来匹配这个文字部分
-			if userSegIdx+len(part.value) > len(userSeg) {
-				return nil, false // userSeg 太短，无法匹配文字
-			}
-			// 检查文字部分是否匹配
-			if userSeg[userSegIdx:userSegIdx+len(part.value)] != part.value {
-				return nil, false // 文字不匹配
-			}
-			userSegIdx += len(part.value) // 移动 userSeg 的匹配指针
-		} else { // 当前部分是占位符 (placeholder)
-			var endOfParam int          // 参数值在 userSeg 中的结束索引
-			if i+1 < len(parsedParts) { // 如果后面还有部分（必须是文字，因为相邻占位符已被禁止）
-				nextPart := parsedParts[i+1]
-				// 寻找下一个文字部分在 userSeg 剩余部分中的位置，作为当前占位符值的结束标记
-				nextLiteral := nextPart.value
-				foundIdx := strings.Index(userSeg[userSegIdx:], nextLiteral)
-				if foundIdx == -1 {
-					return nil, false // 下一个文字分隔符未找到
-				}
-				endOfParam = userSegIdx + foundIdx // 计算参数值的结束索引
-			} else { // 如果这是最后一个部分，那么占位符值就是 userSeg 的剩余全部
-				endOfParam = len(userSeg)
-			}
-
-			// 确保起始索引不大于结束索引，否则参数值将是负长度（逻辑错误）
-			// 如果 userSegIdx == endOfParam，表示参数值为空字符串，这通常是允许的
-			if userSegIdx > endOfParam {
+		if !part.isPlaceholder {
+			partLen := len(part.value)
+			if userSegIdx+partLen > userSegLen {
 				return nil, false
 			}
-
-			paramValue := userSeg[userSegIdx:endOfParam] // 提取参数值
-			result[part.value] = paramValue              // 存储参数
-			userSegIdx = endOfParam                      // 移动 userSeg 的匹配指针
+			if userSeg[userSegIdx:userSegIdx+partLen] != part.value {
+				return nil, false
+			}
+			userSegIdx += partLen
+			continue
 		}
+
+		// 占位符：找到下一个文字的位置作为结束边界
+		var endOfParam int
+		if i+1 < len(parsedParts) {
+			nextLiteral := parsedParts[i+1].value
+			foundIdx := strings.Index(userSeg[userSegIdx:], nextLiteral)
+			if foundIdx == -1 {
+				return nil, false
+			}
+			endOfParam = userSegIdx + foundIdx
+		} else {
+			endOfParam = userSegLen
+		}
+
+		if userSegIdx > endOfParam {
+			return nil, false
+		}
+		result[part.value] = userSeg[userSegIdx:endOfParam]
+		userSegIdx = endOfParam
 	}
 
-	// 遍历完所有部分后，userSeg 的匹配指针应该恰好到达 userSeg 的末尾
-	if userSegIdx != len(userSeg) {
-		return nil, false // userSeg 有未匹配的剩余字符
+	if userSegIdx != userSegLen {
+		return nil, false
 	}
-
-	return result, true // 成功提取所有参数
+	return result, true
 }
 
 // parsePlaceholderSegment 辅助函数，将占位符段（如 "b{id}b"）解析成
 // 包含文字和占位符名称的 segmentPart 序列。
 // 成功返回解析后的序列和true，失败返回nil和false（表示格式错误）。
 func parsePlaceholderSegment(placeholderSeg string) ([]segmentPart, bool) {
-	parts := []segmentPart{}
-
-	currentBuffer := ""    // 用于构建当前文字或占位符名称
-	inPlaceholder := false // 标志是否在占位符内部
+	parts := make([]segmentPart, 0, 4)
+	currentBuffer := strings.Builder{}
+	inPlaceholder := false
 
 	for i := 0; i < len(placeholderSeg); i++ {
 		char := placeholderSeg[i]
 
-		if char == '{' {
-			if inPlaceholder { // 在占位符内部又遇到 '{'，如 "{id{sub}}"，视为格式错误
-				return nil, false
+		switch char {
+		case '{':
+			if inPlaceholder {
+				return nil, false // 嵌套 { 非法
 			}
-			if currentBuffer != "" { // 如果 '{' 前有内容，说明是文字部分
-				parts = append(parts, segmentPart{false, currentBuffer})
-				currentBuffer = ""
+			if currentBuffer.Len() > 0 {
+				parts = append(parts, segmentPart{isPlaceholder: false, value: currentBuffer.String()})
+				currentBuffer.Reset()
 			}
-			inPlaceholder = true // 进入占位符模式
-			continue
+			inPlaceholder = true
+		case '}':
+			if !inPlaceholder {
+				return nil, false // 多余的 }
+			}
+			if currentBuffer.Len() == 0 {
+				return nil, false // 空占位符 {}
+			}
+			parts = append(parts, segmentPart{isPlaceholder: true, value: currentBuffer.String()})
+			currentBuffer.Reset()
+			inPlaceholder = false
+		default:
+			currentBuffer.WriteByte(char)
 		}
-
-		if char == '}' {
-			if !inPlaceholder { // 在非占位符模式下遇到 '}'，如 "foo}bar"，视为格式错误
-				return nil, false
-			}
-			if currentBuffer == "" { // 占位符名称不能为空，如 "{}"，视为格式错误
-				return nil, false
-			}
-			parts = append(parts, segmentPart{true, currentBuffer}) // 添加占位符部分
-			currentBuffer = ""
-			inPlaceholder = false // 退出占位符模式
-			continue
-		}
-
-		currentBuffer += string(char) // 累积字符到当前缓冲区
 	}
 
-	if inPlaceholder { // 遍历结束后，如果仍在占位符模式中，说明占位符未闭合，如 "{param"
-		return nil, false
+	if inPlaceholder {
+		return nil, false // 未闭合
+	}
+	if currentBuffer.Len() > 0 {
+		parts = append(parts, segmentPart{isPlaceholder: false, value: currentBuffer.String()})
 	}
 
-	if currentBuffer != "" { // 如果最后还有剩余内容，说明是文字部分
-		parts = append(parts, segmentPart{false, currentBuffer})
-	}
-
-	// 额外检查：确保没有两个占位符直接相邻，如 "{param1}{param2}"。
-	// 这种情况下很难不使用分隔符进行值提取，所以约定为不支持。
+	// 禁止相邻占位符 {a}{b}
 	for i := 0; i < len(parts)-1; i++ {
 		if parts[i].isPlaceholder && parts[i+1].isPlaceholder {
-			return nil, false // 相邻占位符，格式错误
+			return nil, false
 		}
 	}
-
-	return parts, true // 成功解析
+	return parts, true
 }
