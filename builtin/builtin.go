@@ -681,7 +681,7 @@ func Convert(a, b any) bool {
 	return typeConvert(av, bv)
 }
 
-func ConvertTo(typ, v any) (any, error) {
+func To(typ, v any) (any, error) {
 	telem, err := Type(typ)
 	if err != nil {
 		return nil, err
