@@ -1,75 +1,168 @@
 package builtin
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 )
 
-// ---------------------------------------------------------------------------
-// Internal type registry (read-mostly, concurrent-safe)
-// ---------------------------------------------------------------------------
+// maxIndirect 限制指针/接口解引用层数，配合环检测避免自引用死循环。
+const maxIndirect = 64
+
+// maxConvertDepth 限制容器递归转换深度，避免恶意嵌套栈溢出。
+const maxConvertDepth = 256
 
 var builtinTypes = map[string]reflect.Type{
-	"uintptr":    reflect.TypeOf(uintptr(0)),
-	"int":        reflect.TypeOf(0),
-	"int8":       reflect.TypeOf(int8(0)),
-	"int16":      reflect.TypeOf(int16(0)),
-	"int32":      reflect.TypeOf(int32(0)),
-	"int64":      reflect.TypeOf(int64(0)),
-	"uint":       reflect.TypeOf(uint(0)),
-	"uint8":      reflect.TypeOf(uint8(0)),
-	"uint16":     reflect.TypeOf(uint16(0)),
-	"uint32":     reflect.TypeOf(uint32(0)),
-	"uint64":     reflect.TypeOf(uint64(0)),
-	"bool":       reflect.TypeOf(false),
-	"float32":    reflect.TypeOf(float32(0)),
-	"float64":    reflect.TypeOf(float64(0)),
-	"complex64":  reflect.TypeOf(complex64(0)),
-	"complex128": reflect.TypeOf(complex128(0)),
-	"string":     reflect.TypeOf(""),
-	"byte":       reflect.TypeOf(byte(0)),
-	"rune":       reflect.TypeOf(rune(0)),
-	"any":        reflect.TypeOf((*any)(nil)).Elem(),
-	"interface":  reflect.TypeOf((*any)(nil)).Elem(), // alias
-	"error":      reflect.TypeOf((*error)(nil)).Elem(),
-	"struct":     reflect.TypeOf((*struct{})(nil)).Elem(),
-	"value":      reflect.TypeOf((*reflect.Value)(nil)).Elem(),
-	"type":       reflect.TypeOf((*reflect.Type)(nil)).Elem(),
+	"uintptr":     reflect.TypeFor[uintptr](),
+	"int":         reflect.TypeFor[int](),
+	"int8":        reflect.TypeFor[int8](),
+	"int16":       reflect.TypeFor[int16](),
+	"int32":       reflect.TypeFor[int32](),
+	"int64":       reflect.TypeFor[int64](),
+	"uint":        reflect.TypeFor[uint](),
+	"uint8":       reflect.TypeFor[uint8](),
+	"uint16":      reflect.TypeFor[uint16](),
+	"uint32":      reflect.TypeFor[uint32](),
+	"uint64":      reflect.TypeFor[uint64](),
+	"bool":        reflect.TypeFor[bool](),
+	"float32":     reflect.TypeFor[float32](),
+	"float64":     reflect.TypeFor[float64](),
+	"complex64":   reflect.TypeFor[complex64](),
+	"complex128":  reflect.TypeFor[complex128](),
+	"string":      reflect.TypeFor[string](),
+	"byte":        reflect.TypeFor[byte](),
+	"rune":        reflect.TypeFor[rune](),
+	"any":         reflect.TypeFor[any](),
+	"interface":   reflect.TypeFor[any](),
+	"interface{}": reflect.TypeFor[any](),
+	"error":       reflect.TypeFor[error](),
+	"struct":      reflect.TypeFor[struct{}](),
+	"struct{}":    reflect.TypeFor[struct{}](),
+	"value":       reflect.TypeFor[reflect.Value](),
+	"type":        reflect.TypeFor[reflect.Type](),
 }
 
 func inDirect(v reflect.Value) reflect.Value {
-	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
-		if v.IsNil() {
+	seen := make(map[uintptr]struct{}, 8)
+	for {
+		if !v.IsValid() || (v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface) || v.IsNil() {
 			return v
+		}
+		if v.Kind() == reflect.Pointer {
+			p := v.Pointer()
+			if _, ok := seen[p]; ok {
+				return v
+			}
+			seen[p] = struct{}{}
 		}
 		v = v.Elem()
 	}
-	return v
+}
+
+// asValue 把 any / reflect.Value 统一成 reflect.Value，避免二次包装。
+// Len/Cap/Bool/Compute/CopyStruct 等对已是 reflect.Value 的入参会 ValueOf 成 struct。
+func asValue(v any) reflect.Value {
+	if v == nil {
+		return reflect.Value{}
+	}
+	if rv, ok := v.(reflect.Value); ok {
+		return rv
+	}
+	return reflect.ValueOf(v)
+}
+
+func isSignedKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return true
+	}
+	return false
+}
+
+func isUnsignedKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return true
+	}
+	return false
+}
+
+func isFloatKind(k reflect.Kind) bool {
+	return k == reflect.Float32 || k == reflect.Float64
+}
+
+func isComplexKind(k reflect.Kind) bool {
+	return k == reflect.Complex64 || k == reflect.Complex128
+}
+
+func isNumericKind(k reflect.Kind) bool {
+	return isSignedKind(k) || isUnsignedKind(k) || isFloatKind(k) || isComplexKind(k)
+}
+
+func isIntKind(k reflect.Kind) bool {
+	return isSignedKind(k) || isUnsignedKind(k)
+}
+
+// safeInterface 在未导出类型上避免 Interface() panic。
+func safeInterface(v reflect.Value) any {
+	if !v.IsValid() {
+		return nil
+	}
+	if v.CanInterface() {
+		return v.Interface()
+	}
+	return valueToInterface(v)
 }
 
 // autoConvert 将任意值转换为目标类型。
 func autoConvert(telem reflect.Type, v any) (reflect.Value, error) {
 	if v == nil {
-		return reflect.Zero(telem), nil
+		switch telem.Kind() {
+		case reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr:
+			return reflect.Zero(telem), nil
+		}
+		return reflect.Value{}, errors.New("nil value cannot be converted")
 	}
-	return autoConvertReflect(telem, reflect.ValueOf(v))
+
+	return autoConvertReflect(telem, asValue(v))
 }
 
-func autoConvertReflect(telem reflect.Type, val reflect.Value) (reflect.Value, error) {
+func autoConvertReflect(telem reflect.Type, val reflect.Value) (rv reflect.Value, err error) {
+	// recover 只放在顶层，避免嵌套容器每层 defer。
+	defer func() {
+		if r := recover(); r != nil {
+			rv = reflect.Value{}
+			err = fmt.Errorf("autoConvert: %v", r)
+		}
+	}()
+	return autoConvertReflectN(telem, val, 0)
+}
+
+func autoConvertReflectN(telem reflect.Type, val reflect.Value, depth int) (reflect.Value, error) {
+	if depth > maxConvertDepth {
+		return reflect.Value{}, fmt.Errorf("autoConvert: recursion limit exceeded")
+	}
 	if !val.IsValid() {
 		return reflect.Zero(telem), nil
+	}
+	if isNumericKind(telem.Kind()) && isNumericKind(val.Kind()) {
+		if cv, err := convertNumberChecked(telem, val); err == nil {
+			return cv, nil
+		} else {
+			return reflect.Value{}, fmt.Errorf("autoConvert: %w", err)
+		}
 	}
 
 	// 快速路径：类型完全一致或可直接赋值/转换
 	srcType := val.Type()
-	if srcType == telem {
+	if srcType == telem || srcType.AssignableTo(telem) {
 		return val, nil
 	}
-	if srcType.AssignableTo(telem) {
-		return val, nil
-	}
-	if val.CanConvert(telem) {
+
+	// 切片→数组在长度不匹配时 val.CanConvert 会为 true，Convert 会 panic。
+	if canConvertSafely(val, telem) {
 		return val.Convert(telem), nil
 	}
 
@@ -79,54 +172,70 @@ func autoConvertReflect(telem reflect.Type, val reflect.Value) (reflect.Value, e
 		if val.IsNil() {
 			return reflect.Zero(telem), nil
 		}
-		return autoConvertReflect(telem, val.Elem())
+		return autoConvertReflectN(telem, val.Elem(), depth+1)
+	}
+
+	// 补齐容器元素级转换盲区（[]int→[]int64、map 键值互转、slice↔array、string→[N]byte）。
+	if converted, herr, handled := convertContainer(telem, val, depth); handled {
+		return converted, herr
 	}
 
 	// 目标是指针：先转换元素再取址（避免调用方手动取地址）
 	if telem.Kind() == reflect.Pointer {
-		elem, err := autoConvertReflect(telem.Elem(), val)
-		if err != nil {
-			return reflect.Value{}, err
+		elem, e2 := autoConvertReflectN(telem.Elem(), val, depth+1)
+		if e2 != nil {
+			return reflect.Value{}, e2
 		}
 		// 若元素已是指针且类型匹配，直接返回；否则新建
 		if elem.Kind() == reflect.Pointer && elem.Type() == telem {
 			return elem, nil
 		}
 		ptr := reflect.New(telem.Elem())
-		// 确保可设置（elem 可能来自不可寻址值）
-		if elem.CanInterface() {
-			ptr.Elem().Set(elem)
-		} else {
-			// 极少数不可接口情况回退 Zero + 错误
-			return reflect.Value{}, fmt.Errorf("autoConvert: cannot set pointer element from %s", elem.Type())
+		if !elem.Type().AssignableTo(telem.Elem()) {
+			if canConvertSafely(elem, telem.Elem()) {
+				elem = elem.Convert(telem.Elem())
+			} else {
+				return reflect.Value{}, fmt.Errorf("autoConvert: cannot set pointer element from %s", elem.Type())
+			}
 		}
+		ptr.Elem().Set(elem)
 		return ptr, nil
 	}
 
-	// 结构体：字段名、类型、嵌入标志一致则逐字段拷贝（安全替代 unsafe 内存重解释）
-	// 先完整匹配再赋值，避免部分字段已写入后失败
+	// 结构体：字段名、嵌入标志一致则逐字段转换。
+	// 先完整匹配再赋值，避免部分字段已写入后失败。
 	if val.Kind() == reflect.Struct && telem.Kind() == reflect.Struct && val.NumField() == telem.NumField() {
 		n := val.NumField()
 		match := true
 		for i := range n {
 			sf := val.Type().Field(i)
 			tf := telem.Field(i)
-			if sf.Name != tf.Name || sf.Type != tf.Type || sf.Anonymous != tf.Anonymous {
+			// 原先还要求字段类型完全相同，同构的 int→int64 结构体无法转换。
+			if sf.Name != tf.Name || sf.Anonymous != tf.Anonymous {
 				match = false
 				break
 			}
 		}
 		if match {
 			dst := reflect.New(telem).Elem()
-			for i := 0; i < n; i++ {
-				if dst.Field(i).CanSet() {
-					// 递归转换字段值，支持字段本身需要类型适配的情况
-					fv, err := autoConvertReflect(telem.Field(i).Type, val.Field(i))
-					if err != nil {
-						return reflect.Value{}, fmt.Errorf("autoConvert: struct field %s: %w", telem.Field(i).Name, err)
-					}
-					dst.Field(i).Set(fv)
+			for i := range n {
+				df := dst.Field(i)
+				// 跨包未导出字段 CanSet==false，转换结果会丢字段。
+				if !df.CanSet() && df.CanAddr() {
+					df = makeSettable(df, true)
 				}
+				if !df.CanSet() {
+					// 跳过未导出字段仍返回成功，非零数据会静默丢失。
+					if !isZeroValue(val.Field(i)) {
+						return reflect.Value{}, fmt.Errorf("autoConvert: cannot set unexported field %s", telem.Field(i).Name)
+					}
+					continue
+				}
+				fv, e2 := autoConvertReflectN(telem.Field(i).Type, val.Field(i), depth+1)
+				if e2 != nil {
+					return reflect.Value{}, fmt.Errorf("autoConvert: struct field %s: %w", telem.Field(i).Name, e2)
+				}
+				df.Set(fv)
 			}
 			return dst, nil
 		}
@@ -136,15 +245,30 @@ func autoConvertReflect(telem reflect.Type, val reflect.Value) (reflect.Value, e
 	if telem.Kind() == reflect.String {
 		switch val.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			return reflect.ValueOf(strconv.FormatInt(val.Int(), 10)), nil
+			return reflect.ValueOf(strconv.FormatInt(val.Int(), 10)).Convert(telem), nil
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-			return reflect.ValueOf(strconv.FormatUint(val.Uint(), 10)), nil
+			return reflect.ValueOf(strconv.FormatUint(val.Uint(), 10)).Convert(telem), nil
 		case reflect.Float32, reflect.Float64:
-			return reflect.ValueOf(strconv.FormatFloat(val.Float(), 'f', -1, 64)), nil
+			return reflect.ValueOf(strconv.FormatFloat(val.Float(), 'f', -1, 64)).Convert(telem), nil
 		case reflect.Bool:
-			return reflect.ValueOf(strconv.FormatBool(val.Bool())), nil
+			return reflect.ValueOf(strconv.FormatBool(val.Bool())).Convert(telem), nil
 		case reflect.Complex64, reflect.Complex128:
-			return reflect.ValueOf(fmt.Sprintf("%g", val.Complex())), nil
+			return reflect.ValueOf(fmt.Sprintf("%g", val.Complex())).Convert(telem), nil
+		case reflect.Slice:
+			// []rune / []byte 转 string 原先失败，与 string→[]byte 不对称。
+			ek := val.Type().Elem().Kind()
+			if ek == reflect.Uint8 {
+				b := make([]byte, val.Len())
+				reflect.Copy(reflect.ValueOf(b), val)
+				return reflect.ValueOf(string(b)).Convert(telem), nil
+			}
+			if ek == reflect.Int32 {
+				rs := make([]rune, val.Len())
+				for i := range rs {
+					rs[i] = rune(val.Index(i).Int())
+				}
+				return reflect.ValueOf(string(rs)).Convert(telem), nil
+			}
 		}
 	}
 
@@ -158,49 +282,45 @@ func autoConvertReflect(telem reflect.Type, val reflect.Value) (reflect.Value, e
 			if bitSize == 0 { // 理论上不应发生，防御
 				bitSize = strconv.IntSize
 			}
-			i, err := strconv.ParseInt(s, 10, bitSize)
-			if err != nil {
-				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to %s: %w", s, telem, err)
+			i, e2 := strconv.ParseInt(s, 10, bitSize)
+			if e2 != nil {
+				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to %s: %w", s, telem, e2)
 			}
 			return reflect.ValueOf(i).Convert(telem), nil
-
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 			bitSize := int(telem.Bits())
 			if bitSize == 0 {
 				bitSize = strconv.IntSize
 			}
-			u, err := strconv.ParseUint(s, 10, bitSize)
-			if err != nil {
-				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to %s: %w", s, telem, err)
+			u, e2 := strconv.ParseUint(s, 10, bitSize)
+			if e2 != nil {
+				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to %s: %w", s, telem, e2)
 			}
 			return reflect.ValueOf(u).Convert(telem), nil
-
 		case reflect.Float32, reflect.Float64:
 			bitSize := 64
 			if telem.Kind() == reflect.Float32 {
 				bitSize = 32
 			}
-			f, err := strconv.ParseFloat(s, bitSize)
-			if err != nil {
-				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to %s: %w", s, telem, err)
+			f, e2 := strconv.ParseFloat(s, bitSize)
+			if e2 != nil {
+				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to %s: %w", s, telem, e2)
 			}
 			return reflect.ValueOf(f).Convert(telem), nil
-
 		case reflect.Bool:
-			b, err := strconv.ParseBool(s)
-			if err != nil {
-				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to bool: %w", s, err)
+			b, e2 := strconv.ParseBool(s)
+			if e2 != nil {
+				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to bool: %w", s, e2)
 			}
-			return reflect.ValueOf(b), nil
-
+			return reflect.ValueOf(b).Convert(telem), nil
 		case reflect.Complex64, reflect.Complex128:
 			bitSize := 128
 			if telem.Kind() == reflect.Complex64 {
 				bitSize = 64
 			}
-			c, err := strconv.ParseComplex(s, bitSize)
-			if err != nil {
-				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to %s: %w", s, telem, err)
+			c, e2 := strconv.ParseComplex(s, bitSize)
+			if e2 != nil {
+				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert string %q to %s: %w", s, telem, e2)
 			}
 			return reflect.ValueOf(c).Convert(telem), nil
 		}
@@ -212,22 +332,267 @@ func autoConvertReflect(telem reflect.Type, val reflect.Value) (reflect.Value, e
 	return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert %s to %s", srcType, telem)
 }
 
+// convertNumberChecked 尝试把 src 转成目标数字类型，超出范围返回 error。
+func convertNumberChecked(telem reflect.Type, val reflect.Value) (reflect.Value, error) {
+	switch telem.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		var i int64
+		switch val.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			i = val.Int()
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			u := val.Uint()
+			if u > math.MaxInt64 {
+				return reflect.Value{}, fmt.Errorf("overflow")
+			}
+			i = int64(u)
+		case reflect.Float32, reflect.Float64:
+			f := val.Float()
+			// 检查是否能放入目标类型，避免 float64(int64(f) 对 Inf/≥2^63 是非可移植的，不能只靠 float64(int64(f))!=f
+			if math.IsNaN(f) || f != math.Trunc(f) || f >= 9223372036854775808.0 || f < float64(math.MinInt64) {
+				return reflect.Value{}, fmt.Errorf("not integer or overflow")
+			}
+
+			i = int64(f)
+			if float64(i) != f {
+				return reflect.Value{}, fmt.Errorf("not integer or overflow")
+			}
+		default:
+			return reflect.Value{}, fmt.Errorf("unsupported")
+		}
+		// 检查是否能放入目标类型
+		bitSize := int(telem.Bits())
+		if bitSize == 0 {
+			bitSize = strconv.IntSize
+		}
+		min := int64(-1) << (bitSize - 1)
+		max := int64(1)<<(bitSize-1) - 1
+		if i < min || i > max {
+			return reflect.Value{}, fmt.Errorf("overflow")
+		}
+		return reflect.ValueOf(i).Convert(telem), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		var u uint64
+		switch val.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			i := val.Int()
+			if i < 0 {
+				return reflect.Value{}, fmt.Errorf("negative")
+			}
+			u = uint64(i)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			u = val.Uint()
+		case reflect.Float32, reflect.Float64:
+			f := val.Float()
+			// math.MaxUint64 转 float64 已是 2^64，f>MaxUint64 挡不住 2^64；补 round-trip 防精度洞。
+			if math.IsNaN(f) || f != math.Trunc(f) || f < 0 || f >= 18446744073709551616.0 {
+				return reflect.Value{}, fmt.Errorf("not integer or overflow")
+			}
+			u = uint64(f)
+			if float64(u) != f {
+				return reflect.Value{}, fmt.Errorf("not integer or overflow")
+			}
+		default:
+			return reflect.Value{}, fmt.Errorf("unsupported")
+		}
+		bitSize := int(telem.Bits())
+		if bitSize == 0 {
+			bitSize = strconv.IntSize
+		}
+		max := uint64(1)<<bitSize - 1
+		if bitSize == 64 {
+			max = math.MaxUint64
+		}
+		if u > max {
+			return reflect.Value{}, fmt.Errorf("overflow")
+		}
+		return reflect.ValueOf(u).Convert(telem), nil
+	case reflect.Float32, reflect.Float64:
+		// float 之间通常直接 Convert 即可，精度损失一般可接受
+		if canConvertSafely(val, telem) {
+			return val.Convert(telem), nil
+		}
+	case reflect.Complex64, reflect.Complex128:
+		var c complex128
+		switch val.Kind() {
+		case reflect.Complex64, reflect.Complex128:
+			c = val.Complex()
+		case reflect.Float32, reflect.Float64:
+			c = complex(val.Float(), 0)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			c = complex(float64(val.Int()), 0)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			c = complex(float64(val.Uint()), 0)
+		default:
+			return reflect.Value{}, fmt.Errorf("unsupported")
+		}
+		if telem.Kind() == reflect.Complex64 {
+			if err := checkComplex64Overflow(c); err != nil {
+				return reflect.Value{}, err
+			}
+		}
+		return reflect.ValueOf(c).Convert(telem), nil
+	}
+	return reflect.Value{}, fmt.Errorf("not number")
+}
+
+// checkComplex64Overflow 检查 complex128 → complex64 时实部/虚部是否会因收窄溢出。
+// NaN、±Inf 视为合法值放行；返回错误时指出具体是哪一部分溢出。
+func checkComplex64Overflow(c complex128) error {
+	r, i := real(c), imag(c)
+	// NaN 比较恒为 false，自然放行；
+	// ±Inf 本来就应该原样保留，不能被当作溢出。
+	if !math.IsInf(r, 0) && !math.IsNaN(r) && math.Abs(r) > math.MaxFloat32 {
+		return fmt.Errorf("complex overflow: real part %g exceeds float32 range", r)
+	}
+	if !math.IsInf(i, 0) && !math.IsNaN(i) && math.Abs(i) > math.MaxFloat32 {
+		return fmt.Errorf("complex overflow: imag part %g exceeds float32 range", i)
+	}
+	return nil
+}
+
+func isZeroValue(v reflect.Value) bool {
+	if !v.IsValid() {
+		return true
+	}
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
+		return v.IsNil()
+	default:
+		return v.IsZero()
+	}
+}
+
+// convertContainer 尝试按元素/键值递归转换 slice、array、map。
+// handled=false 表示不是容器对容器，交给后续逻辑。
+func convertContainer(telem reflect.Type, val reflect.Value, depth int) (reflect.Value, error, bool) {
+	switch telem.Kind() {
+	case reflect.Slice:
+		switch val.Kind() {
+		case reflect.Slice:
+			if val.IsNil() {
+				return reflect.Zero(telem), nil, true
+			}
+			n := val.Len()
+			out := reflect.MakeSlice(telem, n, max(val.Cap(), n))
+			for i := range n {
+				ev, err := autoConvertReflectN(telem.Elem(), val.Index(i), depth+1)
+				if err != nil {
+					return reflect.Value{}, err, true
+				}
+				out.Index(i).Set(ev)
+			}
+			return out, nil, true
+		case reflect.Array:
+			n := val.Len()
+			out := reflect.MakeSlice(telem, n, n)
+			for i := range n {
+				ev, err := autoConvertReflectN(telem.Elem(), val.Index(i), depth+1)
+				if err != nil {
+					return reflect.Value{}, err, true
+				}
+				out.Index(i).Set(ev)
+			}
+			return out, nil, true
+		case reflect.String:
+			if telem.Elem().Kind() == reflect.Uint8 {
+				b := []byte(val.String())
+				out := reflect.MakeSlice(telem, len(b), len(b))
+				reflect.Copy(out, reflect.ValueOf(b))
+				return out, nil, true
+			}
+			// string→[]rune 脚本层要手动拆。
+			if telem.Elem().Kind() == reflect.Int32 {
+				rs := []rune(val.String())
+				out := reflect.MakeSlice(telem, len(rs), len(rs))
+				for i := range rs {
+					out.Index(i).Set(reflect.ValueOf(rs[i]).Convert(telem.Elem()))
+				}
+				return out, nil, true
+			}
+		}
+	case reflect.Array:
+		n := telem.Len()
+		switch val.Kind() {
+		case reflect.Slice, reflect.Array:
+			if val.Kind() == reflect.Slice && val.IsNil() {
+				return reflect.Value{}, fmt.Errorf("autoConvert: cannot convert nil slice to array %s", telem), true
+			}
+			if val.Len() != n {
+				return reflect.Value{}, fmt.Errorf("autoConvert: length mismatch %d != %d", val.Len(), n), true
+			}
+			out := reflect.New(telem).Elem()
+			for i := range n {
+				ev, err := autoConvertReflectN(telem.Elem(), val.Index(i), depth+1)
+				if err != nil {
+					return reflect.Value{}, err, true
+				}
+				df := out.Index(i)
+				if !df.CanSet() && df.CanAddr() {
+					df = makeSettable(df, true)
+				}
+				if !df.CanSet() {
+					return reflect.Value{}, fmt.Errorf("autoConvert: array element not settable"), true
+				}
+				df.Set(ev)
+			}
+			return out, nil, true
+		case reflect.String:
+			// string → [N]byte 长度匹配时应可转换（与 []byte 对称）。
+			if telem.Elem().Kind() == reflect.Uint8 && val.Len() == n {
+				out := reflect.New(telem).Elem()
+				reflect.Copy(out.Slice(0, n), val)
+				return out, nil, true
+			}
+			if telem.Elem().Kind() == reflect.Int32 && len([]rune(val.String())) == n {
+				rs := []rune(val.String())
+				out := reflect.New(telem).Elem()
+				for i := range rs {
+					out.Index(i).Set(reflect.ValueOf(rs[i]).Convert(telem.Elem()))
+				}
+				return out, nil, true
+			}
+		}
+	case reflect.Map:
+		if val.Kind() != reflect.Map {
+			return reflect.Value{}, nil, false
+		}
+		if val.IsNil() {
+			return reflect.Zero(telem), nil, true
+		}
+		out := reflect.MakeMapWithSize(telem, val.Len())
+		iter := val.MapRange()
+		for iter.Next() {
+			k, err := autoConvertReflectN(telem.Key(), iter.Key(), depth+1)
+			if err != nil {
+				return reflect.Value{}, err, true
+			}
+			v, err := autoConvertReflectN(telem.Elem(), iter.Value(), depth+1)
+			if err != nil {
+				return reflect.Value{}, err, true
+			}
+			out.SetMapIndex(k, v)
+		}
+		return out, nil, true
+	}
+	return reflect.Value{}, nil, false
+}
+
 func typeString(a any) string {
 	if a == nil {
 		return "nil"
 	}
+	if rv, ok := a.(reflect.Value); ok {
+		if !rv.IsValid() {
+			return "invalid"
+		}
+		return rv.Type().String()
+	}
 	return reflect.TypeOf(a).String()
 }
 
-func panicUnsupportedOp1(op string, a any) any {
-	ta := typeString(a)
-	panic("unsupported operator: " + op + ta)
-}
-
 func panicUnsupportedOp2(op string, a, b any) any {
-	ta := typeString(a)
-	tb := typeString(b)
-	panic("unsupported operator: " + ta + op + tb)
+	panic("unsupported operator: " + typeString(a) + op + typeString(b))
 }
 
 func isTrue(val reflect.Value) bool {
@@ -256,8 +621,18 @@ func isTrue(val reflect.Value) bool {
 }
 
 // typeSelect 安全且高性能地将 reflect.Value 转换为 go 接口类型，支持各类未导出字段及复杂类型
-func typeSelect(v reflect.Value) any {
-	if !v.IsValid() {
+func typeSelect(v reflect.Value) (r any) {
+	// 未导出命名类型上 Interface() 会 panic，兜底路径必须永不崩溃。
+	defer func() {
+		if recover() != nil {
+			r = nil
+		}
+	}()
+	return typeSelect1(v, 0, nil)
+}
+
+func typeSelect1(v reflect.Value, depth int, inProg map[uintptr]struct{}) any {
+	if depth > maxConvertDepth || !v.IsValid() {
 		return nil
 	}
 
@@ -287,7 +662,7 @@ func typeSelect(v reflect.Value) any {
 	}
 
 	// 3. 针对非导出字段，尝试通过清除只读标志直接返回（O(1) 无内存分配）
-	if useUnsafeExport {
+	if unsafeExportEnabled() {
 		exportedV := makeExported(v)
 		if exportedV.CanInterface() {
 			return exportedV.Interface()
@@ -297,70 +672,82 @@ func typeSelect(v reflect.Value) any {
 	// 4. 兜底回退：纯反射递归重建，兼容所有平台（含 Wasm / TinyGo 等）
 	switch v.Kind() {
 	case reflect.Slice:
-		l := v.Len()
-		c := v.Cap()
+		if v.IsNil() {
+			// nil slice 经 MakeSlice 会变成非 nil 空切片。
+			if v.CanInterface() {
+				return v.Interface()
+			}
+			return nil
+		}
+		l, c := v.Len(), v.Cap()
 		elemType := v.Type().Elem()
-		// 创建长度为 0、容量为 c 的切片，避免后续 Append 产生不必要的重新分配
-		cv := reflect.MakeSlice(reflect.SliceOf(elemType), 0, c)
-		for i := 0; i < l; i++ {
-			item := typeSelect(v.Index(i))
-			if item != nil {
-				itemVal := reflect.ValueOf(item)
-				if itemVal.Type().AssignableTo(elemType) {
-					cv = reflect.Append(cv, itemVal)
-				} else if itemVal.Type().ConvertibleTo(elemType) {
-					cv = reflect.Append(cv, itemVal.Convert(elemType))
-				} else {
-					cv = reflect.Append(cv, reflect.Zero(elemType))
-				}
-			} else {
-				cv = reflect.Append(cv, reflect.Zero(elemType))
+		cv := reflect.MakeSlice(v.Type(), l, c)
+		for i := range l {
+			item := typeSelect1(v.Index(i), depth+1, inProg)
+			if item == nil {
+				continue
+			}
+			itemVal := asValue(item)
+			if itemVal.IsValid() && itemVal.Type().AssignableTo(elemType) {
+				cv.Index(i).Set(itemVal)
+			} else if itemVal.IsValid() && itemVal.Type().ConvertibleTo(elemType) {
+				cv.Index(i).Set(itemVal.Convert(elemType))
 			}
 		}
-		return cv.Interface()
+		if cv.CanInterface() {
+			return cv.Interface()
+		}
+		return nil
 
 	case reflect.Array:
 		l := v.Len()
 		elemType := v.Type().Elem()
-		cv := reflect.New(reflect.ArrayOf(l, elemType)).Elem()
-		for i := 0; i < l; i++ {
-			item := typeSelect(v.Index(i))
-			if item != nil {
-				itemVal := reflect.ValueOf(item)
-				if itemVal.Type().AssignableTo(elemType) {
-					cv.Index(i).Set(itemVal)
-				} else if itemVal.Type().ConvertibleTo(elemType) {
-					cv.Index(i).Set(itemVal.Convert(elemType))
-				}
-				// 否则保持零值
+		// 使用原数组类型，保留命名 array。
+		cv := reflect.New(v.Type()).Elem()
+		for i := range l {
+			item := typeSelect1(v.Index(i), depth+1, inProg)
+			if item == nil {
+				continue
+			}
+			itemVal := asValue(item)
+			if itemVal.IsValid() && itemVal.Type().AssignableTo(elemType) {
+				cv.Index(i).Set(itemVal)
+			} else if itemVal.IsValid() && itemVal.Type().ConvertibleTo(elemType) {
+				cv.Index(i).Set(itemVal.Convert(elemType))
 			}
 		}
-		return cv.Interface()
+		if cv.CanInterface() {
+			return cv.Interface()
+		}
+		return nil
 
 	case reflect.Map:
+		if v.IsNil() {
+			if v.CanInterface() {
+				return v.Interface()
+			}
+			return nil
+		}
 		mt := v.Type()
 		resMap := reflect.MakeMapWithSize(mt, v.Len())
 		iter := v.MapRange()
 		for iter.Next() {
-			key := iter.Key()
-			val := iter.Value()
-			rawKey := typeSelect(key)
-			rawVal := typeSelect(val)
-
+			rawKey := typeSelect1(iter.Key(), depth+1, inProg)
+			rawVal := typeSelect1(iter.Value(), depth+1, inProg)
 			var finalKey, finalVal reflect.Value
 			if rawKey != nil {
-				rk := reflect.ValueOf(rawKey)
-				if rk.Type().AssignableTo(mt.Key()) {
+				rk := asValue(rawKey)
+				if rk.IsValid() && rk.Type().AssignableTo(mt.Key()) {
 					finalKey = rk
-				} else if rk.Type().ConvertibleTo(mt.Key()) {
+				} else if rk.IsValid() && rk.Type().ConvertibleTo(mt.Key()) {
 					finalKey = rk.Convert(mt.Key())
 				}
 			}
 			if rawVal != nil {
-				rv := reflect.ValueOf(rawVal)
-				if rv.Type().AssignableTo(mt.Elem()) {
+				rv := asValue(rawVal)
+				if rv.IsValid() && rv.Type().AssignableTo(mt.Elem()) {
 					finalVal = rv
-				} else if rv.Type().ConvertibleTo(mt.Elem()) {
+				} else if rv.IsValid() && rv.Type().ConvertibleTo(mt.Elem()) {
 					finalVal = rv.Convert(mt.Elem())
 				}
 			}
@@ -372,35 +759,49 @@ func typeSelect(v reflect.Value) any {
 			}
 			resMap.SetMapIndex(finalKey, finalVal)
 		}
-		return resMap.Interface()
+		if resMap.CanInterface() {
+			return resMap.Interface()
+		}
+		return nil
 
 	case reflect.Pointer, reflect.Interface:
 		if v.IsNil() {
 			return nil
 		}
-		return typeSelect(v.Elem())
+		if v.Kind() == reflect.Pointer {
+			p := v.Pointer()
+			if inProg != nil {
+				if _, ok := inProg[p]; ok {
+					return nil
+				}
+			} else {
+				inProg = make(map[uintptr]struct{}, 8)
+			}
+			inProg[p] = struct{}{}
+			out := typeSelect1(v.Elem(), depth+1, inProg)
+			delete(inProg, p)
+			return out
+		}
+		return typeSelect1(v.Elem(), depth+1, inProg)
 
 	case reflect.Struct:
-		// 纯反射回退：只导出已导出字段为 map[string]any（与原行为一致）
 		t := v.Type()
 		res := make(map[string]any, t.NumField())
-		for i := 0; i < v.NumField(); i++ {
+		for i := range v.NumField() {
 			field := t.Field(i)
 			if field.PkgPath != "" {
 				continue
 			}
-			res[field.Name] = typeSelect(v.Field(i))
+			res[field.Name] = typeSelect1(v.Field(i), depth+1, inProg)
 		}
 		return res
 	}
-
 	return nil
 }
 
 // typeInit 初始化 nil 指针/接口，并可选择将最终值置为零值或指定初始容量。
 // isZero 为 true 时对 Map/Slice/Chan/Func 等进行零值或带参数初始化。
 func typeInit(v reflect.Value, isZero bool, args ...any) bool {
-	// Bug 3 修复：根值无效或不可设置时，直接返回（不 panic、不做无意义半初始化）
 	if !v.IsValid() || !v.CanSet() {
 		return false
 	}
@@ -410,7 +811,10 @@ func typeInit(v reflect.Value, isZero bool, args ...any) bool {
 // initChain 沿指针/接口链向下分配所有 nil 指针（含接口内部），
 // 若 isZero 则对最内层值做零值/容器初始化。
 func initChain(v reflect.Value, isZero bool, args ...any) bool {
-	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
+	for range maxIndirect {
+		if !v.IsValid() || (v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface) {
+			break
+		}
 		switch v.Kind() {
 		case reflect.Interface:
 			if v.IsNil() {
@@ -443,18 +847,18 @@ func initChain(v reflect.Value, isZero bool, args ...any) bool {
 	if !isZero {
 		return true
 	}
+
 	if !v.IsValid() || !v.CanSet() {
 		return false
 	}
 	switch v.Kind() {
 	case reflect.Map:
-		l := sizeArg(args, 0)
-		v.Set(reflect.MakeMapWithSize(v.Type(), l))
+		v.Set(reflect.MakeMapWithSize(v.Type(), sizeArg(args, 0)))
 	case reflect.Slice:
 		l := sizeArg(args, 0)
 		c := l
 		if len(args) > 1 {
-			if n, ok := args[1].(int); ok {
+			if n, ok := toInt(args[1]); ok {
 				c = max(n, l)
 			}
 		}
@@ -468,19 +872,87 @@ func initChain(v reflect.Value, isZero bool, args ...any) bool {
 		}
 		v.Set(reflect.Zero(v.Type()))
 	case reflect.Chan:
-		l := sizeArg(args, 0)
-		v.Set(reflect.MakeChan(v.Type(), l))
+		v.Set(reflect.MakeChan(v.Type(), sizeArg(args, 0)))
 	default:
 		v.Set(reflect.Zero(v.Type()))
 	}
 	return true
 }
 
+// initNestedNilPtrs 分配结构体里已有的 nil 指针字段。
+// Init 注释承诺深层 nil 指针初始化，旧实现只走顶层指针链。
+// 刚分配出来的值不再下钻，否则 type Node { Next *Node } 会无限分配。
+func initNestedNilPtrs(v reflect.Value, depth int, seen map[copyVisit]struct{}) {
+	if depth > maxIndirect || !v.IsValid() {
+		return
+	}
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return
+		}
+		p := v.Pointer()
+		if p != 0 {
+			key := copyVisit{addr: p, typ: v.Type()}
+			if _, ok := seen[key]; ok {
+				return
+			}
+			seen[key] = struct{}{}
+		}
+		initNestedNilPtrs(v.Elem(), depth+1, seen)
+		return
+	}
+	if v.Kind() == reflect.Interface {
+		if v.IsNil() || !v.CanSet() {
+			return
+		}
+		inner := v.Elem()
+		cp := reflect.New(inner.Type()).Elem()
+		cp.Set(inner)
+		initNestedNilPtrs(cp, depth+1, seen)
+		v.Set(cp)
+		return
+	}
+	if v.Kind() == reflect.Array {
+		for i := range v.Len() {
+			initNestedNilPtrs(v.Index(i), depth+1, seen)
+		}
+		return
+	}
+
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	if v.CanAddr() {
+		p := v.UnsafeAddr()
+		key := copyVisit{addr: p, typ: v.Type()}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+	}
+	for i := range v.NumField() {
+		f := v.Field(i)
+
+		if !f.IsValid() {
+			continue
+		}
+		if f.Kind() == reflect.Pointer && f.IsNil() {
+			if f.CanSet() {
+				f.Set(reflect.New(f.Type().Elem()))
+			}
+			continue
+		}
+		if f.Kind() == reflect.Pointer || f.Kind() == reflect.Struct || f.Kind() == reflect.Array || f.Kind() == reflect.Interface {
+			initNestedNilPtrs(f, depth+1, seen)
+		}
+	}
+}
+
 // sizeArg 读取 int 类型的尺寸参数；负数钳制为 0，
 // 避免 MakeSlice/MakeChan/MakeMapWithSize 收到负数 panic（Bug 2 修复）。
 func sizeArg(args []any, idx int) int {
 	if len(args) > idx {
-		if n, ok := args[idx].(int); ok && n > 0 {
+		if n, ok := toInt(args[idx]); ok && n > 0 {
 			return n
 		}
 	}
@@ -491,9 +963,22 @@ func sizeArg(args []any, idx int) int {
 // 除类型层面（CanConvert）外，还处理运行期越界情形：
 // 切片→数组 / 切片→数组指针 要求长度匹配，否则 reflect.Convert 会 panic。
 func canConvertSafely(src reflect.Value, typ reflect.Type) bool {
-	if !src.CanConvert(typ) {
+	if !src.IsValid() || typ == nil || !src.CanConvert(typ) {
 		return false
 	}
+
+	// 数字/布尔/复数 → string 不走原生 Convert（会变成 rune）
+	if typ.Kind() == reflect.String {
+		switch src.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+			reflect.Float32, reflect.Float64,
+			reflect.Bool,
+			reflect.Complex64, reflect.Complex128:
+			return false
+		}
+	}
+
 	// 切片→数组 / 数组指针：长度必须匹配
 	if src.Kind() == reflect.Slice && isArrayOrArrayPtr(typ) {
 		want := typ
@@ -503,6 +988,10 @@ func canConvertSafely(src reflect.Value, typ reflect.Type) bool {
 		if src.Len() != want.Len() {
 			return false
 		}
+	}
+	// 不可寻址数组转切片时 CanConvert 仍可能为 true，Convert 会 panic。
+	if src.Kind() == reflect.Array && typ.Kind() == reflect.Slice && !src.CanAddr() {
+		return false
 	}
 	return true
 }
@@ -526,28 +1015,39 @@ func typeConvert(dst, src reflect.Value) (ok bool) {
 		return false
 	}
 
-	// 剥离源接口层，直到得到具体类型
-	for src.Kind() == reflect.Interface {
+	for range maxIndirect {
+		if src.Kind() != reflect.Interface {
+			break
+		}
 		if src.IsNil() {
 			return false
 		}
 		src = src.Elem()
 	}
+
 	if !src.IsValid() || src.Kind() == reflect.Invalid {
 		return false
 	}
 
-	// 1. 直接可转换（数值、字符串、切片/数组、命名↔底层类型等）
-	if canConvertSafely(src, dst.Type()) {
-		dst.Set(src.Convert(dst.Type()))
-		return true
-	}
-
-	// 2. 源是非 nil 指针，解引用后递归转换
-	if src.Kind() == reflect.Pointer && !src.IsNil() {
-		if typeConvert(dst, src.Elem()) {
+	// 每一层都先尝试直接转换，保留 *T → *T 不必解引用的语义。
+	cur := src
+	for i := 0; i < maxIndirect; i++ {
+		// 数字类型优先走溢出检查，避免静默截断
+		if isNumericKind(dst.Type().Kind()) && isNumericKind(cur.Kind()) {
+			if cv, err := convertNumberChecked(dst.Type(), cur); err == nil {
+				dst.Set(cv)
+				return true
+			}
+			// 溢出或无法转换，继续尝试解引用或后续逻辑
+		} else if canConvertSafely(cur, dst.Type()) {
+			dst.Set(cur.Convert(dst.Type()))
 			return true
 		}
+		if cur.Kind() == reflect.Pointer && !cur.IsNil() {
+			cur = cur.Elem()
+			continue
+		}
+		break
 	}
 
 	// 3. 目标是指针/接口时，先初始化再尝试转换到底层
@@ -574,5 +1074,9 @@ func typeConvert(dst, src reflect.Value) (ok bool) {
 		}
 	}
 
+	if cv, err := autoConvertReflect(dst.Type(), src); err == nil && cv.IsValid() && cv.Type().AssignableTo(dst.Type()) {
+		dst.Set(cv)
+		return true
+	}
 	return false
 }

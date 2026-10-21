@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"bytes"
+	"math"
 	"reflect"
 	"testing"
 )
@@ -31,300 +32,440 @@ type (
 )
 
 func Test_typeConvert(t *testing.T) {
-	tests := []struct {
-		name string
-		f    func(*testing.T) bool
-	}{
-		// ---------- 原有用例（已修正接口实现，应全部通过） ----------
-		{name: "1", f: func(t *testing.T) bool {
-			var t1 M1 = (*T1)(nil)
-			var t2 M2 = (*T2)(nil)
-			av := toValue(&t1)
-			bv := toValue(&t2)
-			ok := typeConvert(av, bv)
-			return ok && av.Elem().Type().String() == "*builtin.T2"
-		}},
-		{name: "2", f: func(t *testing.T) bool {
-			var t1 M1 = new(T1)
-			var t2 M2 = new(T2)
-			av := toValue(&t1)
-			bv := toValue(&t2)
-			ok := typeConvert(av, bv)
-			return ok && av.Elem().Type().String() == "*builtin.T2"
-		}},
-		{name: "3", f: func(t *testing.T) bool {
-			var t1 M1 = new(T1)
-			var t2 any = new(T2)
-			av := toValue(&t1)
-			bv := toValue(&t2)
-			ok := typeConvert(av, bv)
-			return ok && av.Elem().Type().String() == "*builtin.T2"
-		}},
-		{name: "4", f: func(t *testing.T) bool {
-			var t1 M1 = (*T1)(nil)
-			var t2 any = new(T2)
-			av := toValue(&t1)
-			bv := toValue(&t2)
-			ok := typeConvert(av, bv)
-			return ok && av.Elem().Type().String() == "*builtin.T2"
-		}},
-		{name: "5", f: func(t *testing.T) bool {
-			var t1 M1 = &T1{I: 1}
-			var t2 any = (*T2)(nil)
-			ok := typeConvert(toValue(&t1), toValue(&t2))
-			return ok && t1 == (*T2)(nil)
-		}},
-		{name: "6_panic_fix", f: func(t *testing.T) bool {
-			var t1 any
-			ok := typeConvert(toValue(&t1), reflect.ValueOf(T1{I: 100}))
-			return ok && t1.(T1).I == 100
-		}},
-		{name: "7_ptr_to_struct", f: func(t *testing.T) bool {
-			var t1 T1
-			ok := typeConvert(toValue(&t1), reflect.ValueOf(&T1{I: 200}))
-			return ok && t1.I == 200
-		}},
-		{name: "8_interface_struct_to_ptr", f: func(t *testing.T) bool {
-			var t1 *T1
-			var src any = T1{I: 300}
-			ok := typeConvert(toValue(&t1), toValue(&src))
-			return ok && t1 != nil && t1.I == 300
-		}},
-		{name: "9_invalid_nil_safe", f: func(t *testing.T) bool {
-			var t1 *T1
-			var src any = nil
-			ok := typeConvert(toValue(&t1), toValue(&src))
-			return !ok && t1 == nil
-		}},
+	// ---------- 原有用例（已修正接口实现，应全部通过） ----------
+	t.Run("1", func(t *testing.T) {
+		var t1 M1 = (*T1)(nil)
+		var t2 M2 = (*T2)(nil)
+		av := toValue(&t1)
+		bv := toValue(&t2)
+		ok := typeConvert(av, bv)
+		if !ok || av.Elem().Type().String() != "*builtin.T2" {
+			t.Fatalf("got ok=%v, type=%s", ok, av.Elem().Type().String())
+		}
+	})
 
-		// ---------- 基础：相同类型 ----------
-		{"same_int", func(t *testing.T) bool {
-			var dst int
-			return typeConvert(toValue(&dst), reflect.ValueOf(42)) && dst == 42
-		}},
-		{"same_string", func(t *testing.T) bool {
-			var dst string
-			return typeConvert(toValue(&dst), reflect.ValueOf("hello")) && dst == "hello"
-		}},
-		{"same_bool", func(t *testing.T) bool {
-			var dst bool
-			return typeConvert(toValue(&dst), reflect.ValueOf(true)) && dst == true
-		}},
+	t.Run("2", func(t *testing.T) {
+		var t1 M1 = new(T1)
+		var t2 M2 = new(T2)
+		av := toValue(&t1)
+		bv := toValue(&t2)
+		ok := typeConvert(av, bv)
+		if !ok || av.Elem().Type().String() != "*builtin.T2" {
+			t.Fatalf("got ok=%v, type=%s", ok, av.Elem().Type().String())
+		}
+	})
 
-		// ---------- 数值转换 ----------
-		{"int_to_int64", func(t *testing.T) bool {
-			var dst int64
-			return typeConvert(toValue(&dst), reflect.ValueOf(100)) && dst == 100
-		}},
-		{"int64_to_int", func(t *testing.T) bool {
-			var dst int
-			return typeConvert(toValue(&dst), reflect.ValueOf(int64(1234567))) && dst == 1234567
-		}},
-		{"int_to_float", func(t *testing.T) bool {
-			var dst float64
-			return typeConvert(toValue(&dst), reflect.ValueOf(7)) && dst == 7.0
-		}},
-		{"float_to_int_trunc", func(t *testing.T) bool {
-			// 3.9 -> 3：向零截断，属"意外结果"（静默丢精度）
-			var dst int
-			return typeConvert(toValue(&dst), reflect.ValueOf(3.9)) && dst == 3
-		}},
-		{"int_to_uint_neg", func(t *testing.T) bool {
-			// -1 -> uint：按位回绕成最大值，属"意外结果"
-			var dst uint
-			ok := typeConvert(toValue(&dst), reflect.ValueOf(-1))
-			return ok && dst == ^uint(0)
-		}},
-		{"narrow_overflow_wrap", func(t *testing.T) bool {
-			// 128 -> int8：溢出回绕为 -128，属"意外结果"
-			var dst int8
-			return typeConvert(toValue(&dst), reflect.ValueOf(128)) && dst == -128
-		}},
-		{"complex_narrow", func(t *testing.T) bool {
-			var dst complex64
-			return typeConvert(toValue(&dst), reflect.ValueOf(complex128(1+2i))) && dst == complex64(1+2i)
-		}},
-		{"complex_to_float_fail", func(t *testing.T) bool {
-			var dst float64
-			return !typeConvert(toValue(&dst), reflect.ValueOf(complex(1, 2)))
-		}},
+	t.Run("3", func(t *testing.T) {
+		var t1 M1 = new(T1)
+		var t2 any = new(T2)
+		av := toValue(&t1)
+		bv := toValue(&t2)
+		ok := typeConvert(av, bv)
+		if !ok || av.Elem().Type().String() != "*builtin.T2" {
+			t.Fatalf("got ok=%v, type=%s", ok, av.Elem().Type().String())
+		}
+	})
 
-		// ---------- 字符串 / 字节 / rune ----------
-		{"string_to_bytes", func(t *testing.T) bool {
-			var dst []byte
-			return typeConvert(toValue(&dst), reflect.ValueOf("abc")) && len(dst) == 3 && string(dst) == "abc"
-		}},
-		{"bytes_to_string", func(t *testing.T) bool {
-			var dst string
-			return typeConvert(toValue(&dst), reflect.ValueOf([]byte{'x', 'y'})) && dst == "xy"
-		}},
-		{"string_to_runes", func(t *testing.T) bool {
-			var dst []rune
-			return typeConvert(toValue(&dst), reflect.ValueOf("ab")) && len(dst) == 2 && dst[0] == 'a'
-		}},
-		{"int_to_string_rune", func(t *testing.T) bool {
-			// 65 -> "A"：int 转 string 产生的是单 rune，而不是 "65"，属"意外结果"
-			var dst string
-			return typeConvert(toValue(&dst), reflect.ValueOf(65)) && dst == "A"
-		}},
+	t.Run("4", func(t *testing.T) {
+		var t1 M1 = (*T1)(nil)
+		var t2 any = new(T2)
+		av := toValue(&t1)
+		bv := toValue(&t2)
+		ok := typeConvert(av, bv)
+		if !ok || av.Elem().Type().String() != "*builtin.T2" {
+			t.Fatalf("got ok=%v, type=%s", ok, av.Elem().Type().String())
+		}
+	})
 
-		// ---------- 切片 / 数组 ----------
-		{"slice_to_array", func(t *testing.T) bool {
-			var dst [3]int
-			return typeConvert(toValue(&dst), reflect.ValueOf([]int{4, 5, 6})) && dst == [3]int{4, 5, 6}
-		}},
-		{"slice_short_to_array_no_panic", func(t *testing.T) bool {
-			// 切片长度 < 数组长度：值级上不可转换，应当安全返回 false。
-			// 若 typeConvert 直接 panic（reflect.Convert 会 panic），此用例即失败并暴露该缺陷。
-			var dst [5]int
-			defer func() {
-				if r := recover(); r != nil {
-					t.Logf("BUG: typeConvert panicked on short slice->array: %v", r)
-				}
-			}()
-			return !typeConvert(toValue(&dst), reflect.ValueOf([]int{1, 2}))
-		}},
-		{"slice_to_array_ptr", func(t *testing.T) bool {
-			var dst *[2]int
-			return typeConvert(toValue(&dst), reflect.ValueOf([]int{9, 8})) && dst != nil && *dst == [2]int{9, 8}
-		}},
+	t.Run("5", func(t *testing.T) {
+		var t1 M1 = &T1{I: 1}
+		var t2 any = (*T2)(nil)
+		ok := typeConvert(toValue(&t1), toValue(&t2))
+		if !ok || t1 != (*T2)(nil) {
+			t.Fatalf("got ok=%v, t1=%v", ok, t1)
+		}
+	})
 
-		// ---------- 命名类型 ↔ 底层类型 ----------
-		{"named_to_underlying", func(t *testing.T) bool {
-			type MyInt int
-			var dst int
-			return typeConvert(toValue(&dst), reflect.ValueOf(MyInt(9))) && dst == 9
-		}},
-		{"underlying_to_named", func(t *testing.T) bool {
-			type MyStr string
-			var dst MyStr
-			return typeConvert(toValue(&dst), reflect.ValueOf("z")) && dst == "z"
-		}},
+	t.Run("6_panic_fix", func(t *testing.T) {
+		var t1 any
+		ok := typeConvert(toValue(&t1), reflect.ValueOf(T1{I: 100}))
+		if !ok || t1.(T1).I != 100 {
+			t.Fatalf("got ok=%v, t1=%v", ok, t1)
+		}
+	})
 
-		// ---------- 指针 ----------
-		{"concrete_to_ptr", func(t *testing.T) bool {
-			var dst *T1
-			return typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 5})) && dst != nil && dst.I == 5
-		}},
-		{"ptr_to_concrete", func(t *testing.T) bool {
-			var dst T1
-			return typeConvert(toValue(&dst), reflect.ValueOf(&T1{I: 6})) && dst.I == 6
-		}},
-		{"ptr_T1_to_ptr_T2", func(t *testing.T) bool {
-			var dst *T2
-			return typeConvert(toValue(&dst), reflect.ValueOf(&T1{I: 7})) && dst != nil && dst.I == 7
-		}},
-		{"nil_ptr_to_concrete", func(t *testing.T) bool {
-			var dst T1
-			return !typeConvert(toValue(&dst), reflect.ValueOf((*T1)(nil)))
-		}},
-		{"ptr_to_any", func(t *testing.T) bool {
-			var p *any
-			ok := typeConvert(toValue(&p), reflect.ValueOf(T1{I: 8}))
-			return ok && p != nil && (*p).(T1).I == 8
-		}},
+	t.Run("7_ptr_to_struct", func(t *testing.T) {
+		var t1 T1
+		ok := typeConvert(toValue(&t1), reflect.ValueOf(&T1{I: 200}))
+		if !ok || t1.I != 200 {
+			t.Fatalf("got ok=%v, t1.I=%d", ok, t1.I)
+		}
+	})
 
-		// ---------- 接口 ----------
-		{"concrete_to_any", func(t *testing.T) bool {
-			var dst any
-			return typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 10})) && dst.(T1).I == 10
-		}},
-		{"any_to_concrete", func(t *testing.T) bool {
-			var dst T1
-			var src any = T1{I: 11}
-			return typeConvert(toValue(&dst), toValue(&src)) && dst.I == 11
-		}},
-		{"nil_interface_src", func(t *testing.T) bool {
-			var dst any
-			var src any = nil
-			return !typeConvert(toValue(&dst), toValue(&src)) && dst == nil
-		}},
-		{"interface_to_interface", func(t *testing.T) bool {
-			var dst M2
-			var src any = &T1{I: 12}
-			return typeConvert(toValue(&dst), toValue(&src)) && dst != nil && dst.M() == 12
-		}},
-		{"nil_typed_ptr_via_interface", func(t *testing.T) bool {
-			var dst M2
-			var src M1 = (*T1)(nil)
-			ok := typeConvert(toValue(&dst), toValue(&src))
-			return ok && dst != nil && reflect.TypeOf(dst) == reflect.TypeOf((*T1)(nil))
-		}},
-		{"int_to_unmatched_interface", func(t *testing.T) bool {
-			var dst M1
-			return !typeConvert(toValue(&dst), reflect.ValueOf(1))
-		}},
+	t.Run("8_interface_struct_to_ptr", func(t *testing.T) {
+		var t1 *T1
+		var src any = T1{I: 300}
+		ok := typeConvert(toValue(&t1), toValue(&src))
+		if !ok || t1 == nil || t1.I != 300 {
+			t.Fatalf("got ok=%v, t1=%v", ok, t1)
+		}
+	})
 
-		// ---------- 结构体 ----------
-		{"struct_to_struct", func(t *testing.T) bool {
-			var dst T2
-			return typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 20})) && dst.I == 20
-		}},
-		{"struct_ptr_to_other_ptr", func(t *testing.T) bool {
-			var dst *T2
-			return typeConvert(toValue(&dst), reflect.ValueOf(&T1{I: 21})) && dst != nil && dst.I == 21
-		}},
+	t.Run("9_invalid_nil_safe", func(t *testing.T) {
+		var t1 *T1
+		var src any = nil
+		ok := typeConvert(toValue(&t1), toValue(&src))
+		if ok || t1 != nil {
+			t.Fatalf("got ok=%v, t1=%v", ok, t1)
+		}
+	})
 
-		// ---------- map / chan / func ----------
-		{"named_map_to_map", func(t *testing.T) bool {
-			type MyMap map[string]int
-			var dst map[string]int
-			src := MyMap{"a": 1}
-			return typeConvert(toValue(&dst), reflect.ValueOf(src)) && len(dst) == 1 && dst["a"] == 1
-		}},
-		{"chan_conversion", func(t *testing.T) bool {
-			type MyChan chan int
-			var dst MyChan
-			src := make(chan int, 1)
-			if !typeConvert(toValue(&dst), reflect.ValueOf(src)) || dst == nil {
-				return false
+	// ---------- 基础：相同类型 ----------
+	t.Run("same_int", func(t *testing.T) {
+		var dst int
+		if !typeConvert(toValue(&dst), reflect.ValueOf(42)) || dst != 42 {
+			t.Fatalf("got dst=%d", dst)
+		}
+	})
+
+	t.Run("same_string", func(t *testing.T) {
+		var dst string
+		if !typeConvert(toValue(&dst), reflect.ValueOf("hello")) || dst != "hello" {
+			t.Fatalf("got dst=%q", dst)
+		}
+	})
+
+	t.Run("same_bool", func(t *testing.T) {
+		var dst bool
+		if !typeConvert(toValue(&dst), reflect.ValueOf(true)) || dst != true {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	// ---------- 数值转换 ----------
+	t.Run("int_to_int64", func(t *testing.T) {
+		var dst int64
+		if !typeConvert(toValue(&dst), reflect.ValueOf(100)) || dst != 100 {
+			t.Fatalf("got dst=%d", dst)
+		}
+	})
+
+	t.Run("int64_to_int", func(t *testing.T) {
+		var dst int
+		if !typeConvert(toValue(&dst), reflect.ValueOf(int64(1234567))) || dst != 1234567 {
+			t.Fatalf("got dst=%d", dst)
+		}
+	})
+
+	t.Run("int_to_float", func(t *testing.T) {
+		var dst float64
+		if !typeConvert(toValue(&dst), reflect.ValueOf(7)) || dst != 7.0 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("float_to_int_trunc", func(t *testing.T) {
+		var dst int
+		if typeConvert(toValue(&dst), reflect.ValueOf(3.9)) {
+			t.Fatalf("got dst=%d", dst)
+		}
+	})
+
+	t.Run("int_to_uint_neg", func(t *testing.T) {
+		var dst uint
+		ok := typeConvert(toValue(&dst), reflect.ValueOf(-1))
+		if ok {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("narrow_overflow_wrap", func(t *testing.T) {
+		var dst int8
+		if typeConvert(toValue(&dst), reflect.ValueOf(128)) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("complex_narrow", func(t *testing.T) {
+		var dst complex64
+		if !typeConvert(toValue(&dst), reflect.ValueOf(complex128(1+2i))) || dst != complex64(1+2i) {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("complex_to_float_fail", func(t *testing.T) {
+		var dst float64
+		if typeConvert(toValue(&dst), reflect.ValueOf(complex(1, 2))) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("complex_narrow_overflow", func(t *testing.T) {
+		var dst complex64
+		src := complex(math.MaxFloat64, 1) // 实部必然溢出 float32
+		if typeConvert(toValue(&dst), reflect.ValueOf(src)) {
+			t.Fatalf("expected failure, got dst=%v", dst)
+		}
+	})
+
+	t.Run("complex_narrow_inf_passthrough", func(t *testing.T) {
+		var dst complex64
+		src := complex(math.Inf(1), 0) // Inf 应原样保留，不算溢出
+		if !typeConvert(toValue(&dst), reflect.ValueOf(src)) || !math.IsInf(float64(real(dst)), 1) {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+	// ---------- 字符串 / 字节 / rune ----------
+	t.Run("string_to_bytes", func(t *testing.T) {
+		var dst []byte
+		if !typeConvert(toValue(&dst), reflect.ValueOf("abc")) || len(dst) != 3 || string(dst) != "abc" {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("bytes_to_string", func(t *testing.T) {
+		var dst string
+		if !typeConvert(toValue(&dst), reflect.ValueOf([]byte{'x', 'y'})) || dst != "xy" {
+			t.Fatalf("got dst=%q", dst)
+		}
+	})
+
+	t.Run("string_to_runes", func(t *testing.T) {
+		var dst []rune
+		if !typeConvert(toValue(&dst), reflect.ValueOf("ab")) || len(dst) != 2 || dst[0] != 'a' {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("int_to_string", func(t *testing.T) {
+		var dst string
+		if !typeConvert(toValue(&dst), reflect.ValueOf(65)) || dst != "65" {
+			t.Fatalf("got dst=%q", dst)
+		}
+	})
+
+	// ---------- 切片 / 数组 ----------
+	t.Run("slice_to_array", func(t *testing.T) {
+		var dst [3]int
+		if !typeConvert(toValue(&dst), reflect.ValueOf([]int{4, 5, 6})) || dst != [3]int{4, 5, 6} {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("slice_short_to_array_no_panic", func(t *testing.T) {
+		// 切片长度 < 数组长度：值级上不可转换，应当安全返回 false。
+		// 若 typeConvert 直接 panic（reflect.Convert 会 panic），此用例即失败并暴露该缺陷。
+		var dst [5]int
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("BUG: typeConvert panicked on short slice->array: %v", r)
 			}
-			select {
-			case dst <- 3:
-			default:
-				return false
-			}
-			return <-dst == 3
-		}},
-		{"func_conversion", func(t *testing.T) bool {
-			type MyFunc func(int) int
-			var dst MyFunc
-			src := func(x int) int { return x * 2 }
-			return typeConvert(toValue(&dst), reflect.ValueOf(src)) && dst != nil && dst(5) == 10
-		}},
+		}()
+		if typeConvert(toValue(&dst), reflect.ValueOf([]int{1, 2})) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
 
-		// ---------- 失败路径：不可转换应返回 false 且绝不 panic ----------
-		{"incompatible_struct_to_int", func(t *testing.T) bool {
-			var dst int
-			return !typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 1}))
-		}},
-		{"incompatible_int_to_slice", func(t *testing.T) bool {
-			var dst []int
-			return !typeConvert(toValue(&dst), reflect.ValueOf(1))
-		}},
-		{"incompatible_chan_to_int", func(t *testing.T) bool {
-			var dst int
-			return !typeConvert(toValue(&dst), reflect.ValueOf(make(chan int)))
-		}},
-		{"struct_to_chan", func(t *testing.T) bool {
-			var dst chan int
-			return !typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 1}))
-		}},
-		{"dst_not_settable", func(t *testing.T) bool {
-			return !typeConvert(reflect.ValueOf(0), reflect.ValueOf(1))
-		}},
-		{"dst_invalid", func(t *testing.T) bool {
-			return !typeConvert(reflect.Value{}, reflect.ValueOf(1))
-		}},
-	}
+	t.Run("slice_to_array_ptr", func(t *testing.T) {
+		var dst *[2]int
+		if !typeConvert(toValue(&dst), reflect.ValueOf([]int{9, 8})) || dst == nil || *dst != [2]int{9, 8} {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if !tt.f(t) {
-				t.Fatalf("error in %s", tt.name)
-			}
-		})
-	}
+	// ---------- 命名类型 ↔ 底层类型 ----------
+	t.Run("named_to_underlying", func(t *testing.T) {
+		type MyInt int
+		var dst int
+		if !typeConvert(toValue(&dst), reflect.ValueOf(MyInt(9))) || dst != 9 {
+			t.Fatalf("got dst=%d", dst)
+		}
+	})
+
+	t.Run("underlying_to_named", func(t *testing.T) {
+		type MyStr string
+		var dst MyStr
+		if !typeConvert(toValue(&dst), reflect.ValueOf("z")) || dst != "z" {
+			t.Fatalf("got dst=%q", dst)
+		}
+	})
+
+	// ---------- 指针 ----------
+	t.Run("concrete_to_ptr", func(t *testing.T) {
+		var dst *T1
+		if !typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 5})) || dst == nil || dst.I != 5 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("ptr_to_concrete", func(t *testing.T) {
+		var dst T1
+		if !typeConvert(toValue(&dst), reflect.ValueOf(&T1{I: 6})) || dst.I != 6 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("ptr_T1_to_ptr_T2", func(t *testing.T) {
+		var dst *T2
+		if !typeConvert(toValue(&dst), reflect.ValueOf(&T1{I: 7})) || dst == nil || dst.I != 7 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("nil_ptr_to_concrete", func(t *testing.T) {
+		var dst T1
+		if !typeConvert(toValue(&dst), reflect.ValueOf((*T1)(nil))) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("ptr_to_any", func(t *testing.T) {
+		var p *any
+		ok := typeConvert(toValue(&p), reflect.ValueOf(T1{I: 8}))
+		if !ok || p == nil || (*p).(T1).I != 8 {
+			t.Fatalf("got ok=%v, p=%v", ok, p)
+		}
+	})
+
+	// ---------- 接口 ----------
+	t.Run("concrete_to_any", func(t *testing.T) {
+		var dst any
+		if !typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 10})) || dst.(T1).I != 10 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("any_to_concrete", func(t *testing.T) {
+		var dst T1
+		var src any = T1{I: 11}
+		if !typeConvert(toValue(&dst), toValue(&src)) || dst.I != 11 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("nil_interface_src", func(t *testing.T) {
+		var dst any
+		var src any = nil
+		if typeConvert(toValue(&dst), toValue(&src)) || dst != nil {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("interface_to_interface", func(t *testing.T) {
+		var dst M2
+		var src any = &T1{I: 12}
+		if !typeConvert(toValue(&dst), toValue(&src)) || dst == nil || dst.M() != 12 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("nil_typed_ptr_via_interface", func(t *testing.T) {
+		var dst M2
+		var src M1 = (*T1)(nil)
+		ok := typeConvert(toValue(&dst), toValue(&src))
+		if !ok || dst == nil || reflect.TypeOf(dst) != reflect.TypeOf((*T1)(nil)) {
+			t.Fatalf("got ok=%v, dst=%v, type=%v", ok, dst, reflect.TypeOf(dst))
+		}
+	})
+
+	t.Run("int_to_unmatched_interface", func(t *testing.T) {
+		var dst M1
+		if typeConvert(toValue(&dst), reflect.ValueOf(1)) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	// ---------- 结构体 ----------
+	t.Run("struct_to_struct", func(t *testing.T) {
+		var dst T2
+		if !typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 20})) || dst.I != 20 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("struct_ptr_to_other_ptr", func(t *testing.T) {
+		var dst *T2
+		if !typeConvert(toValue(&dst), reflect.ValueOf(&T1{I: 21})) || dst == nil || dst.I != 21 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	// ---------- map / chan / func ----------
+	t.Run("named_map_to_map", func(t *testing.T) {
+		type MyMap map[string]int
+		var dst map[string]int
+		src := MyMap{"a": 1}
+		if !typeConvert(toValue(&dst), reflect.ValueOf(src)) || len(dst) != 1 || dst["a"] != 1 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	t.Run("chan_conversion", func(t *testing.T) {
+		type MyChan chan int
+		var dst MyChan
+		src := make(chan int, 1)
+		if !typeConvert(toValue(&dst), reflect.ValueOf(src)) || dst == nil {
+			t.Fatal("conversion failed or dst is nil")
+		}
+		select {
+		case dst <- 3:
+		default:
+			t.Fatal("cannot send to channel")
+		}
+		if got := <-dst; got != 3 {
+			t.Fatalf("got %d, want 3", got)
+		}
+	})
+
+	t.Run("func_conversion", func(t *testing.T) {
+		type MyFunc func(int) int
+		var dst MyFunc
+		src := func(x int) int { return x * 2 }
+		if !typeConvert(toValue(&dst), reflect.ValueOf(src)) || dst == nil || dst(5) != 10 {
+			t.Fatalf("got dst=%v", dst)
+		}
+	})
+
+	// ---------- 失败路径：不可转换应返回 false 且绝不 panic ----------
+	t.Run("incompatible_struct_to_int", func(t *testing.T) {
+		var dst int
+		if typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 1})) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("incompatible_int_to_slice", func(t *testing.T) {
+		var dst []int
+		if typeConvert(toValue(&dst), reflect.ValueOf(1)) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("incompatible_chan_to_int", func(t *testing.T) {
+		var dst int
+		if typeConvert(toValue(&dst), reflect.ValueOf(make(chan int))) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("struct_to_chan", func(t *testing.T) {
+		var dst chan int
+		if typeConvert(toValue(&dst), reflect.ValueOf(T1{I: 1})) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("dst_not_settable", func(t *testing.T) {
+		if typeConvert(reflect.ValueOf(0), reflect.ValueOf(1)) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
+
+	t.Run("dst_invalid", func(t *testing.T) {
+		if typeConvert(reflect.Value{}, reflect.ValueOf(1)) {
+			t.Fatal("expected conversion to fail")
+		}
+	})
 }
 
 func Test_typeInit(t *testing.T) {
@@ -637,9 +778,9 @@ func Test_autoConvert(t *testing.T) {
 
 	t.Run("float64 转 int（截断）", func(t *testing.T) {
 		v := 3.14
-		ret, _ := autoConvert(reflect.TypeOf(0), v)
-		if ret.Int() != 3 {
-			t.Fatal("expected 3")
+		_, err := autoConvert(reflect.TypeOf(0), v)
+		if err == nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
@@ -671,11 +812,11 @@ func Test_autoConvert(t *testing.T) {
 	// =============================================
 	// 3. nil / 零值处理
 	// =============================================
-	t.Run("nil 接口转 string 返回零值", func(t *testing.T) {
+	t.Run("nil 接口不可以转 string 返回零值", func(t *testing.T) {
 		var v any = nil
-		ret, _ := autoConvert(reflect.TypeOf(""), v)
-		if ret.String() != "" {
-			t.Fatal("expected empty string")
+		_, err := autoConvert(reflect.TypeOf(""), v)
+		if err == nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 

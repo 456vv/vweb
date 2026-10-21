@@ -21,7 +21,7 @@ func TestCompute(t *testing.T) {
 		{"string unsupported op", "hello", "-", "world", nil, true},
 		{"int divide by zero", int(10), "/", int(0), nil, true},
 		{"uint modulo by zero", uint(10), "%", uint(0), nil, true},
-		{"mismatched types", int(10), "+", float64(10), nil, true},
+		{"int+float64 types", int(10), "+", float64(10), int(20), false},
 		{"shift operation", int32(2), "<<", int32(3), int32(16), false},
 		{"nil values", nil, "+", nil, nil, true},
 	}
@@ -30,7 +30,7 @@ func TestCompute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := Compute(tt.x, tt.symbol, tt.y)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Compute() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("%s in Compute() error = %v, wantErr %v", tt.name, err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
