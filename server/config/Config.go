@@ -51,6 +51,47 @@ func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(n
 	}
 }
 
+// cloneStringMap 拷贝 map[string]string，nil 仍返回 nil。
+func cloneStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// cloneStringSliceMap 拷贝 map[string][]string（Header 字段），对每个 value 切片再拷一层。
+func cloneStringSliceMap(m map[string][]string) map[string][]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string][]string, len(m))
+	for k, vs := range m {
+		if vs == nil {
+			out[k] = nil
+			continue
+		}
+		out[k] = append([]string(nil), vs...)
+	}
+	return out
+}
+
+// cloneSiteHeaderTypeMap 深拷贝 map[string]SiteHeaderType，隔离公共与站点配置。
+func cloneSiteHeaderTypeMap(m map[string]SiteHeaderType) map[string]SiteHeaderType {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]SiteHeaderType, len(m))
+	for k, v := range m {
+		v.Header = cloneStringSliceMap(v.Header)
+		out[k] = v
+	}
+	return out
+}
+
 // SiteForward 配置-转发-配置
 type SiteForward struct {
 	Status       bool     // 启用或禁止
@@ -190,7 +231,11 @@ func (T *SitePluginTLS) clone() *SitePluginTLS {
 
 // ConfigSitePluginHTTP 从公共 HTTP 配置模板中合并配置到 origin 中
 func (T *SitePlugins) ConfigSitePluginHTTP(origin *SitePlugin, handle func(name string, dsc, src reflect.Value) bool) bool {
-	if origin == nil {
+	if T == nil || origin == nil {
+		return false
+	}
+	// HTTP map 未初始化时直接下标会 panic。
+	if T.HTTP == nil {
 		return false
 	}
 	c, ok := T.HTTP[origin.PublicName]
@@ -209,7 +254,11 @@ func (T *SitePlugins) ConfigSitePluginHTTP(origin *SitePlugin, handle func(name 
 
 // ConfigSitePluginRPC 从公共 RPC 配置模板中合并配置到 origin 中
 func (T *SitePlugins) ConfigSitePluginRPC(origin *SitePlugin, handle func(name string, dsc, src reflect.Value) bool) bool {
-	if origin == nil {
+	if T == nil || origin == nil {
+		return false
+	}
+	// RPC map 未初始化时直接下标会 panic。
+	if T.RPC == nil {
 		return false
 	}
 	c, ok := T.RPC[origin.PublicName]
@@ -344,11 +393,14 @@ func (T *SitePublic) ConfigSiteSession(origin *SiteSession, handle func(name str
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
+	if T.Session == nil {
+		return false
+	}
 	c, ok := T.Session[origin.PublicName]
 	if !ok {
 		return false
 	}
-	if builtin.CopyStructDeep(&c, origin, handle) != nil {
+	if builtin.CopyStruct(&c, origin, configExclude(handle)) != nil {
 		return false
 	}
 	*origin = c
@@ -360,13 +412,22 @@ func (T *SitePublic) ConfigSiteHeader(origin *SiteHeader, handle func(name strin
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
+
+	if T.Header == nil {
+		return false
+	}
 	c, ok := T.Header[origin.PublicName]
 	if !ok {
 		return false
 	}
-	if builtin.CopyStructDeep(&c, origin, handle) != nil {
+	if builtin.CopyStruct(&c, origin, configExclude(handle)) != nil {
 		return false
 	}
+	// CopyStruct 对 map 是浅拷贝，合并后 origin 与公共模板仍共享 Static/Dynamic/MIME 底层 map，
+	// 运行期站点若改 Header 会污染公共配置；此处做防御性深拷贝隔离。
+	c.Static = cloneSiteHeaderTypeMap(c.Static)
+	c.Dynamic = cloneSiteHeaderTypeMap(c.Dynamic)
+	c.MIME = cloneStringMap(c.MIME)
 	*origin = c
 	return true
 }
@@ -379,11 +440,13 @@ func (T *SitePublic) ConfigSiteForward(origin *SiteForwards, handle func(name st
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
+	if T.Forward == nil {
+		return false
+	}
 	c, ok := T.Forward[origin.PublicName]
 	if !ok || len(c.List) == 0 {
 		return ok // 找到但为空列表时仍视为“引用成功”，与旧行为接近
 	}
-	// 在锁内完成切片拷贝，避免解锁后公共配置被并发修改导致读到不一致数据
 	srcList := c.List
 	copied := make([]SiteForward, len(srcList))
 	for i := range srcList {
@@ -410,12 +473,19 @@ func (T *SitePublic) ConfigSiteDynamic(origin *SiteDynamic, handle func(name str
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
+	if T.Dynamic == nil {
+		return false
+	}
 	c, ok := T.Dynamic[origin.PublicName]
 	if !ok {
 		return false
 	}
-	if builtin.CopyStructDeep(&c, origin, handle) != nil {
+	if builtin.CopyStruct(&c, origin, configExclude(handle)) != nil {
 		return false
+	}
+	// Ext 切片与公共模板共享底层数组，站点侧 append 会污染公共配置。
+	if n := len(c.Ext); n > 0 {
+		c.Ext = append([]string(nil), c.Ext...)
 	}
 	*origin = c
 	return true
@@ -434,8 +504,16 @@ func (T *SitePublic) ConfigSitePlugin(origin *SitePlugin, kind string, handle fu
 	)
 	switch {
 	case equalFoldASCII(kind, "rpc"):
+		// RPC map 可能为 nil。
+		if T.Plugin.RPC == nil {
+			return false
+		}
 		c, ok = T.Plugin.RPC[origin.PublicName]
 	case equalFoldASCII(kind, "http"):
+		// HTTP map 可能为 nil。
+		if T.Plugin.HTTP == nil {
+			return false
+		}
 		c, ok = T.Plugin.HTTP[origin.PublicName]
 	default:
 		return false
@@ -443,10 +521,12 @@ func (T *SitePublic) ConfigSitePlugin(origin *SitePlugin, kind string, handle fu
 	if !ok {
 		return false
 	}
-	if builtin.CopyStructDeep(&c, origin, handle) != nil {
+	// 与 ConfigSitePluginHTTP/RPC 对齐，隔离公共模板并正确做非零覆盖。
+	cCloned := c.clone()
+	if builtin.CopyStructDeep(cCloned, origin, configExclude(handle)) != nil {
 		return false
 	}
-	*origin = c
+	*origin = *cCloned
 	return true
 }
 
@@ -573,6 +653,9 @@ func (T *ServerPublic) ConfigConn(origin *Conn, handle func(name string, dsc, sr
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
+	if T.CC == nil {
+		return false
+	}
 
 	c, ok := T.CC[origin.PublicName]
 	if !ok {
@@ -580,7 +663,7 @@ func (T *ServerPublic) ConfigConn(origin *Conn, handle func(name string, dsc, sr
 	}
 
 	// 以公共配置为基，origin 非零字段覆盖
-	if builtin.CopyStructDeep(&c, origin, configExclude(handle)) == nil {
+	if builtin.CopyStruct(&c, origin, configExclude(handle)) == nil {
 		*origin = c
 		return true
 	}
@@ -592,6 +675,9 @@ func (T *ServerPublic) ConfigServer(origin *Server, handle func(name string, dsc
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
+	if T.CS == nil {
+		return false
+	}
 
 	c, ok := T.CS[origin.PublicName]
 	if !ok {
@@ -601,15 +687,53 @@ func (T *ServerPublic) ConfigServer(origin *Server, handle func(name string, dsc
 	// 对嵌套的 TLS 指针做值拷贝，避免共享修改
 	if c.TLS != nil {
 		tlsCopy := *c.TLS // 值拷贝
+		// 仅 *TLS 值拷贝后，切片字段仍与公共模板共享底层数组；再拷一层切片。
+		if len(tlsCopy.RootCAs) > 0 {
+			tlsCopy.RootCAs = append([]ServerTLSFile(nil), tlsCopy.RootCAs...)
+		}
+		if len(tlsCopy.NextProtos) > 0 {
+			tlsCopy.NextProtos = append([]string(nil), tlsCopy.NextProtos...)
+		}
+		if len(tlsCopy.CipherSuites) > 0 {
+			tlsCopy.CipherSuites = append([]uint16(nil), tlsCopy.CipherSuites...)
+		}
+		if len(tlsCopy.SetSessionTicketKeys) > 0 {
+			tlsCopy.SetSessionTicketKeys = append([][32]byte(nil), tlsCopy.SetSessionTicketKeys...)
+		}
+		if len(tlsCopy.ClientCAs) > 0 {
+			tlsCopy.ClientCAs = append([]string(nil), tlsCopy.ClientCAs...)
+		}
 		c.TLS = &tlsCopy
 	}
 
 	// 以公共配置副本为基进行合并
-	if builtin.CopyStructDeep(&c, origin, configExclude(handle)) != nil {
+	if builtin.CopyStruct(&c, origin, configExclude(handle)) != nil {
 		return false
 	}
 
 	*origin = c
+
+	// origin 侧若自带 TLS，合并后可能仍与公共共享切片；再隔离一次。
+	// CopyStruct 浅拷贝会把 origin.TLS 指针写回，若 origin 原先 TLS 为 nil 则用了上面的副本；若 origin 有 TLS 则可能指向公共。
+	if origin.TLS != nil {
+		tlsCopy := *origin.TLS
+		if len(tlsCopy.RootCAs) > 0 {
+			tlsCopy.RootCAs = append([]ServerTLSFile(nil), tlsCopy.RootCAs...)
+		}
+		if len(tlsCopy.NextProtos) > 0 {
+			tlsCopy.NextProtos = append([]string(nil), tlsCopy.NextProtos...)
+		}
+		if len(tlsCopy.CipherSuites) > 0 {
+			tlsCopy.CipherSuites = append([]uint16(nil), tlsCopy.CipherSuites...)
+		}
+		if len(tlsCopy.SetSessionTicketKeys) > 0 {
+			tlsCopy.SetSessionTicketKeys = append([][32]byte(nil), tlsCopy.SetSessionTicketKeys...)
+		}
+		if len(tlsCopy.ClientCAs) > 0 {
+			tlsCopy.ClientCAs = append([]string(nil), tlsCopy.ClientCAs...)
+		}
+		origin.TLS = &tlsCopy
+	}
 
 	// 现在 Auto 只修改副本，不会影响公共配置
 	if origin.TLS != nil && len(origin.TLS.CipherSuites) == 0 {
@@ -725,6 +849,32 @@ func (T *Config) parseFileLocked(file string) error {
 func (T *Config) ensureMaps() {
 	if T.Servers.Listen == nil {
 		T.Servers.Listen = make(map[string]Listen)
+	}
+	// 仅初始化 Listen 不够；子配置合并与 Public 查找在 map 为 nil 时虽可读，
+	// 但后续若对 Public 模板做写回或扩展加载会 panic。解析完成后统一兜底。
+	if T.Servers.Public.CC == nil {
+		T.Servers.Public.CC = make(map[string]Conn)
+	}
+	if T.Servers.Public.CS == nil {
+		T.Servers.Public.CS = make(map[string]Server)
+	}
+	if T.Sites.Public.Header == nil {
+		T.Sites.Public.Header = make(map[string]SiteHeader)
+	}
+	if T.Sites.Public.Session == nil {
+		T.Sites.Public.Session = make(map[string]SiteSession)
+	}
+	if T.Sites.Public.Forward == nil {
+		T.Sites.Public.Forward = make(map[string]SiteForwards)
+	}
+	if T.Sites.Public.Dynamic == nil {
+		T.Sites.Public.Dynamic = make(map[string]SiteDynamic)
+	}
+	if T.Sites.Public.Plugin.RPC == nil {
+		T.Sites.Public.Plugin.RPC = make(map[string]SitePlugin)
+	}
+	if T.Sites.Public.Plugin.HTTP == nil {
+		T.Sites.Public.Plugin.HTTP = make(map[string]SitePlugin)
 	}
 }
 
