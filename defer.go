@@ -22,11 +22,18 @@ func (T *ExecCall) Func(call any, args ...any) error {
 	}
 
 	// 1. 快速检查：是否为函数且非空
-	if fn.Kind() == reflect.Pointer {
+	if fn.IsValid() && fn.Kind() == reflect.Pointer {
+		if fn.IsNil() {
+			// 区分"传了 nil 指针"和"传了非函数类型"。
+			return fmt.Errorf("vweb: function pointer is nil")
+		}
 		fn = fn.Elem()
 	}
+	if !fn.IsValid() {
+		return fmt.Errorf("vweb: call parameter is invalid reflect.Value")
+	}
 	if fn.Kind() != reflect.Func {
-		return fmt.Errorf("vweb: call parameter is not a func, got %s", fn.Kind())
+		return fmt.Errorf("vweb: call parameter is not a func, got %s (only single-level pointer to func is supported)", fn.Kind())
 	}
 	if fn.IsNil() {
 		return fmt.Errorf("vweb: function is nil")
@@ -90,12 +97,10 @@ func (T *ExecCall) Exec() []any {
 	}
 
 	// 无论是否是可变参数函数，只要参数已经展开平铺，都可以直接用 Call
-	var rvs []reflect.Value = T.fun.Call(T.arg)
-
+	rvs := T.fun.Call(T.arg)
 	if len(rvs) == 0 {
 		return nil
 	}
-
 	ret := make([]any, len(rvs))
 	for i, rv := range rvs {
 		ret[i] = rv.Interface()
@@ -105,8 +110,9 @@ func (T *ExecCall) Exec() []any {
 
 // ExitCall 任务管理
 type ExitCall struct {
-	efs []*ExecCall
-	m   sync.Mutex
+	efs    []*ExecCall
+	m      sync.Mutex
+	closed bool
 }
 
 // 使用对象池减少 ExecCall 频繁创建销毁的开销
@@ -120,11 +126,21 @@ func (T *ExitCall) Defer(call any, args ...any) error {
 	// 从池中获取对象
 	df := execCallPool.Get().(*ExecCall)
 	if err := df.Func(call, args...); err != nil {
-		execCallPool.Put(df) // 出错放回
+		df.arg = nil
+		df.fun = reflect.Value{}
+		execCallPool.Put(df)
 		return err
 	}
 
+	// 持锁二次校验 closed，避免与 Free 竞争导致 Defer 泄漏。
 	T.m.Lock()
+	if T.closed {
+		T.m.Unlock()
+		df.arg = nil
+		df.fun = reflect.Value{}
+		execCallPool.Put(df)
+		return fmt.Errorf("vweb: exit call is already freed")
+	}
 	T.efs = append(T.efs, df)
 	T.m.Unlock()
 	return nil
@@ -132,16 +148,29 @@ func (T *ExitCall) Defer(call any, args ...any) error {
 
 func (T *ExitCall) Free() {
 	T.m.Lock()
+	if T.closed {
+		T.m.Unlock()
+		return
+	}
+	T.closed = true
 	calls := T.efs
 	T.efs = nil // 尽早释放引用
 	T.m.Unlock()
 
 	// 倒序执行
 	for i := len(calls) - 1; i >= 0; i-- {
-		calls[i].Exec()
-		// 清理并放回对象池
-		calls[i].arg = nil
-		calls[i].fun = reflect.Value{}
-		execCallPool.Put(calls[i])
+		// 单个 Defer 函数 panic 不应中断后续 Defer 执行，
+		// 且必须保证 ExecCall 放回池中，否则对象池持续泄露。
+		func(c *ExecCall) {
+			defer func() {
+				if r := recover(); r != nil {
+					// 恢复执行，避免因用户回调 panic 中断清理流程
+				}
+				c.arg = nil
+				c.fun = reflect.Value{}
+				execCallPool.Put(c)
+			}()
+			c.Exec()
+		}(calls[i])
 	}
 }

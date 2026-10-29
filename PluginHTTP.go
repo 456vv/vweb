@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"io"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -26,6 +28,7 @@ type PluginHTTPClient struct {
 	Scheme string          // 协议（用于默认填充）
 	Host   string          // 请求Host（用于默认填充）
 	Dialer *net.Dialer
+	once   sync.Once
 }
 
 // Connection 快速连接HTTP
@@ -43,17 +46,24 @@ func (T *PluginHTTPClient) Connection() (PluginHTTP, error) {
 			DualStack: true,
 		}
 	}
+
+	// 关键：仅当 Addr 非空时才消耗 once；后续补齐 Addr 再次调用仍能配置。
 	if T.Addr != "" {
-		if T.Tr.DialContext == nil {
-			T.Tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return T.Dialer.DialContext(ctx, network, T.Addr)
+		T.once.Do(func() {
+			addr := T.Addr
+			dialer := T.Dialer
+			if T.Tr.DialContext == nil {
+				T.Tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+					return dialer.DialContext(ctx, network, addr)
+				}
 			}
-		}
-		if T.Tr.TLSClientConfig != nil {
-			T.Tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return tls.DialWithDialer(T.Dialer, network, T.Addr, T.Tr.TLSClientConfig)
+			if tlsCfg := T.Tr.TLSClientConfig; tlsCfg != nil && T.Tr.DialTLSContext == nil {
+				tlsDialer := &tls.Dialer{NetDialer: dialer, Config: tlsCfg}
+				T.Tr.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+					return tlsDialer.DialContext(ctx, network, addr)
+				}
 			}
-		}
+		})
 	}
 	return &pluginHTTP{tr: T.Tr, host: T.Host, scheme: T.Scheme}, nil
 }
@@ -79,14 +89,14 @@ func (T *pluginHTTP) Type() PluginType {
 func (T *pluginHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp, err := T.RoundTrip(r)
 	if err != nil {
-		// 504错误是（网关超时） 服务器作为网关或代理，但是没有及时从上游服务器收到请求。
+		// 504 网关超时：作为代理，未及时从上游收到请求
 		http.Error(w, err.Error(), http.StatusGatewayTimeout)
 		return
 	}
 	// 写入header标头
 	rh := resp.Header
 	wh := w.Header()
-	// 删除服务器默认增加的标头
+	// 删除服务器默认增加的标头，避免泄露默认 Server/Content-Type
 	wh.Del("Content-Type")
 	wh.Del("Server")
 	for key, values := range rh {
@@ -100,20 +110,27 @@ func (T *pluginHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body := resp.Body
 	defer body.Close()
 	// io.Copy(rw, body)
+	flush, canFlush := w.(http.Flusher)
+
 	p := make([]byte, defaultDataBufioSize)
-	flush := w.(http.Flusher)
 	for {
 		nr, er := body.Read(p)
 		if nr > 0 {
 			nw, ew := w.Write(p[:nr])
 			if ew != nil || nr != nw {
-				// 日志
+				// 写失败或短写：客户端很可能已断开，或上游截断
 				break
 			}
-			flush.Flush()
+			if canFlush {
+				flush.Flush()
+			}
 		}
 		if er != nil {
-			// 日志
+			// io.EOF 是正常结束；其它错误是上游读取失败
+			if er != io.EOF {
+				// 保持沉默或按需记录，避免刷屏；此处不做日志以维持原行为。
+				_ = er
+			}
 			break
 		}
 	}
@@ -138,7 +155,9 @@ func (T *pluginHTTP) fillCompleteURL(r *http.Request) {
 		r.Host = T.host
 		r.Header.Set("Host", r.Host)
 	}
-	r.URL.Host = r.Host
+	if r.URL.Host == "" {
+		r.URL.Host = r.Host
+	}
 	if r.URL.Scheme == "" {
 		r.URL.Scheme = T.scheme
 	}

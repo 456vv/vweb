@@ -3,6 +3,8 @@ package server
 import (
 	"net"
 	"net/http"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/456vv/vweb/v3/server/config"
@@ -75,4 +77,30 @@ func siteHeaderType(wh http.Header, mht map[string]config.SiteHeaderType, fileEx
 		}
 	}
 	return ht
+}
+
+// isLocalPath 检查相对路径是否安全（无 ".."、非绝对路径等）
+// 保留原有可导出/包内函数名称与签名
+func isLocalPath(rel string) bool {
+	if rel == "" || rel == "." {
+		return true
+	}
+	// 拒绝绝对路径、盘符路径或 UNC 路径
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	if filepath.VolumeName(rel) != "" {
+		return false
+	}
+	if strings.HasPrefix(rel, `\\`) || strings.HasPrefix(rel, "//") {
+		return false
+	}
+
+	// 使用标准库 IsLocal 增强跨平台安全（Go 1.20+）
+	if !filepath.IsLocal(rel) {
+		return false
+	}
+
+	// 检查中间是否存在 ".." 组件（同时兼容 / 与系统分隔符）
+	return !slices.Contains(strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == filepath.Separator }), "..")
 }

@@ -183,3 +183,101 @@ func TestSiteMan(t *testing.T) {
 		}
 	}
 }
+
+func TestSitePool_NewSite_ReturnsExisting(t *testing.T) {
+	sp := NewSitePool()
+	defer sp.Close()
+	if sp.NewSite("A") != sp.NewSite("A") {
+		t.Fatal("同名站点应返回同一实例")
+	}
+}
+
+func TestSitePool_SetRecoverSession_AfterClose(t *testing.T) {
+	sp := NewSitePool()
+	sp.Close()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Close 后 SetRecoverSession 不应 panic：%v", r)
+		}
+	}()
+	sp.SetRecoverSession(time.Second)
+}
+
+func TestSitePool_Close_Idempotent(t *testing.T) {
+	sp := NewSitePool()
+	if err := sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := sp.Close(); err == nil {
+		t.Fatal("重复 Close 应报错")
+	}
+}
+
+func TestSitePool_Close_CleansUpDefer(t *testing.T) {
+	sp := NewSitePool()
+	site := sp.NewSite("A")
+	session := site.sessions.NewSession("s1")
+	done := make(chan struct{})
+	session.Defer(func() { close(done) })
+	sp.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close 应触发所有 Defer")
+	}
+}
+
+func TestSiteMan_WildcardPriority(t *testing.T) {
+	var sm SiteMan
+	exact := &Site{}
+	wild := &Site{}
+	sm.Add("a.com", exact)
+	sm.Add("*.com", wild)
+
+	if got, ok := sm.Get("a.com"); !ok || got != exact {
+		t.Fatal("精确优先")
+	}
+	if got, ok := sm.Get("b.com"); !ok || got != wild {
+		t.Fatal("通配匹配")
+	}
+}
+
+func TestSiteMan_PortSensitive(t *testing.T) {
+	var sm SiteMan
+	sm.Add("a.com:80", &Site{})
+	if _, ok := sm.Get("a.com"); ok {
+		t.Fatal("不同端口不应匹配")
+	}
+	if _, ok := sm.Get("a.com:80"); !ok {
+		t.Fatal("同端口应匹配")
+	}
+}
+
+func TestSiteMan_PortWildcard(t *testing.T) {
+	var sm SiteMan
+	sm.Add("*.a.com:80", &Site{})
+	if _, ok := sm.Get("x.a.com:80"); !ok {
+		t.Fatal("通配+端口应匹配")
+	}
+	if _, ok := sm.Get("x.a.com"); ok {
+		t.Fatal("端口不同不应匹配")
+	}
+}
+
+func TestSessions_InstantDeadAll_via_SitePool(t *testing.T) {
+	sp := NewSitePool()
+	site := sp.NewSite("A")
+	s := site.sessions.NewSession("id")
+	done := make(chan struct{})
+	s.Defer(func() { close(done) })
+	site.sessions.InstantDeadAll()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("InstantDeadAll 应执行 Defer")
+	}
+	if site.sessions.Len() != 0 {
+		t.Fatal("会话应被清空")
+	}
+	sp.Close()
+}

@@ -1,6 +1,9 @@
 package server
 
 import (
+	"errors"
+	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -63,7 +66,6 @@ func Test_NewServerGroup_1(t *testing.T) {
 	})
 	_, err := sg.LoadConfigFile("./config/test/config.json")
 	as.NotError(err)
-
 	err = sg.Start()
 	as.NotError(err)
 }
@@ -82,9 +84,7 @@ func Test_NewServerGroup_2(t *testing.T) {
 	err = sg.UpdateConfig(conf)
 	as.NotError(err)
 
-	time.AfterFunc(2*time.Second, func() {
-		sg.Close()
-	})
+	time.AfterFunc(2*time.Second, func() { sg.Close() })
 	sg.Start()
 }
 
@@ -103,24 +103,10 @@ func Test_ServerGroup_httpIsDynamic1(t *testing.T) {
 		allowExt []string
 		result   bool
 	}{
-		{
-			fileExt:  ".html",
-			allowExt: []string{".bw", ".go"},
-			result:   false,
-		},
-		{
-			fileExt:  ".go",
-			allowExt: []string{".bw", ".go"},
-			result:   true,
-		},
-		{
-			fileExt:  ".bw",
-			allowExt: []string{".bw", ".go"},
-			result:   true,
-		},
+		{".html", []string{".bw", ".go"}, false},
+		{".go", []string{".bw", ".go"}, true},
+		{".bw", []string{".bw", ".go"}, true},
 	}
-
-	// 服务器
 	for _, test := range tests {
 		if strSliceContains(test.allowExt, test.fileExt) != test.result {
 			t.Fatalf("该文件后缀（%s）是无法从（%s）识别。", test.fileExt, test.allowExt)
@@ -134,25 +120,11 @@ func Test_ServerGroup_httpTypeByExtension1(t *testing.T) {
 		MIME   map[string]string
 		result string
 	}{
-		{
-			ext:    ".txt",
-			MIME:   map[string]string{".txt": "application/text", ".html": "text/html", ".go": "application/go", ".bw": "text/html"},
-			result: "application/text",
-		}, {
-			ext:    ".txt",
-			MIME:   map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"},
-			result: "",
-		}, {
-			ext:    ".bw",
-			MIME:   map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"},
-			result: "text/html",
-		}, {
-			ext:    ".htm",
-			MIME:   map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"},
-			result: "text/html; charset=utf-8", // MIME中没有定义，默认向系统中的MIME表读取。
-		},
+		{".txt", map[string]string{".txt": "application/text", ".html": "text/html", ".go": "application/go", ".bw": "text/html"}, "application/text"},
+		{".txt", map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"}, ""},
+		{".bw", map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"}, "text/html"},
+		{".htm", map[string]string{".txt": "", ".html": "text/html", ".go": "application/go", ".bw": "text/html"}, "text/html; charset=utf-8"},
 	}
-	// 服务器
 	for _, test := range tests {
 		extType := httpTypeByExtension(test.ext, test.MIME)
 		if test.result != extType {
@@ -174,54 +146,40 @@ func Test_ConfigSiteDirectory_RootDir(t *testing.T) {
 				Virtual: []string{"D:/123/456/A", "G:/abc", "C:/abc"},
 			},
 			root: "D:/123/456",
-		}, {
-			r: &http.Request{URL: &url.URL{Path: "/abc"}},
-			conf: &config.SiteDirectory{
-				Root:    "/123/456/789",
-				Virtual: []string{"/abc"},
-			},
+		},
+		{
+			r:    &http.Request{URL: &url.URL{Path: "/abc"}},
+			conf: &config.SiteDirectory{Root: "/123/456/789", Virtual: []string{"/abc"}},
 			root: "/",
-		}, {
-			r: &http.Request{URL: &url.URL{Path: "/abc"}},
-			conf: &config.SiteDirectory{
-				Root:    "/123/456/789",
-				Virtual: []string{"aaa/bbbb/abc"},
-			},
+		},
+		{
+			r:    &http.Request{URL: &url.URL{Path: "/abc"}},
+			conf: &config.SiteDirectory{Root: "/123/456/789", Virtual: []string{"aaa/bbbb/abc"}},
 			root: "aaa/bbbb",
-		}, {
-			r: &http.Request{URL: &url.URL{Path: "/"}},
-			conf: &config.SiteDirectory{
-				Root:    "G:/123/456/789",
-				Virtual: []string{"G:/abc", "C:/abc"},
-			},
+		},
+		{
+			r:    &http.Request{URL: &url.URL{Path: "/"}},
+			conf: &config.SiteDirectory{Root: "G:/123/456/789", Virtual: []string{"G:/abc", "C:/abc"}},
 			root: "G:/123/456/789",
-		}, {
-			r: &http.Request{URL: &url.URL{Path: "/A/B/C"}},
-			conf: &config.SiteDirectory{
-				Root:    "G:/123/456/789",
-				Virtual: []string{"G:/abc", "C:/abc", "D:/123/456/A"},
-			},
+		},
+		{
+			r:    &http.Request{URL: &url.URL{Path: "/A/B/C"}},
+			conf: &config.SiteDirectory{Root: "G:/123/456/789", Virtual: []string{"G:/abc", "C:/abc", "D:/123/456/A"}},
 			root: "D:/123/456",
-		}, {
-			r: &http.Request{URL: &url.URL{Path: "/A/B/C/"}},
-			conf: &config.SiteDirectory{
-				Root:    "G:/123/456/789",
-				Virtual: []string{"G:/abc", "C:/abc", "D:/123/456/A"},
-			},
+		},
+		{
+			r:    &http.Request{URL: &url.URL{Path: "/A/B/C/"}},
+			conf: &config.SiteDirectory{Root: "G:/123/456/789", Virtual: []string{"G:/abc", "C:/abc", "D:/123/456/A"}},
 			root: "D:/123/456",
-		}, {
-			r: &http.Request{URL: &url.URL{Path: "/B/C/"}},
-			conf: &config.SiteDirectory{
-				Root:    "G:/123/456/789",
-				Virtual: []string{":/abc", "C:/abc", "D:/123/---/B"},
-			},
+		},
+		{
+			r:    &http.Request{URL: &url.URL{Path: "/B/C/"}},
+			conf: &config.SiteDirectory{Root: "G:/123/456/789", Virtual: []string{":/abc", "C:/abc", "D:/123/---/B"}},
 			root: "D:/123/---",
-		}, {
-			r: &http.Request{URL: &url.URL{Path: "/B/C/"}},
-			conf: &config.SiteDirectory{
-				Root:    "",
-				Virtual: []string{},
-			},
+		},
+		{
+			r:    &http.Request{URL: &url.URL{Path: "/B/C/"}},
+			conf: &config.SiteDirectory{Root: "", Virtual: []string{}},
 			root: "",
 		},
 	}
@@ -236,7 +194,6 @@ func Test_ConfigSiteDirectory_RootDir(t *testing.T) {
 func Test_Server_ConfigServer(t *testing.T) {
 	tempDir := os.TempDir()
 	fileCert := filepath.Join(tempDir, "fileCert.pem")
-
 	filec, err := os.OpenFile(fileCert, os.O_CREATE|os.O_RDWR, 0o777)
 	if err != nil {
 		t.Fatal(err)
@@ -255,18 +212,10 @@ func Test_Server_ConfigServer(t *testing.T) {
 	defer os.RemoveAll(fileKey)
 
 	srv := new(Server)
-	cstlsf1 := config.ServerTLSFile{
-		CertFile: fileCert,
-		KeyFile:  fileKey,
-	}
-	cstlsf2 := config.ServerTLSFile{
-		CertFile: fileCert,
-		KeyFile:  fileKey,
-	}
+	cstlsf1 := config.ServerTLSFile{CertFile: fileCert, KeyFile: fileKey}
+	cstlsf2 := config.ServerTLSFile{CertFile: fileCert, KeyFile: fileKey}
 	CS := &config.Server{
-		TLS: &config.ServerTLS{
-			RootCAs: []config.ServerTLSFile{cstlsf1, cstlsf2},
-		},
+		TLS: &config.ServerTLS{RootCAs: []config.ServerTLSFile{cstlsf1, cstlsf2}},
 	}
 	err = srv.ConfigServer(CS)
 	if err != nil {
@@ -277,11 +226,7 @@ func Test_Server_ConfigServer(t *testing.T) {
 		t.Fatalf("证书绑定host 失败，预定3个数量，不正确数量：%d", d)
 	}
 
-	CS = &config.Server{
-		TLS: &config.ServerTLS{
-			RootCAs: []config.ServerTLSFile{},
-		},
-	}
+	CS = &config.Server{TLS: &config.ServerTLS{RootCAs: []config.ServerTLSFile{}}}
 	err = srv.ConfigServer(CS)
 	if err != nil {
 		t.Fatal(err)
@@ -295,11 +240,7 @@ func Test_Server_updateSitePoolAdd(t *testing.T) {
 	sg := NewGroup()
 	conf := config.Site{
 		Identity: "A",
-		Session: config.SiteSession{
-			Name:    "BB",
-			Expired: 10,
-			Size:    128,
-		},
+		Session:  config.SiteSession{Name: "BB", Expired: 10, Size: 128},
 	}
 	sg.updateSitePoolAdd(conf)
 	if time.Duration(conf.Session.Expired)*time.Second != sg.sitePool.NewSite(conf.Identity).Sessions().Expired {
@@ -308,8 +249,190 @@ func Test_Server_updateSitePoolAdd(t *testing.T) {
 
 	sg.updateSitePoolDel([]string{}, []string{})
 	sg.updateSitePoolAdd(conf)
-
 	if time.Duration(conf.Session.Expired)*time.Second != sg.sitePool.NewSite(conf.Identity).Sessions().Expired {
 		t.Fatal("站点池的【默认】会话时间不一致")
 	}
+}
+
+func TestServer_ConfigConn_Nil(t *testing.T) {
+	srv := new(Server)
+	if err := srv.ConfigConn(nil); err == nil {
+		t.Fatal("nil 应报错")
+	}
+}
+
+func TestServer_ConfigServer_Nil(t *testing.T) {
+	srv := new(Server)
+	if err := srv.ConfigServer(nil); err == nil {
+		t.Fatal("nil 应报错")
+	}
+}
+
+func TestServer_ListenAndServe_EmptyAddr(t *testing.T) {
+	srv := new(Server)
+	if err := srv.ListenAndServe(); err == nil {
+		t.Fatal("空 Addr 应报错")
+	}
+}
+
+func TestServer_Serve_NilListener(t *testing.T) {
+	srv := new(Server)
+	if err := srv.Serve(nil); err == nil {
+		t.Fatal("nil listener 应报错")
+	}
+}
+
+func TestServer_Serve_TypedNilListener(t *testing.T) {
+	srv := new(Server)
+	var ln *net.TCPListener
+	if err := srv.Serve(ln); err == nil {
+		t.Fatal("typed-nil listener 应报错")
+	}
+}
+
+func TestServer_Close_Idempotent(t *testing.T) {
+	srv := new(Server)
+	_ = srv.Close()
+	if err := srv.Close(); err != nil {
+		t.Fatalf("重复 Close 不应报错：%v", err)
+	}
+}
+
+func TestServer_ListenAndServe_AfterClose(t *testing.T) {
+	srv := new(Server)
+	srv.Addr = "127.0.0.1:0"
+	srv.Close()
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("Close 后应返回 ErrServerClosed，得到 %v", err)
+	}
+}
+
+func TestServer_ConfigServer_BadTLS(t *testing.T) {
+	srv := new(Server)
+	err := srv.ConfigServer(&config.Server{
+		TLS: &config.ServerTLS{
+			RootCAs: []config.ServerTLSFile{{CertFile: "/nonexistent/c.pem", KeyFile: "/nonexistent/k.key"}},
+		},
+	})
+	if err == nil {
+		t.Fatal("坏证书应报错")
+	}
+	if srv.TLSConfig != nil {
+		t.Fatal("失败后不应留下 TLSConfig")
+	}
+}
+
+func TestGroup_SetServer_NilRemoves(t *testing.T) {
+	g := NewGroup()
+	defer g.Close()
+	srv := new(Server)
+	if err := g.SetServer("127.0.0.1:1", srv); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := g.GetServer("127.0.0.1:1"); !ok {
+		t.Fatal("应已设置")
+	}
+	if err := g.SetServer("127.0.0.1:1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := g.GetServer("127.0.0.1:1"); ok {
+		t.Fatal("应已删除")
+	}
+}
+
+func TestGroup_StartTwice(t *testing.T) {
+	g := NewGroup()
+	done := make(chan struct{})
+	go func() { g.Start(); close(done) }()
+	time.Sleep(30 * time.Millisecond)
+	if err := g.Start(); err == nil {
+		t.Fatal("重复 Start 应报错")
+	}
+	g.Close()
+	<-done
+}
+
+func TestGroup_CloseTwice(t *testing.T) {
+	g := NewGroup()
+	done := make(chan struct{})
+	go func() { g.Start(); close(done) }()
+	time.Sleep(30 * time.Millisecond)
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Close(); err == nil {
+		t.Fatal("重复 Close 应报错")
+	}
+	<-done
+}
+
+func TestGroup_UpdateConfig_Nil(t *testing.T) {
+	g := NewGroup()
+	defer g.Close()
+	if err := g.UpdateConfig(nil); err == nil {
+		t.Fatal("nil 配置应报错")
+	}
+}
+
+func TestServer_millis_Overflow(t *testing.T) {
+	if d := millis(math.MaxInt64); d < 0 {
+		t.Fatalf("溢出为负：%v", d)
+	}
+}
+
+func TestServer_seconds_Overflow(t *testing.T) {
+	if d := seconds(math.MaxInt64); d < 0 {
+		t.Fatalf("溢出为负：%v", d)
+	}
+}
+
+// TestServer_Boundary 生命周期边界：typed-nil listener、Close 幂等、坏证书不污染状态。
+func TestServer_Boundary(t *testing.T) {
+	t.Run("typed-nil listener 拒绝", func(t *testing.T) {
+		var ln *net.TCPListener
+		if err := new(Server).Serve(ln); err == nil {
+			t.Fatal("typed-nil 应报错")
+		}
+	})
+
+	t.Run("Close 幂等", func(t *testing.T) {
+		s := new(Server)
+		s.Close()
+		if err := s.Close(); err != nil {
+			t.Fatalf("重复 Close 应 nil，实得 %v", err)
+		}
+	})
+
+	t.Run("Close 后 ListenAndServe 返回 ErrServerClosed", func(t *testing.T) {
+		s := new(Server)
+		s.Addr = "127.0.0.1:0"
+		s.Close()
+		if err := s.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			t.Fatalf("应 ErrServerClosed，实得 %v", err)
+		}
+	})
+
+	t.Run("坏证书不污染状态", func(t *testing.T) {
+		s := new(Server)
+		err := s.ConfigServer(&config.Server{
+			TLS: &config.ServerTLS{
+				RootCAs: []config.ServerTLSFile{{CertFile: "/x.pem", KeyFile: "/x.key"}},
+			},
+		})
+		if err == nil {
+			t.Fatal("坏证书应报错")
+		}
+		if s.TLSConfig != nil {
+			t.Fatal("失败后不应留下 TLSConfig")
+		}
+	})
+
+	t.Run("毫秒/秒溢出", func(t *testing.T) {
+		if d := millis(math.MaxInt64); d < 0 {
+			t.Fatalf("毫秒溢出为负：%v", d)
+		}
+		if d := seconds(math.MaxInt64); d < 0 {
+			t.Fatalf("秒溢出为负：%v", d)
+		}
+	})
 }

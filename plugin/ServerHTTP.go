@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -74,13 +75,22 @@ func (T *ServerHTTP) ListenAndServe() error {
 //
 //	error 错误
 func (T *ServerHTTP) Serve(l net.Listener) error {
-	addr := l.Addr().(*net.TCPAddr)
-	ip := addr.IP.To4()
-	if ip == nil {
-		ip = addr.IP.To16()
+	tcpLn, ok := l.(*net.TCPListener)
+	if !ok {
+		return fmt.Errorf("vweb/plugin: listener must be *net.TCPListener, got %T", l)
 	}
-	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
-	T.l.TCPListener = l.(*net.TCPListener)
+	tcpAddr, ok := tcpLn.Addr().(*net.TCPAddr)
+	if !ok {
+		return fmt.Errorf("vweb/plugin: listener address must be *net.TCPAddr, got %T", tcpLn.Addr())
+	}
+	ip := tcpAddr.IP
+	if ip == nil {
+		ip = net.IPv4zero
+	} else if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(tcpAddr.Port))
+	T.l.TCPListener = tcpLn
 	T.Server.Handler = http.HandlerFunc(T.Route.ServeHTTP)
 	T.Server.Handler = vweb.AutoCert(T.AutoCert, T.Server.TLSConfig, T.Server.Handler)
 

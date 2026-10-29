@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -18,38 +19,56 @@ type listener struct {
 	cConn            *config.Conn // 用于连接
 	tlsconfig        *tls.Config
 	closed           atomic.Bool // 使用原子操作保证并发安全
+	mu               sync.RWMutex
+}
+
+func (T *listener) upConn(c *config.Conn) {
+	T.mu.Lock()
+	defer T.mu.Unlock()
+	T.cConn = c
+}
+
+func (T *listener) upTLS(c *tls.Config) {
+	T.mu.Lock()
+	defer T.mu.Unlock()
+	T.tlsconfig = c
 }
 
 // Accept 接受下一个连接。
 // 并发安全：先检查 closed，再 AcceptTCP。
-// TLS 包装在 TCP 选项应用之后进行。
 func (T *listener) Accept() (net.Conn, error) {
 	if T.closed.Load() {
 		return nil, net.ErrClosed
 	}
 	if T.TCPListener == nil {
-		// 尚未 Serve（例如直接误用），同样按已关闭处理，避免 nil 解引用
 		return nil, net.ErrClosed
 	}
 
 	tc, err := T.TCPListener.AcceptTCP()
 	if err != nil {
-		// 仅在明确关闭错误时标记，避免依赖已弃用的 Temporary()
-		// 其他错误（超时、临时网络问题）直接返回，由上层决定重试或退出
 		if errors.Is(err, net.ErrClosed) {
 			T.closed.Store(true)
 		}
 		return nil, err
 	}
 
-	// 应用连接配置（在 TLS 包装前设置 TCP 层选项）
-	if T.cConn != nil {
-		T.applyConnConfig(tc)
+	// 再次检查，防止 Accept 与 Close 竞态
+	if T.closed.Load() {
+		tc.Close()
+		return nil, net.ErrClosed
 	}
 
-	if T.tlsconfig != nil {
+	T.mu.RLock()
+	cfg := T.cConn
+	tlsCfg := T.tlsconfig
+	T.mu.RUnlock()
+
+	if cfg != nil {
+		T.applyConnConfig(tc, cfg)
+	}
+	if tlsCfg != nil {
 		// tls.Server 返回的 Conn 实现了 net.Conn，可直接交给 http.Server
-		return tls.Server(tc, T.tlsconfig), nil
+		return tls.Server(tc, tlsCfg), nil
 	}
 	return tc, nil
 }
@@ -57,22 +76,22 @@ func (T *listener) Accept() (net.Conn, error) {
 // applyConnConfig 将 config.Conn 选项应用到 TCP 连接。
 // 忽略设置失败（兼容旧 Windows、Plan9、部分嵌入式平台）。
 // 时间单位与配置一致（毫秒，Linger 为秒）。
-func (T *listener) applyConnConfig(tc *net.TCPConn) {
-	cfg := T.cConn
-
+func (T *listener) applyConnConfig(tc *net.TCPConn, cfg *config.Conn) {
 	if d := cfg.Deadline; d != 0 {
-		tc.SetDeadline(time.Now().Add(time.Duration(d) * time.Millisecond))
+		tc.SetDeadline(time.Now().Add(millis(d)))
 	}
 	if d := cfg.WriteDeadline; d != 0 {
-		tc.SetWriteDeadline(time.Now().Add(time.Duration(d) * time.Millisecond))
+		tc.SetWriteDeadline(time.Now().Add(millis(d)))
 	}
 	if d := cfg.ReadDeadline; d != 0 {
-		tc.SetReadDeadline(time.Now().Add(time.Duration(d) * time.Millisecond))
+		tc.SetReadDeadline(time.Now().Add(millis(d)))
 	}
-	if d := cfg.KeepAlivePeriod; d != 0 {
+
+	// 先 Enable KeepAlive，再设 Period；KeepAlive=false 时设 Period 在部分平台会反向打开保活。
+	tc.SetKeepAlive(cfg.KeepAlive)
+	if cfg.KeepAlive && cfg.KeepAlivePeriod != 0 {
 		// 注意：Windows 10 1709 之前会重置 KeepAliveInterval 为系统默认值
-		// 现代 Windows / Linux / macOS / FreeBSD 均正常支持
-		tc.SetKeepAlivePeriod(time.Duration(d) * time.Millisecond)
+		tc.SetKeepAlivePeriod(millis(cfg.KeepAlivePeriod))
 	}
 	if d := cfg.ReadBuffer; d != 0 {
 		tc.SetReadBuffer(d)
@@ -81,11 +100,10 @@ func (T *listener) applyConnConfig(tc *net.TCPConn) {
 		tc.SetWriteBuffer(d)
 	}
 	if d := cfg.Linger; d != 0 {
-		// SetLinger 参数单位为秒；负值表示立即丢弃，0 表示优雅关闭后立即返回
+		// SetLinger 参数单位为秒；负值表示立即丢弃，0 表示优雅关闭后立即返回。
+		// 配置 0 与“未设置”无法区分，保持跳过 0（与原语义一致）。
 		tc.SetLinger(d)
 	}
-	// KeepAlive 与 NoDelay 几乎在所有主流平台可用
-	tc.SetKeepAlive(cfg.KeepAlive)
 	tc.SetNoDelay(cfg.NoDelay)
 }
 

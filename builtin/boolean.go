@@ -92,13 +92,9 @@ func GE(a, b any) bool {
 
 // a == b
 func EQ(a, b any) (eq bool) {
-	// func / 含 func 的数组等 Type.Comparable()==true，但非 nil 比较会 panic；
-	// 原实现把 Func 分支放在 Comparable 之后，永远走不到。recover 兜底后回退 DeepEqual。
 	if a == nil || b == nil {
-		return a == b // 保持 Go 接口 == 语义：无类型 nil 与 typed-nil 不相等
+		return a == b
 	}
-	// 热路径上 int/string 不必进入反射和 defer。
-	// 类型断言失败即动态类型不同，与 a==b 的 false 一致。
 	switch av := a.(type) {
 	case bool:
 		bv, ok := b.(bool)

@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"log"
 	mathRand "math/rand"
+	"net"
 	"net/http"
 	"os"
 	"path"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/acme"
@@ -26,52 +28,65 @@ import (
 //	tlsconf *tls.Config		tls配置
 //	handler http.Handler	http处理
 func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) http.Handler {
-	if ac != nil && tlsconf != nil {
-		tlsconf.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			// 先使用内置证书，过期后使用自动证书
-			now := time.Now().Add(ac.RenewBefore)
-			var err error
-			var pos int = -1 // 标注过期证书位置
-			for i, cert := range tlsconf.Certificates {
-				if cert.Leaf == nil {
-					cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
-					if err != nil {
-						continue
-					}
-				}
-				if hello.SupportsCertificate(&cert) == nil {
-					if !now.Before(cert.Leaf.NotBefore) && !now.After(cert.Leaf.NotAfter) {
-						return &cert, nil
-					}
-					// 证书过期
-					pos = i
-				}
-			}
-
-			// 自动证书
-			cert, err := ac.GetCertificate(hello)
-			if err != nil {
-				// src\crypto\tls\common.go
-				// func (c *Config) getCertificate(clientHello *ClientHelloInfo) (*Certificate, error)
-				// 返回空跳过继续使用原证书
-				log.Println(err)
-				return nil, nil
-			}
-			if pos > 0 {
-				tlsconf.Certificates[pos] = *cert
-			}
-			return cert, nil
-		}
-
-		// 没有配置"acme-tls/1"协议，自动添加
-		if !slices.Contains(tlsconf.NextProtos, acme.ALPNProto) {
-			tlsconf.NextProtos = append(tlsconf.NextProtos, acme.ALPNProto)
-		}
-
+	if ac == nil {
+		return handler
+	}
+	if tlsconf == nil {
 		return ac.HTTPHandler(handler)
 	}
 
-	return handler
+	// GetCertificate 的 会话在多个连接上并发调用 Get，，必须用锁保护。
+	// TLS 握手会在多个连接上并发调用 GetCertificate，必须用锁保护。
+	var certMu sync.Mutex
+
+	tlsconf.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		now := time.Now().Add(ac.RenewBefore)
+
+		certMu.Lock()
+		certs := tlsconf.Certificates
+		pos := -1
+		for i := range certs {
+			cert := &certs[i]
+			if cert.Leaf == nil {
+				leaf, err := x509.ParseCertificate(cert.Certificate[0])
+				if err != nil {
+					continue
+				}
+				cert.Leaf = leaf
+			}
+			if hello.SupportsCertificate(cert) == nil {
+				if !now.Before(cert.Leaf.NotBefore) && !now.After(cert.Leaf.NotAfter) {
+					certMu.Unlock()
+					return cert, nil
+				}
+				// 记录过期证书位置（包含 0 号位）
+				pos = i
+			}
+		}
+		certMu.Unlock()
+
+		// 自动证书
+		cert, err := ac.GetCertificate(hello)
+		if err != nil {
+			// 返回 nil,nil 让 tls 继续使用默认逻辑
+			log.Println(err)
+			return nil, nil
+		}
+		if pos >= 0 {
+			certMu.Lock()
+			if pos < len(tlsconf.Certificates) {
+				tlsconf.Certificates[pos] = *cert
+			}
+			certMu.Unlock()
+		}
+		return cert, nil
+	}
+
+	// 没有配置 "acme-tls/1" 协议，自动添加
+	if !slices.Contains(tlsconf.NextProtos, acme.ALPNProto) {
+		tlsconf.NextProtos = append(tlsconf.NextProtos, acme.ALPNProto)
+	}
+	return ac.HTTPHandler(handler)
 }
 
 // derogatoryDomain 贬域名
@@ -84,16 +99,29 @@ func derogatoryDomain(host string, f func(string) bool) {
 		return
 	}
 	// 后通配符匹配
-	pos := strings.Index(host, ":")
-	var port string
-	if pos >= 0 {
-		port = host[pos:]
-		host = host[:pos]
+	h, portStr, err := net.SplitHostPort(host)
+	if err != nil {
+		h, portStr = host, ""
 	}
-	labels := strings.Split(host, ".")
+	var portSuffix string
+	if portStr != "" {
+		portSuffix = ":" + portStr
+	}
+	if h == "" {
+		return
+	}
+	// 兼容 "[::1]"（无端口但带方括号）写法
+	if strings.HasPrefix(h, "[") && strings.HasSuffix(h, "]") {
+		h = h[1 : len(h)-1]
+	}
+	// IP 字面量不存在域名级通配，直接结束
+	if net.ParseIP(h) != nil {
+		return
+	}
+	labels := strings.Split(h, ".")
 	for i := range labels {
 		labels[i] = "*"
-		candidate := strings.Join(labels, ".") + port
+		candidate := strings.Join(labels, ".") + portSuffix
 		if f(candidate) {
 			break
 		}
@@ -142,6 +170,9 @@ func GenerateRandomID(rnd []byte) error {
 //	[]byte  	生成的标识符
 //	err error	错误
 func GenerateRandom(length int) ([]byte, error) {
+	if length < 0 {
+		return nil, errors.New("vweb: length must be non-negative")
+	}
 	rnd := make([]byte, length)
 	err := GenerateRandomID(rnd)
 	if err != nil {
@@ -206,10 +237,10 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 	var (
 		isDir  = strings.HasSuffix(p, "/")
 		fi     os.FileInfo
-		errStr = "Access (%s) page document does not exist!"
+		errStr = "access (%s) page document does not exist"
 		err    error
 		// 为了防止跨目录，这里清除 /../ok/index.html 路径为 \ok\index.html，保证安全。
-		pc = path.Clean(p)
+		pc = path.Clean("/" + p)
 		pi string // path+fileName
 	)
 	if !isDir {
@@ -237,7 +268,9 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 
 func delay(wait, maxDelay time.Duration) time.Duration {
 	if wait == 0 {
-		wait = (maxDelay / 100)
+		wait = maxDelay / 100
+	} else if wait > maxDelay/2 {
+		wait = maxDelay
 	} else {
 		wait *= 2
 	}

@@ -45,7 +45,15 @@ var builtinTypes = map[string]reflect.Type{
 }
 
 func inDirect(v reflect.Value) reflect.Value {
-	seen := make(map[uintptr]struct{}, 8)
+	// 快路径：0~2 层解引用不分配 map
+	for i := 0; i < 2; i++ {
+		if !v.IsValid() || (v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface) || v.IsNil() {
+			return v
+		}
+		v = v.Elem()
+	}
+	// 慢路径：>=3 层时启用环检测
+	seen := make(map[uintptr]struct{}, 4)
 	for {
 		if !v.IsValid() || (v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface) || v.IsNil() {
 			return v
@@ -210,7 +218,6 @@ func autoConvertReflectN(telem reflect.Type, val reflect.Value, depth int) (refl
 		for i := range n {
 			sf := val.Type().Field(i)
 			tf := telem.Field(i)
-			// 原先还要求字段类型完全相同，同构的 int→int64 结构体无法转换。
 			if sf.Name != tf.Name || sf.Anonymous != tf.Anonymous {
 				match = false
 				break
@@ -220,12 +227,10 @@ func autoConvertReflectN(telem reflect.Type, val reflect.Value, depth int) (refl
 			dst := reflect.New(telem).Elem()
 			for i := range n {
 				df := dst.Field(i)
-				// 跨包未导出字段 CanSet==false，转换结果会丢字段。
 				if !df.CanSet() && df.CanAddr() {
 					df = makeSettable(df, true)
 				}
 				if !df.CanSet() {
-					// 跳过未导出字段仍返回成功，非零数据会静默丢失。
 					if !isZeroValue(val.Field(i)) {
 						return reflect.Value{}, fmt.Errorf("autoConvert: cannot set unexported field %s", telem.Field(i).Name)
 					}
@@ -235,7 +240,9 @@ func autoConvertReflectN(telem reflect.Type, val reflect.Value, depth int) (refl
 				if e2 != nil {
 					return reflect.Value{}, fmt.Errorf("autoConvert: struct field %s: %w", telem.Field(i).Name, e2)
 				}
-				df.Set(fv)
+				if err := trySet(df, fv); err != nil {
+					return reflect.Value{}, fmt.Errorf("autoConvert: struct field %s: %w", telem.Field(i).Name, err)
+				}
 			}
 			return dst, nil
 		}
@@ -480,7 +487,9 @@ func convertContainer(telem reflect.Type, val reflect.Value, depth int) (reflect
 				if err != nil {
 					return reflect.Value{}, err, true
 				}
-				out.Index(i).Set(ev)
+				if err := trySet(out.Index(i), ev); err != nil {
+					return reflect.Value{}, err, true
+				}
 			}
 			return out, nil, true
 		case reflect.Array:
@@ -491,7 +500,9 @@ func convertContainer(telem reflect.Type, val reflect.Value, depth int) (reflect
 				if err != nil {
 					return reflect.Value{}, err, true
 				}
-				out.Index(i).Set(ev)
+				if err := trySet(out.Index(i), ev); err != nil {
+					return reflect.Value{}, err, true
+				}
 			}
 			return out, nil, true
 		case reflect.String:
@@ -501,7 +512,6 @@ func convertContainer(telem reflect.Type, val reflect.Value, depth int) (reflect
 				reflect.Copy(out, reflect.ValueOf(b))
 				return out, nil, true
 			}
-			// string→[]rune 脚本层要手动拆。
 			if telem.Elem().Kind() == reflect.Int32 {
 				rs := []rune(val.String())
 				out := reflect.MakeSlice(telem, len(rs), len(rs))
@@ -534,11 +544,12 @@ func convertContainer(telem reflect.Type, val reflect.Value, depth int) (reflect
 				if !df.CanSet() {
 					return reflect.Value{}, fmt.Errorf("autoConvert: array element not settable"), true
 				}
-				df.Set(ev)
+				if err := trySet(df, ev); err != nil {
+					return reflect.Value{}, err, true
+				}
 			}
 			return out, nil, true
 		case reflect.String:
-			// string → [N]byte 长度匹配时应可转换（与 []byte 对称）。
 			if telem.Elem().Kind() == reflect.Uint8 && val.Len() == n {
 				out := reflect.New(telem).Elem()
 				reflect.Copy(out.Slice(0, n), val)
@@ -571,7 +582,10 @@ func convertContainer(telem reflect.Type, val reflect.Value, depth int) (reflect
 			if err != nil {
 				return reflect.Value{}, err, true
 			}
-			out.SetMapIndex(k, v)
+			// 修改原因：value 可能来自未导出字段，直接 SetMapIndex 可能 panic。
+			if err := trySetMapIndex(out, k, v); err != nil {
+				return reflect.Value{}, err, true
+			}
 		}
 		return out, nil, true
 	}

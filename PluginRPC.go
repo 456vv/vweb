@@ -14,11 +14,11 @@ import (
 
 // PluginRPC rpc插件接口
 type PluginRPC interface {
-	Type() PluginType                       // 类型
-	Register(value any)                     // 注册struct类型
-	Call(name string, arg any) (any, error) // 调用
-	Discard() error                         // 废弃连接
-	Close() error                           // 关闭
+	Type() PluginType                           // 类型
+	Register(value any)                         // 注册struct类型
+	Call(name string, arg any, reply any) error // 用于返回具体类型
+	Discard() error                             // 废弃连接
+	Close() error                               // 关闭
 }
 
 // PluginRPCClient 插件RPC客户端
@@ -48,16 +48,21 @@ func (T *PluginRPCClient) Connection() (PluginRPC, error) {
 		// 重复连接不需要做连接前准备
 		client = rpc.NewClient(conn)
 	} else {
-		client, err = connentRPCClient(conn, T.Path)
+		client, err = connectRPCClient(conn, T.Path)
 		if err != nil {
+			// 连接失败时确保底层连接被关闭，避免池中残留半开连接
+			conn.Close()
 			return nil, err
 		}
 	}
 	return &pluginRPC{Client: client, conn: conn}, nil
 }
 
-func connentRPCClient(conn net.Conn, p string) (*rpc.Client, error) {
-	io.WriteString(conn, "CONNECT "+p+" HTTP/1.0\n\n")
+// connectRPCClient 建立 HTTP CONNECT 后切换到 Go RPC。
+func connectRPCClient(conn net.Conn, p string) (*rpc.Client, error) {
+	if _, err := io.WriteString(conn, "CONNECT "+p+" HTTP/1.0\r\n\r\n"); err != nil {
+		return nil, err
+	}
 
 	// 需要成功的HTTP响应
 	// 切换到RPC协议之前。
@@ -69,7 +74,6 @@ func connentRPCClient(conn net.Conn, p string) (*rpc.Client, error) {
 		err = errors.New("unexpected HTTP response: " + resp.Status)
 	}
 	addr := conn.RemoteAddr()
-	conn.Close()
 	return nil, &net.OpError{
 		Op:   "dial-http",
 		Net:  addr.Network() + " " + addr.String(),
@@ -98,19 +102,9 @@ func (T *pluginRPC) Register(value any) {
 	gob.Register(value)
 }
 
-// Call 调用RPC，连接TCP，等待远程返回数据。
-//
-//	name string           远程函数名，格式如：admin.Add 。有关于rpc调用知识，请阅读官方标准库 net/rpc
-//	arg any       参数，发送至远程的参数
-//	*Map, error           结果，远程返回来的结果
-func (T *pluginRPC) Call(name string, arg any) (any, error) {
-	// 调用RPC函数
-	var result any
-	err := T.Client.Call(name, arg, result)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+// 为 pluginRPC 实现 CallTo 方法
+func (T *pluginRPC) Call(name string, arg any, reply any) error {
+	return T.Client.Call(name, arg, reply)
 }
 
 // Close 关闭RPC连接

@@ -3,10 +3,12 @@ package plugin
 import (
 	"crypto/tls"
 	"encoding/gob"
+	"fmt"
 	"net"
 	"net/http"
 	"net/rpc"
 	"strconv"
+	"strings"
 
 	"github.com/456vv/vweb/v3"
 	"golang.org/x/crypto/acme/autocert"
@@ -46,6 +48,13 @@ func (T *ServerRPC) RegisterName(name string, rcvr any) error {
 //
 //	rpcPath, debugPath string       访问地址和调试地址
 func (T *ServerRPC) HandleHTTP(rpcPath, debugPath string) {
+	// Go 1.22+ 的 http.ServeMux 要求路径必须以 "/" 开头
+	if rpcPath != "" && !strings.HasPrefix(rpcPath, "/") {
+		rpcPath = "/" + rpcPath
+	}
+	if debugPath != "" && !strings.HasPrefix(debugPath, "/") {
+		debugPath = "/" + debugPath
+	}
 	T.Server.HandleHTTP(rpcPath, debugPath)
 	T.handled = true
 }
@@ -82,18 +91,27 @@ func (T *ServerRPC) ListenAndServe() error {
 //
 //	error 错误
 func (T *ServerRPC) Serve(l net.Listener) error {
-	addr := l.Addr().(*net.TCPAddr)
-	ip := addr.IP.To4()
-	if ip == nil {
-		ip = addr.IP.To16()
+	tcpLn, ok := l.(*net.TCPListener)
+	if !ok {
+		return fmt.Errorf("vweb/plugin: listener must be *net.TCPListener, got %T", l)
 	}
-	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))
-	T.l.TCPListener = l.(*net.TCPListener)
+	tcpAddr, ok := tcpLn.Addr().(*net.TCPAddr)
+	if !ok {
+		return fmt.Errorf("vweb/plugin: listener address must be *net.TCPAddr, got %T", tcpLn.Addr())
+	}
+	ip := tcpAddr.IP
+	if ip == nil {
+		ip = net.IPv4zero
+	} else if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(tcpAddr.Port))
+	T.l.TCPListener = tcpLn
 
 	if T.handled {
-		hanlde := vweb.AutoCert(T.AutoCert, T.l.tlsconfig, http.Handler(http.HandlerFunc((func(w http.ResponseWriter, r *http.Request) {
+		hanlde := vweb.AutoCert(T.AutoCert, T.l.tlsconfig, http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.DefaultServeMux.ServeHTTP(w, r)
-		}))))
+		})))
 		return http.Serve(&T.l, hanlde)
 	}
 	T.Server.Accept(&T.l)

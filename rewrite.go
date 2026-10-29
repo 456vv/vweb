@@ -99,9 +99,3 @@ func (T *ForwardRewriter) Rewrite(upath string) (string, bool) {
 	}
 	return upath, false
 }
-
-// 判断是否是真正的正则表达式（简单判断）
-func isRegex1(re *regexp.Regexp) bool {
-	prefix, complete := re.LiteralPrefix()
-	return !complete || prefix == ""
-}

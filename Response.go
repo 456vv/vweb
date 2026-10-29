@@ -57,8 +57,8 @@ func (T *response) WriteString(s string) (int, error) {
 //	error         错误
 func (T *response) ReadFrom(src io.Reader) (written int64, err error) {
 	var (
-		p     = make([]byte, defaultDataBufioSize)
-		flush = T.w.(http.Flusher)
+		f, hasFlush = T.w.(http.Flusher)
+		p           = make([]byte, defaultDataBufioSize)
 	)
 	// 正常读出文件
 	for {
@@ -76,7 +76,9 @@ func (T *response) ReadFrom(src io.Reader) (written int64, err error) {
 				err = io.ErrShortWrite
 				break
 			}
-			flush.Flush()
+			if hasFlush {
+				f.Flush()
+			}
 		}
 		if er != nil {
 			if er != io.EOF {
@@ -124,7 +126,9 @@ func (T *response) Error(err string, code int) {
 
 // Flush 刷新缓冲
 func (T *response) Flush() {
-	T.w.(http.Flusher).Flush()
+	if f, ok := T.w.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // Push HTTP/2推送

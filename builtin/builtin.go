@@ -1163,7 +1163,7 @@ func Cap(a any) int {
 
 // CopyStruct 浅复制：src 字段为空（nil 指针/slice/map 等）时不覆盖 dst。
 func CopyStruct(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool) error {
-	return copyStruct(asValue(dsc), asValue(src), "", exclude, false, nil)
+	return copyStructTransactional(dsc, src, exclude, false)
 }
 
 func destNeedsInit(v reflect.Value) bool {
@@ -1198,7 +1198,69 @@ type copyVisit struct {
 // CopyStructDeep 深复制：src 字段为空也写入 dst（结果可为 nil）。
 func CopyStructDeep(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool) error {
 	// 值改为目标 reflect.Value：碰到环时把指针指回已在拷贝的对象，而不是留零值。
-	return copyStruct(asValue(dsc), asValue(src), "", exclude, true, make(map[copyVisit]reflect.Value))
+	return copyStructTransactional(dsc, src, exclude, true)
+}
+
+// copyStructTransactional 是 CopyStruct/CopyStructDeep 的共同入口。
+//
+// 流程：
+//  1. 校验 dv 可设置（否则退回旧实现以返回精确错误）；
+//  2. 创建 shadow 并从 dv 复制当前值（保留"src 为空时不覆盖"语义）；
+//  3. 在 shadow 上执行原 copyStruct 全部逻辑（含环检测、字段级 unsafe Set）；
+//  4. 成功则 dv.Set(shadow) 一次性替换；失败则直接返回，dst 不变。
+//
+// 说明：
+//   - visited 只在 shadow 内部使用，不跨调用共享；
+//   - 浅拷贝不传 visited，深拷贝每次独立分配 map；
+//   - 如果 trySet(shadow, dv) 因极少数非法反射状态失败，
+//     退回旧实现路径以保证兼容性（此时事务性让位于旧行为）。
+func copyStructTransactional(dsc, src any, exclude func(name string, dsc, src reflect.Value) bool, deep bool) error {
+	dv := asValue(dsc)
+	sv := asValue(src)
+	if !dv.IsValid() || !sv.IsValid() {
+		return fmt.Errorf("无效的值，dsc(%v)，src(%v)", dv.Kind(), sv.Kind())
+	}
+
+	// 目标必须可通过指针修改。若不可设置：
+	//   - 能通过 makeSettable（unsafe）处理则先处理；
+	//   - 仍不行则退回 copyStruct，让调用方收到原实现的精确错误。
+	if !dv.CanSet() {
+		if dv.CanAddr() && unsafeExportEnabled() {
+			dv = makeSettable(dv, true)
+		}
+		if !dv.CanSet() {
+			return copyStruct(dv, sv, "", exclude, deep, copyStructVisited(deep))
+		}
+	}
+
+	// 1. 创建私有 shadow，并从 dst 复制当前值。
+	//    复制是为了保留"src 字段为空时 dst 的原值仍保留"的语义。
+	shadow := reflect.New(dv.Type()).Elem()
+	if err := trySet(shadow, dv); err != nil {
+		// 极少数情况（如 dst 内部状态非法）：退回旧实现，
+		// 事务性让位于兼容性。
+		return copyStruct(dv, sv, "", exclude, deep, copyStructVisited(deep))
+	}
+
+	// 2. 在 shadow 上执行原 copyStruct。
+	//    所有字段级 Set 只作用于 shadow，dst 保持不变。
+	//    失败时 dst 完全未被触碰，直接返回错误即可。
+	if err := copyStruct(shadow, sv, "", exclude, deep, copyStructVisited(deep)); err != nil {
+		return err
+	}
+
+	// 3. 成功：一次性替换 dst 的全部字段。
+	//    trySet 内部有 recover 兜底，避免极端情况 panic 外泄。
+	return trySet(dv, shadow)
+}
+
+// copyStructVisited 深拷贝返回空的环检测 map，浅拷贝返回 nil，
+// 与原 CopyStruct/CopyStructDeep 的 visited 行为一致。
+func copyStructVisited(deep bool) map[copyVisit]reflect.Value {
+	if deep {
+		return make(map[copyVisit]reflect.Value)
+	}
+	return nil
 }
 
 // setVisitedPtr 在源间接后的结构体仍是当前祖先时，把可设置的指针字段指回已有目标。
@@ -2009,7 +2071,11 @@ func getNumber(v reflect.Value, key any) (any, error) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		s = strconv.FormatUint(v.Uint(), 10)
 	case reflect.Float32, reflect.Float64:
-		s = strconv.FormatFloat(v.Float(), 'f', -1, 64)
+		bitSize := 64
+		if v.Kind() == reflect.Float32 {
+			bitSize = 32
+		}
+		s = strconv.FormatFloat(v.Float(), 'f', -1, bitSize)
 	case reflect.Complex64, reflect.Complex128:
 		s = fmt.Sprintf("%g", v.Complex())
 	}
@@ -2371,7 +2437,10 @@ func setIndexable(sv reflect.Value, args []any, growable bool, allowUnexported b
 		var old reflect.Value
 		if idx < sv.Len() {
 			old = reflect.New(et).Elem()
-			old.Set(elem)
+			if err := trySet(old, elem); err != nil {
+				rollback()
+				return err
+			}
 		}
 
 		converted, err := autoConvert(et, args[i+1])
@@ -2496,7 +2565,10 @@ func setStruct(sv reflect.Value, args []any, allowUnexported bool) error {
 
 		// 保存旧值
 		old := reflect.New(field.Type()).Elem()
-		old.Set(field)
+		if err := trySet(old, field); err != nil {
+			rollback()
+			return err
+		}
 
 		converted, err := autoConvert(field.Type(), val)
 		if err != nil {
@@ -2899,8 +2971,6 @@ func walkFields(tt reflect.Type, path []int, stack []reflect.Type, allow bool, m
 				ft = ft.Elem()
 			}
 			embeds = append(embeds, embedInfo{ft: ft, idx: idx})
-			if ft.Kind() == reflect.Struct {
-			}
 		}
 	}
 	for _, e := range embeds {

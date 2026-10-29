@@ -59,24 +59,36 @@ func (T *Route) HandleFunc(url string, handler func(w http.ResponseWriter, r *ht
 }
 
 func (T *Route) HandleFuncDot(url string, handler ...func(Doter)) {
-	if handler == nil {
+	if len(handler) == 0 || handler[0] == nil {
 		T.removeHandle(url)
 		return
 	}
 	T.addHandle(url, http.Handler(HandleFunc(handler)))
 }
 
+// removeHandle 从路由表删除指定 URL 的注册。
 func (T *Route) removeHandle(url string) {
-	T.rt.Delete(url)
 	T.mu.Lock()
 	defer T.mu.Unlock()
-	for i, p := range T.list {
-		if p != nil && p.url == url {
-			// 保持顺序，原地删除
-			T.list = append(T.list[:i], T.list[i+1:]...)
-			return
-		}
+	T.rt.Delete(url)
+	if len(T.list) == 0 {
+		return
 	}
+	removed := false
+	newList := make([]*routePathPlaceholder, 0, len(T.list))
+	for _, p := range T.list {
+		if p != nil && p.url == url {
+			removed = true
+			continue
+		}
+		newList = append(newList, p)
+	}
+	if !removed {
+		return
+	}
+	// 保留尾部空位让旧 slice header 保持 len==cap 的语义无关紧要，
+	// 关键是不复用原底层数组，避免与正在遍历的快照数据竞争。
+	T.list = newList
 }
 
 func (T *Route) addHandle(url string, handle http.Handler) {
@@ -89,8 +101,8 @@ func (T *Route) addHandle(url string, handle http.Handler) {
 
 	if strings.HasPrefix(url, "^") || strings.HasSuffix(url, "$") {
 		pathRegex, err := regexp.Compile(url)
-		if err != nil || !isRegex(pathRegex) {
-			panic("invalid regular expression: " + url + "")
+		if err != nil {
+			panic("invalid regular expression: " + url + "\n" + err.Error())
 		}
 		pathRegex.Longest()
 		pathPlaceholder.isRegexp = true
@@ -112,14 +124,16 @@ func (T *Route) addHandle(url string, handle http.Handler) {
 		}
 	}
 
-	// 精确路径直接存 sync.Map，模式路径同时维护有序列表以保证匹配顺序确定
-	T.rt.Store(url, pathPlaceholder)
-
 	T.mu.Lock()
 	defer T.mu.Unlock()
+
+	// 精确路径直接存 sync.Map，模式路径同时维护有序列表以保证匹配顺序确定
+	T.rt.Store(url, pathPlaceholder)
 	// 若已存在同 url 的旧项则替换，保持注册顺序稳定
 	for i, p := range T.list {
 		if p != nil && p.url == url {
+			// 指针替换是原子的；routePathPlaceholder 创建后只读，
+			// 遍历方读到旧或新指针都是合法对象。
 			T.list[i] = pathPlaceholder
 			return
 		}
@@ -174,12 +188,15 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. 模式匹配：按注册顺序遍历 list，保证确定性
-	filteredUserSegments := strings.Split(userPath, "/")
 	isDir := strings.HasSuffix(userPath, "/")
 
 	T.mu.RLock()
 	list := T.list
 	T.mu.RUnlock()
+
+	// 仅当遍历到占位符路由时才切分一次，并在同一次请求内缓存复用。
+	var filteredUserSegments []string
+	segmentsReady := false
 
 	for _, pathPlaceholder := range list {
 		if pathPlaceholder == nil {
@@ -207,6 +224,11 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if pathPlaceholder.isPlaceholder {
+			// 仅在真正需要时切分，且整个请求生命周期内只切一次。
+			if !segmentsReady {
+				filteredUserSegments = strings.Split(userPath, "/")
+				segmentsReady = true
+			}
 			if param, ok := parsePathParamsPreparsed(filteredUserSegments, pathPlaceholder.pathSegments, pathPlaceholder.parsedParts); ok {
 				r = r.WithContext(context.WithValue(r.Context(), "url-params", param))
 				pathPlaceholder.handle.ServeHTTP(w, r)
@@ -331,7 +353,6 @@ func extractParamsFromSegmentPreparsed(parsedParts []segmentPart, userSeg string
 
 // parsePlaceholderSegment 辅助函数，将占位符段（如 "b{id}b"）解析成
 // 包含文字和占位符名称的 segmentPart 序列。
-// 成功返回解析后的序列和true，失败返回nil和false（表示格式错误）。
 func parsePlaceholderSegment(placeholderSeg string) ([]segmentPart, bool) {
 	parts := make([]segmentPart, 0, 4)
 	currentBuffer := strings.Builder{}

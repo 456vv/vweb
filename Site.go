@@ -1,6 +1,7 @@
 package vweb
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -8,6 +9,13 @@ import (
 
 	"github.com/456vv/vmap/v2"
 )
+
+// sitePoolCloseFreeWaitTimeout SitePool.Close 等待所有 Defer 完成的超时上限。
+//
+// 修改原因：InstantDeadAll 内部 Free 为异步；Close 作为"关闭站点池"的最终边界，
+// 需要保证用户 Defer 已执行或已放弃等待。给一个有限超时，避免个别 Defer 卡死
+// 拖垮整个 Close。
+const sitePoolCloseFreeWaitTimeout = 3 * time.Second
 
 // SitePool 网站池
 type SitePool struct {
@@ -31,9 +39,6 @@ func NewSitePool() *SitePool {
 //	name string		站点name
 //	*Site			站点
 func (T *SitePool) NewSite(name string) *Site {
-	if inf, ok := T.pool.Load(name); ok {
-		return inf.(*Site)
-	}
 	site := &Site{
 		identity: name,
 		sessions: &Sessions{
@@ -43,7 +48,10 @@ func (T *SitePool) NewSite(name string) *Site {
 		},
 		global: vmap.NewMap(),
 	}
-	T.pool.Store(name, site)
+	actual, loaded := T.pool.LoadOrStore(name, site)
+	if loaded {
+		return actual.(*Site)
+	}
 	return site
 }
 
@@ -67,7 +75,15 @@ func (T *SitePool) RangeSite(f func(name string, site *Site) bool) {
 //
 //	d time.Duration     回收时间隔，不可以等于或小于0,否则CPU爆增（警告）
 func (T *SitePool) SetRecoverSession(d time.Duration) {
-	T.tick.Reset(d)
+	if T.closed.Load() {
+		return
+	}
+	if d <= 0 {
+		d = time.Second // 防止 <=0 导致 ticker 高频空转打满 CPU
+	}
+	if T.tick != nil {
+		T.tick.Reset(d)
+	}
 }
 
 func (T *SitePool) start() {
@@ -75,9 +91,13 @@ L:
 	for {
 		select {
 		case <-T.tick.C:
+			// 关闭后跳过，避免 Close 与 ticker 竞态再执行一次 CheckDeadAll
+			if T.closed.Load() {
+				continue
+			}
 			T.pool.Range(func(host, inf any) bool {
 				if site, ok := inf.(*Site); ok {
-					go site.sessions.CheckDeadAll()
+					site.sessions.CheckDeadAll()
 				}
 				return true
 			})
@@ -88,26 +108,48 @@ L:
 }
 
 // Close 关闭池,关闭前将遍历池中的站点出来清理会话和全局数据。如果已经关闭则返回错误。
-//
-//	error   错误
 func (T *SitePool) Close() error {
 	if !T.closed.Swap(true) {
-		T.exit <- true
-		T.tick.Stop()
+		if T.tick != nil {
+			T.tick.Stop()
+		}
+		if T.exit != nil {
+			close(T.exit)
+		}
+
+		var sessions []*Sessions
 		T.pool.Range(func(key, value any) bool {
 			if site, ok := value.(*Site); ok {
-				// 清除Session
-				site.Sessions().InstantDeadAll()
+				sessions = append(sessions, site.sessions)
 				// 清除全局数据
-				site.Global().Reset()
+				site.global.Reset()
 				// 清除网站扩展数据
 				site.Extend.Reset()
 			}
 			return true
 		})
+
+		if len(sessions) > 0 {
+			var wg sync.WaitGroup
+			for _, s := range sessions {
+				s.InstantDeadAllInto(&wg)
+			}
+
+			done := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+
+			ctx, cancel := context.WithTimeout(context.Background(), sitePoolCloseFreeWaitTimeout)
+			select {
+			case <-done:
+			case <-ctx.Done():
+			}
+			cancel()
+		}
 		return nil
 	}
-
 	return errors.New("SitePool is closed")
 }
 

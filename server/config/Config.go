@@ -1,11 +1,14 @@
 package config
 
 import (
+	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -20,12 +23,15 @@ import (
 	"github.com/456vv/verror"
 	"github.com/456vv/vweb/v3"
 	"github.com/456vv/vweb/v3/builtin"
+	"github.com/pelletier/go-toml/v2"
 )
+
+type HandleFunc func(name string, dsc, src reflect.Value) bool
 
 // configExclude 返回一个过滤函数：跳过零值源字段，或由自定义 handle 决定跳过。
 // 兼容指针、切片、map、接口、数组、chan、func 等反射类型的零值判断。
 // 返回 true 表示跳过该字段（不从 src 写入 dst）。
-func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(name string, dsc, src reflect.Value) bool {
+func configExclude(handle HandleFunc) HandleFunc {
 	return func(name string, dsc, src reflect.Value) bool {
 		if handle != nil && handle(name, dsc, src) {
 			return true
@@ -34,8 +40,11 @@ func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(n
 			return true
 		}
 		// 更完整的零值判断，覆盖常见可配置类型
-		switch src.Kind() {
+		switch t := src.Kind(); t {
 		case reflect.Pointer, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
+			if (t == reflect.Slice || t == reflect.Map) && src.Len() == 0 {
+				return true
+			}
 			return src.IsNil()
 		case reflect.Array:
 			// 数组全零才视为零
@@ -51,45 +60,15 @@ func configExclude(handle func(name string, dsc, src reflect.Value) bool) func(n
 	}
 }
 
-// cloneStringMap 拷贝 map[string]string，nil 仍返回 nil。
-func cloneStringMap(m map[string]string) map[string]string {
-	if m == nil {
-		return nil
+func publicCopy(transit, dsc, src any, handle HandleFunc) bool {
+	if builtin.CopyStructDeep(transit, dsc, nil) != nil {
+		return false
 	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
-}
 
-// cloneStringSliceMap 拷贝 map[string][]string（Header 字段），对每个 value 切片再拷一层。
-func cloneStringSliceMap(m map[string][]string) map[string][]string {
-	if m == nil {
-		return nil
+	if builtin.CopyStructDeep(transit, src, configExclude(handle)) != nil {
+		return false
 	}
-	out := make(map[string][]string, len(m))
-	for k, vs := range m {
-		if vs == nil {
-			out[k] = nil
-			continue
-		}
-		out[k] = append([]string(nil), vs...)
-	}
-	return out
-}
-
-// cloneSiteHeaderTypeMap 深拷贝 map[string]SiteHeaderType，隔离公共与站点配置。
-func cloneSiteHeaderTypeMap(m map[string]SiteHeaderType) map[string]SiteHeaderType {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]SiteHeaderType, len(m))
-	for k, v := range m {
-		v.Header = cloneStringSliceMap(v.Header)
-		out[k] = v
-	}
-	return out
+	return true
 }
 
 // SiteForward 配置-转发-配置
@@ -105,6 +84,10 @@ type SiteForward struct {
 }
 
 func (T *SiteForward) Compile() (fw *vweb.ForwardRewriter, err error) {
+	if T == nil {
+		// 修改原因：避免空接收器解引用。
+		return nil, fmt.Errorf("vweb: SiteForward 不能为 nil")
+	}
 	if T.forwardWriter == nil {
 		forward := vweb.Forward{
 			Path:        T.Path,
@@ -230,7 +213,7 @@ func (T *SitePluginTLS) clone() *SitePluginTLS {
 }
 
 // ConfigSitePluginHTTP 从公共 HTTP 配置模板中合并配置到 origin 中
-func (T *SitePlugins) ConfigSitePluginHTTP(origin *SitePlugin, handle func(name string, dsc, src reflect.Value) bool) bool {
+func (T *SitePlugins) ConfigSitePluginHTTP(origin *SitePlugin, handle HandleFunc) bool {
 	if T == nil || origin == nil {
 		return false
 	}
@@ -253,7 +236,7 @@ func (T *SitePlugins) ConfigSitePluginHTTP(origin *SitePlugin, handle func(name 
 }
 
 // ConfigSitePluginRPC 从公共 RPC 配置模板中合并配置到 origin 中
-func (T *SitePlugins) ConfigSitePluginRPC(origin *SitePlugin, handle func(name string, dsc, src reflect.Value) bool) bool {
+func (T *SitePlugins) ConfigSitePluginRPC(origin *SitePlugin, handle HandleFunc) bool {
 	if T == nil || origin == nil {
 		return false
 	}
@@ -311,8 +294,16 @@ func (T *SiteDirectory) RootDir(upath string) string {
 			continue
 		}
 		v = filepath.FromSlash(v)
+		// 若 v 以分隔符结尾（如 "/virtual/"），pos 会指向末尾、
+		// v[pos+1:] 为空串，strings.HasPrefix(p+sep, sep+"") 恒为 true，
+		// 导致任意请求路径都被误判命中该虚目录。
+		// 先去掉尾部多余分隔符再参与匹配。
+		v = strings.TrimRight(v, separator)
+		if v == "" {
+			continue
+		}
 		pos := strings.LastIndex(v, separator)
-		if strings.HasPrefix(p+separator, separator+v[pos+1:]+separator) {
+		if pos >= 0 && strings.HasPrefix(p+separator, separator+v[pos+1:]+separator) {
 			if pos == 0 {
 				pos = 1
 			}
@@ -389,7 +380,7 @@ type SitePublic struct {
 }
 
 // ConfigSiteSession 将公共 Session 配置合并到 origin（公共为底，origin 非零字段覆盖）。
-func (T *SitePublic) ConfigSiteSession(origin *SiteSession, handle func(name string, dsc, src reflect.Value) bool) bool {
+func (T *SitePublic) ConfigSiteSession(origin *SiteSession, handle HandleFunc) bool {
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
@@ -400,15 +391,17 @@ func (T *SitePublic) ConfigSiteSession(origin *SiteSession, handle func(name str
 	if !ok {
 		return false
 	}
-	if builtin.CopyStruct(&c, origin, configExclude(handle)) != nil {
-		return false
+
+	var nc SiteSession
+	if publicCopy(&nc, &c, origin, handle) {
+		*origin = nc
+		return true
 	}
-	*origin = c
-	return true
+	return false
 }
 
 // ConfigSiteHeader 将公共 Header 配置合并到 origin（公共为底，origin 非零字段覆盖）。
-func (T *SitePublic) ConfigSiteHeader(origin *SiteHeader, handle func(name string, dsc, src reflect.Value) bool) bool {
+func (T *SitePublic) ConfigSiteHeader(origin *SiteHeader, handle HandleFunc) bool {
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
@@ -420,23 +413,19 @@ func (T *SitePublic) ConfigSiteHeader(origin *SiteHeader, handle func(name strin
 	if !ok {
 		return false
 	}
-	if builtin.CopyStruct(&c, origin, configExclude(handle)) != nil {
-		return false
+	var nc SiteHeader
+	if publicCopy(&nc, &c, origin, handle) {
+		*origin = nc
+		return true
 	}
-	// CopyStruct 对 map 是浅拷贝，合并后 origin 与公共模板仍共享 Static/Dynamic/MIME 底层 map，
-	// 运行期站点若改 Header 会污染公共配置；此处做防御性深拷贝隔离。
-	c.Static = cloneSiteHeaderTypeMap(c.Static)
-	c.Dynamic = cloneSiteHeaderTypeMap(c.Dynamic)
-	c.MIME = cloneStringMap(c.MIME)
-	*origin = c
-	return true
+	return false
 }
 
 // ConfigSiteForward 将公共 Forward 列表追加到 origin.List。
 // 与其它 Config* 不同：采用追加语义（公共规则在前或后由调用方 List 初始内容决定），
 // 且不覆盖 origin 已有项。合并时会复制元素并清空运行时字段 forwardWriter，避免共享可变状态。
 // handle 保留签名以兼容既有调用方；转发列表为切片追加，不走字段级深拷贝过滤。
-func (T *SitePublic) ConfigSiteForward(origin *SiteForwards, handle func(name string, dsc, src reflect.Value) bool) bool {
+func (T *SitePublic) ConfigSiteForward(origin *SiteForwards, handle HandleFunc) bool {
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
@@ -469,7 +458,7 @@ func (T *SitePublic) ConfigSiteForward(origin *SiteForwards, handle func(name st
 // ConfigSiteDynamic 将公共 Dynamic 配置合并到 origin。
 // 规则：以公共配置为底，origin 中非零字段覆盖公共配置，结果写回 origin。
 // 返回 true 表示成功合并；PublicName 为空、未找到或拷贝失败时返回 false。
-func (T *SitePublic) ConfigSiteDynamic(origin *SiteDynamic, handle func(name string, dsc, src reflect.Value) bool) bool {
+func (T *SitePublic) ConfigSiteDynamic(origin *SiteDynamic, handle HandleFunc) bool {
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
@@ -480,54 +469,29 @@ func (T *SitePublic) ConfigSiteDynamic(origin *SiteDynamic, handle func(name str
 	if !ok {
 		return false
 	}
-	if builtin.CopyStruct(&c, origin, configExclude(handle)) != nil {
-		return false
+	var nc SiteDynamic
+	if publicCopy(&nc, &c, origin, handle) {
+		*origin = nc
+		return true
 	}
-	// Ext 切片与公共模板共享底层数组，站点侧 append 会污染公共配置。
-	if n := len(c.Ext); n > 0 {
-		c.Ext = append([]string(nil), c.Ext...)
-	}
-	*origin = c
-	return true
+	return false
 }
 
 // ConfigSitePlugin 按 kind（"rpc" / "http"，大小写不敏感）与 PublicName 合并公共插件配置到 origin。
 // 补全原结构体存在 Plugin 字段却无对应合并入口的功能盲区。
 // 未找到或参数非法时返回 false。
-func (T *SitePublic) ConfigSitePlugin(origin *SitePlugin, kind string, handle func(name string, dsc, src reflect.Value) bool) bool {
+func (T *SitePublic) ConfigSitePlugin(origin *SitePlugin, name string, handle HandleFunc) bool {
 	if T == nil || origin == nil || origin.PublicName == "" {
 		return false
 	}
-	var (
-		c  SitePlugin
-		ok bool
-	)
+	var ok bool
 	switch {
-	case equalFoldASCII(kind, "rpc"):
-		// RPC map 可能为 nil。
-		if T.Plugin.RPC == nil {
-			return false
-		}
-		c, ok = T.Plugin.RPC[origin.PublicName]
-	case equalFoldASCII(kind, "http"):
-		// HTTP map 可能为 nil。
-		if T.Plugin.HTTP == nil {
-			return false
-		}
-		c, ok = T.Plugin.HTTP[origin.PublicName]
-	default:
-		return false
+	case equalFoldASCII(name, "rpc"):
+		ok = T.Plugin.ConfigSitePluginRPC(origin, handle)
+	case equalFoldASCII(name, "http"):
+		ok = T.Plugin.ConfigSitePluginHTTP(origin, handle)
 	}
-	if !ok {
-		return false
-	}
-	// 与 ConfigSitePluginHTTP/RPC 对齐，隔离公共模板并正确做非零覆盖。
-	cCloned := c.clone()
-	if builtin.CopyStructDeep(cCloned, origin, configExclude(handle)) != nil {
-		return false
-	}
-	*origin = *cCloned
-	return true
+	return ok
 }
 
 // equalFoldASCII 仅处理 ASCII 的大小写不敏感比较，避免引入 strings 包额外依赖路径差异，跨平台行为一致。
@@ -662,9 +626,9 @@ func (T *ServerPublic) ConfigConn(origin *Conn, handle func(name string, dsc, sr
 		return false
 	}
 
-	// 以公共配置为基，origin 非零字段覆盖
-	if builtin.CopyStruct(&c, origin, configExclude(handle)) == nil {
-		*origin = c
+	var nc Conn
+	if publicCopy(&nc, &c, origin, handle) {
+		*origin = nc
 		return true
 	}
 	return false
@@ -684,62 +648,16 @@ func (T *ServerPublic) ConfigServer(origin *Server, handle func(name string, dsc
 		return false
 	}
 
-	// 对嵌套的 TLS 指针做值拷贝，避免共享修改
-	if c.TLS != nil {
-		tlsCopy := *c.TLS // 值拷贝
-		// 仅 *TLS 值拷贝后，切片字段仍与公共模板共享底层数组；再拷一层切片。
-		if len(tlsCopy.RootCAs) > 0 {
-			tlsCopy.RootCAs = append([]ServerTLSFile(nil), tlsCopy.RootCAs...)
+	var nc Server
+	if publicCopy(&nc, &c, origin, handle) {
+		*origin = nc
+		// 现在 Auto 只修改副本，不会影响公共配置
+		if origin.TLS != nil && len(origin.TLS.CipherSuites) == 0 {
+			origin.TLS.CipherSuitesAuto()
 		}
-		if len(tlsCopy.NextProtos) > 0 {
-			tlsCopy.NextProtos = append([]string(nil), tlsCopy.NextProtos...)
-		}
-		if len(tlsCopy.CipherSuites) > 0 {
-			tlsCopy.CipherSuites = append([]uint16(nil), tlsCopy.CipherSuites...)
-		}
-		if len(tlsCopy.SetSessionTicketKeys) > 0 {
-			tlsCopy.SetSessionTicketKeys = append([][32]byte(nil), tlsCopy.SetSessionTicketKeys...)
-		}
-		if len(tlsCopy.ClientCAs) > 0 {
-			tlsCopy.ClientCAs = append([]string(nil), tlsCopy.ClientCAs...)
-		}
-		c.TLS = &tlsCopy
+		return true
 	}
-
-	// 以公共配置副本为基进行合并
-	if builtin.CopyStruct(&c, origin, configExclude(handle)) != nil {
-		return false
-	}
-
-	*origin = c
-
-	// origin 侧若自带 TLS，合并后可能仍与公共共享切片；再隔离一次。
-	// CopyStruct 浅拷贝会把 origin.TLS 指针写回，若 origin 原先 TLS 为 nil 则用了上面的副本；若 origin 有 TLS 则可能指向公共。
-	if origin.TLS != nil {
-		tlsCopy := *origin.TLS
-		if len(tlsCopy.RootCAs) > 0 {
-			tlsCopy.RootCAs = append([]ServerTLSFile(nil), tlsCopy.RootCAs...)
-		}
-		if len(tlsCopy.NextProtos) > 0 {
-			tlsCopy.NextProtos = append([]string(nil), tlsCopy.NextProtos...)
-		}
-		if len(tlsCopy.CipherSuites) > 0 {
-			tlsCopy.CipherSuites = append([]uint16(nil), tlsCopy.CipherSuites...)
-		}
-		if len(tlsCopy.SetSessionTicketKeys) > 0 {
-			tlsCopy.SetSessionTicketKeys = append([][32]byte(nil), tlsCopy.SetSessionTicketKeys...)
-		}
-		if len(tlsCopy.ClientCAs) > 0 {
-			tlsCopy.ClientCAs = append([]string(nil), tlsCopy.ClientCAs...)
-		}
-		origin.TLS = &tlsCopy
-	}
-
-	// 现在 Auto 只修改副本，不会影响公共配置
-	if origin.TLS != nil && len(origin.TLS.CipherSuites) == 0 {
-		origin.TLS.CipherSuitesAuto()
-	}
-	return true
+	return false
 }
 
 // Listen 监听配置
@@ -779,12 +697,10 @@ func (T *Config) ParseFiles(file string) error {
 	T.mu.Lock()
 	defer T.mu.Unlock()
 
-	// 加载主配置文件
 	if err := T.parseFileLocked(file); err != nil {
 		return err
 	}
 
-	// 加载子配置文件（仅处理常规文件且后缀匹配，避免无效 I/O）
 	dir := filepath.Dir(file)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -796,7 +712,7 @@ func (T *Config) ParseFiles(file string) error {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".site.json") && !strings.HasSuffix(name, ".listen.json") {
+		if !isSubConfigName(name) {
 			continue
 		}
 		subPath := filepath.Join(dir, name)
@@ -817,30 +733,43 @@ func (T *Config) ParseReader(r io.Reader) error {
 	T.mu.Lock()
 	defer T.mu.Unlock()
 
-	if err := json.NewDecoder(r).Decode(T); err != nil {
+	var tmp Config
+	if err := json.NewDecoder(r).Decode(&tmp); err != nil {
 		return fmt.Errorf("decode config reader: %w", err)
 	}
+	// 整份替换，避免 Decode 进已有 map 时残留已删除的键。
+	T.Servers = tmp.Servers
+	T.Sites = tmp.Sites
 	T.ensureMaps()
 	return nil
 }
 
 // parseFileLocked 内部使用（调用方必须已持有写锁）
 func (T *Config) parseFileLocked(file string) error {
-	// 优先判断加载子配置文件
-	if strings.HasSuffix(file, ".site.json") || strings.HasSuffix(file, ".listen.json") {
+	lower := strings.ToLower(file)
+	// 子配置仍按原有逻辑处理，后续单独扩展
+	if strings.HasSuffix(lower, ".site.json") || strings.HasSuffix(lower, ".listen.json") ||
+		strings.HasSuffix(lower, ".site.toml") || strings.HasSuffix(lower, ".listen.toml") {
 		return loadSubConf(file, T)
 	}
 
-	// 加载主配置文件
+	ext := filepath.Ext(lower)
+	if ext == "" {
+		return fmt.Errorf("config file %q: unknown extension", file)
+	}
+
 	f, err := os.Open(file)
 	if err != nil {
 		return fmt.Errorf("open config file %q: %w", file, err)
 	}
 	defer f.Close()
 
-	if err := json.NewDecoder(f).Decode(T); err != nil {
+	var tmp Config
+	if err := decodeByExt(ext, f, &tmp); err != nil {
 		return fmt.Errorf("decode config file %q: %w", file, err)
 	}
+	T.Servers = tmp.Servers
+	T.Sites = tmp.Sites
 	T.ensureMaps()
 	return nil
 }
@@ -876,6 +805,23 @@ func (T *Config) ensureMaps() {
 	if T.Sites.Public.Plugin.HTTP == nil {
 		T.Sites.Public.Plugin.HTTP = make(map[string]SitePlugin)
 	}
+}
+
+// ParseReaderTOML 以严格模式解析 TOML 文件。
+func (T *Config) ParseReaderTOML(r io.Reader) error {
+	T.mu.Lock()
+	defer T.mu.Unlock()
+
+	d := toml.NewDecoder(r)
+	d.DisallowUnknownFields()
+	var tmp Config
+	if err := d.Decode(&tmp); err != nil {
+		return fmt.Errorf("strict decode toml %w", err)
+	}
+	T.Servers = tmp.Servers
+	T.Sites = tmp.Sites
+	T.ensureMaps()
+	return nil
 }
 
 // configHTTPClient 配置HTTP插件客户端。
@@ -924,12 +870,15 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 			return fmt.Errorf("ConfigSitePlugin.LocalAddr 地址无法解析(%s)。格式应为 111.222.333.444:0 或 www.example.com:0，错误: %v", conf.LocalAddr, lastErr)
 		}
 		c.Dialer.LocalAddr = netTCPAddr
+	} else {
+		// 复用 Dialer 时若新配置清空 LocalAddr，必须复位，否则旧地址残留。
+		c.Dialer.LocalAddr = nil
 	}
 
 	// 超时单位统一为毫秒；零值表示使用系统/Go 默认行为（不强制覆盖）。
-	c.Dialer.Timeout = time.Duration(conf.Timeout) * time.Millisecond
-	c.Dialer.KeepAlive = time.Duration(conf.KeepAlive) * time.Millisecond
-	c.Dialer.FallbackDelay = time.Duration(conf.FallbackDelay) * time.Millisecond
+	c.Dialer.Timeout = millis(conf.Timeout)
+	c.Dialer.KeepAlive = millis(conf.KeepAlive)
+	c.Dialer.FallbackDelay = millis(conf.FallbackDelay)
 
 	// ---------- Transport 配置 ----------
 	if c.Tr == nil {
@@ -944,6 +893,9 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 			return fmt.Errorf("代理地址无效 ConfigSitePlugin.ProxyURL(%s): %v", conf.ProxyURL, err)
 		}
 		c.Tr.Proxy = http.ProxyURL(u)
+	} else {
+		// 清空 ProxyURL 时应回到环境代理，避免旧 ProxyURL 残留。
+		c.Tr.Proxy = http.ProxyFromEnvironment
 	}
 
 	c.Tr.DisableKeepAlives = conf.DisableKeepAlives
@@ -958,21 +910,23 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 
 	// 仅在配置了非零值时才覆盖默认超时，避免意外将超时设为 0。
 	if d := conf.ResponseHeaderTimeout; d != 0 {
-		c.Tr.ResponseHeaderTimeout = time.Duration(d) * time.Millisecond
+		c.Tr.ResponseHeaderTimeout = millis(d)
 	}
 	if d := conf.ExpectContinueTimeout; d != 0 {
-		c.Tr.ExpectContinueTimeout = time.Duration(d) * time.Millisecond
+		c.Tr.ExpectContinueTimeout = millis(d)
 	}
 	if d := conf.IdleConnTimeout; d != 0 {
-		c.Tr.IdleConnTimeout = time.Duration(d) * time.Millisecond
+		c.Tr.IdleConnTimeout = millis(d)
 	}
 	if d := conf.TLSHandshakeTimeout; d != 0 {
-		c.Tr.TLSHandshakeTimeout = time.Duration(d) * time.Millisecond
+		c.Tr.TLSHandshakeTimeout = millis(d)
 	}
 
 	// ProxyConnectHeader 使用 Clone，防止外部修改影响已配置的 Transport（并发安全）。
 	if len(conf.ProxyConnectHeader) != 0 {
 		c.Tr.ProxyConnectHeader = conf.ProxyConnectHeader.Clone()
+	} else {
+		c.Tr.ProxyConnectHeader = nil
 	}
 
 	// ---------- TLS 配置 ----------
@@ -1036,6 +990,23 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 	}
 	c.Tr.TLSClientConfig = tlsConfig
 
+	// 在配置阶段绑定 DialContext，避免 PluginHTTPClient.Connection 首次并发写 Transport 字段。
+	if conf.Addr != "" {
+		addr := conf.Addr
+		dialer := c.Dialer
+		c.Tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		}
+		if tlsConfig != nil {
+			tlsDialer := &tls.Dialer{NetDialer: dialer, Config: tlsConfig}
+			c.Tr.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return tlsDialer.DialContext(ctx, network, addr)
+			}
+		} else {
+			c.Tr.DialTLSContext = nil
+		}
+	}
+
 	return nil
 }
 
@@ -1089,29 +1060,34 @@ func configRPCClient(c *vweb.PluginRPCClient, conf *SitePlugin) error {
 			return fmt.Errorf("ConfigSitePlugin.LocalAddr 地址无法解析(%s)：%w。格式应为 IP:0、[IPv6]:0 或 domain:0", conf.LocalAddr, err)
 		}
 		d.LocalAddr = netTCPAddr
+	} else {
+		// 清空 LocalAddr 时复位，避免复用池残留旧地址。
+		d.LocalAddr = nil
 	}
 
 	// 超时相关设置（毫秒 → time.Duration，负值钳制为 0）
 	// Timeout/KeepAlive 为 0 表示无超时；FallbackDelay 为 0 时保留 net.Dialer 内部默认 300ms（双栈 Happy Eyeballs）
 	timeout := max(conf.Timeout, 0)
-	d.Timeout = time.Duration(timeout) * time.Millisecond
+	d.Timeout = millis(timeout)
 
 	keepAlive := max(conf.KeepAlive, 0)
-	d.KeepAlive = time.Duration(keepAlive) * time.Millisecond
+	d.KeepAlive = millis(keepAlive)
 
 	fallbackDelay := max(conf.FallbackDelay, 0)
-	d.FallbackDelay = time.Duration(fallbackDelay) * time.Millisecond
+	d.FallbackDelay = millis(fallbackDelay)
 
 	return nil
 }
 
-// parseConf 读取并反序列化单个 JSON 文件
+// parseConf 读取并反序列化单个配置文件，按后缀选择 JSON 或 TOML。
 func parseConf(path string, v any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read sub-config %q: %w", path, err)
 	}
-	if err := json.Unmarshal(data, v); err != nil {
+
+	ext := strings.ToLower(filepath.Ext(path))
+	if err := decodeByExt(ext, bytes.NewReader(data), v); err != nil {
 		return fmt.Errorf("unmarshal sub-config %q: %w", path, err)
 	}
 	return nil
@@ -1120,38 +1096,28 @@ func parseConf(path string, v any) error {
 // loadSubConf 加载并合并子配置（.site.json / .listen.json）
 // 注意：调用方必须已持有 Config.mu 写锁。
 func loadSubConf(path string, conf *Config) error {
+	lower := strings.ToLower(path)
+
 	switch {
-	case strings.HasSuffix(path, ".site.json"):
+	case strings.HasSuffix(lower, ".site.json"):
 		var incoming []Site
 		if err := parseConf(path, &incoming); err != nil {
 			return err
 		}
-		if len(incoming) == 0 {
-			return nil
-		}
+		mergeSites(conf, incoming)
 
-		// 为了在保持「按顺序替换第一个匹配」语义的同时提升性能，
-		// 使用 Identity → 当前索引的映射。Identity 被设计为唯一码，
-		// 若出现重复，后出现的会覆盖先前的索引（与常见配置预期一致）。
-		identityIndex := make(map[string]int, len(conf.Sites.Site))
-		for i, s := range conf.Sites.Site {
-			identityIndex[s.Identity] = i
+	case strings.HasSuffix(lower, ".site.toml"):
+		// TOML 的文档根必须是 table，无法表达顶层数组，
+		// 因此 .site.toml 的格式为 [[Site]]（顶层数组表）。
+		var wrapper struct {
+			Site []Site `toml:"Site"`
 		}
+		if err := parseConf(path, &wrapper); err != nil {
+			return err
+		}
+		mergeSites(conf, wrapper.Site)
 
-		var toAppend []Site
-		for _, s := range incoming {
-			if idx, exists := identityIndex[s.Identity]; exists {
-				// 替换已存在的站点（同一 Identity 以最后一次为准）
-				conf.Sites.Site[idx] = s
-			} else {
-				toAppend = append(toAppend, s)
-			}
-		}
-		if len(toAppend) > 0 {
-			conf.Sites.Site = append(conf.Sites.Site, toAppend...)
-		}
-
-	case strings.HasSuffix(path, ".listen.json"):
+	case strings.HasSuffix(lower, ".listen.json"), strings.HasSuffix(lower, ".listen.toml"):
 		var incoming map[string]Listen
 		if err := parseConf(path, &incoming); err != nil {
 			return err
@@ -1162,9 +1128,65 @@ func loadSubConf(path string, conf *Config) error {
 		if conf.Servers.Listen == nil {
 			conf.Servers.Listen = make(map[string]Listen, len(incoming))
 		}
-		for k, v := range incoming {
-			conf.Servers.Listen[k] = v
-		}
+		maps.Copy(conf.Servers.Listen, incoming)
 	}
 	return nil
+}
+
+// mergeSites 按 Identity 合并：同名替换、异名追加。
+func mergeSites(conf *Config, incoming []Site) {
+	if len(incoming) == 0 {
+		return
+	}
+	identityIndex := make(map[string]int, len(conf.Sites.Site))
+	for i, s := range conf.Sites.Site {
+		identityIndex[s.Identity] = i
+	}
+	var toAppend []Site
+	for _, s := range incoming {
+		if idx, exists := identityIndex[s.Identity]; exists {
+			conf.Sites.Site[idx] = s
+		} else {
+			toAppend = append(toAppend, s)
+		}
+	}
+	if len(toAppend) > 0 {
+		conf.Sites.Site = append(conf.Sites.Site, toAppend...)
+	}
+}
+
+// isSubConfigName 判断是否为受支持的子配置文件名。
+func isSubConfigName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".site.json") ||
+		strings.HasSuffix(lower, ".listen.json") ||
+		strings.HasSuffix(lower, ".site.toml") ||
+		strings.HasSuffix(lower, ".listen.toml")
+}
+
+// decodeByExt 按文件后缀选择 JSON 或 TOML 解码器。
+// 未知后缀回退到 JSON，保持向后兼容。
+func decodeByExt(ext string, r io.Reader, v any) error {
+	const (
+		extJSON = ".json"
+		extTOML = ".toml"
+	)
+	switch ext {
+	case extTOML:
+		return toml.NewDecoder(r).Decode(v)
+	default:
+		return json.NewDecoder(r).Decode(v)
+	}
+}
+
+// millis 把毫秒转为 Duration，超限时钳制到最大值，避免乘法溢出成负数。
+func millis(ms int64) time.Duration {
+	if ms <= 0 {
+		return 0
+	}
+	maxMs := int64(time.Duration(1<<63-1) / time.Millisecond)
+	if ms > maxMs {
+		ms = maxMs
+	}
+	return time.Duration(ms) * time.Millisecond
 }

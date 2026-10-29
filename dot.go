@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/456vv/vmap/v2"
 )
@@ -199,25 +200,56 @@ func (T *Dot) WithContext(ctx context.Context) {
 }
 
 // SaveStatic 保存为静态文件
-//
-//	path string	保存路径
 func (T *Dot) SaveStatic(path string) (wr io.WriteCloser, err error) {
-	staticPath := filepath.Join(T.RootDir("."), path)
-	staticDir := filepath.Dir(staticPath)
+	// 1. 业务语义：空的保存路径无意义
+	if path == "" {
+		return nil, errors.New("static path is empty")
+	}
+	// 转换 URL 风格分隔符为系统分隔符，并规范化
+	cleanPath := filepath.Clean(filepath.FromSlash(path))
+	if cleanPath == "." {
+		return nil, errors.New("static path is empty")
+	}
+	// 2. 复用 isLocalPath：拒绝绝对路径、盘符、UNC、含 ".." 的路径
+	if !isLocalPath(cleanPath) {
+		return nil, errors.New("static path escapes root")
+	}
+
+	rootDir := T.RootDir(".")
+	staticPath := filepath.Join(rootDir, cleanPath)
+
+	// 3. 纵深防御：校验最终绝对路径确实在 rootDir 之下
+	//    （即使 isLocalPath 已通过，filepath.Join 也可能因为 rootDir 自身
+	//     含 ".." 或相对路径而被清理到意外位置，这里再兜一次）
+	rootAbs, err := filepath.Abs(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	staticAbs, err := filepath.Abs(staticPath)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(rootAbs, staticAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, errors.New("static path escapes root")
+	}
+
+	staticDir := filepath.Dir(staticAbs)
 
 	// 判断目录是否存在，不存在创建目录
 	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(staticDir, 0o644); err != nil {
+		if err := os.MkdirAll(staticDir, 0o755); err != nil {
 			return nil, err
 		}
 	}
 
 	storage := &staticFileStorage{
-		name:      filepath.Base(path),
+		name:      filepath.Base(cleanPath),
 		staticDir: staticDir,
 	}
-	return storage, err
+	return storage, nil
 }
+
 
 type staticFileStorage struct {
 	name      string

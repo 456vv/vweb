@@ -56,23 +56,29 @@ func (c *Cookie) Get(name string) string {
 }
 
 // Add 增加,写入一条Cookie，可以写入多条Cookie保存至浏览器
-//
-//	name string         	名称
-//	value string        	值
-//	path string         	路径
-//	domain string       	域
-//	maxAge int          	过期时间，以毫秒为单位
-//	secure bool         	源，如果通过 SSL 连接 (HTTPS) 传输 Cookie，则为 true；否则为 false。默认值为 false。
-//	only bool           	验证，如果 Cookie 具有 HttpOnly 属性且不能通过客户端脚本(JS)访问，则为 true；否则为 false。默认为 false。
-//	sameSite http.SameSite	是否严格模式
 func (c *Cookie) Add(name, value, path, domain string, maxAge int, secure, only bool, sameSite http.SameSite) {
+	// 空名无意义，直接忽略（避免无 Header 写入）
+	if name == "" {
+		return
+	}
+	// path 为空时默认 "/"，让 Cookie 全站可见
+	if path == "" {
+		path = "/"
+	}
+	// SameSite 白名单：Default/Lax/Strict/None 之外归到 Default
+	switch sameSite {
+	case http.SameSiteDefaultMode, http.SameSiteLaxMode, http.SameSiteStrictMode, http.SameSiteNoneMode:
+		// ok
+	default:
+		sameSite = http.SameSiteDefaultMode
+	}
+
 	cookie := &http.Cookie{
-		Name:   name,
-		Value:  value,
-		Path:   path,
-		Domain: domain,
-		// Expires: time.Now(),
-		MaxAge:   maxAge,
+		Name:     name,
+		Value:    value,
+		Path:     path,
+		Domain:   domain,
+		MaxAge:   maxAge, // 秒；负数=立即删除
 		Secure:   secure,
 		HttpOnly: only,
 		SameSite: sameSite,
@@ -84,7 +90,8 @@ func (c *Cookie) Add(name, value, path, domain string, maxAge int, secure, only 
 //
 //	name string            名称
 func (c *Cookie) Del(name string) {
-	c.Add(name, "", "/", "", -1, false, false, 0)
+	// MaxAge<0 会让浏览器立即删除；同时显式清空 value/path/domain 便于覆盖同名 Cookie。
+	c.Add(name, "", "/", "", -1, false, false, http.SameSiteDefaultMode)
 }
 
 func readCookies(h http.Header, filter string) []*http.Cookie {
@@ -98,7 +105,7 @@ func readCookies(h http.Header, filter string) []*http.Cookie {
 		line = textproto.TrimString(line)
 
 		var part string
-		for len(line) > 0 { // continue since we have rest
+		for len(line) > 0 {
 			if splitIndex := strings.Index(line, ";"); splitIndex > 0 {
 				part, line = line[:splitIndex], line[splitIndex+1:]
 			} else {

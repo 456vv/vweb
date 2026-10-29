@@ -1,6 +1,7 @@
 package vweb
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -660,5 +661,95 @@ func TestServerHandlerDynamic_ServeHTTP_PathClean(t *testing.T) {
 
 	if rw.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", rw.Code)
+	}
+}
+
+func TestEntryname(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", "Main"},
+		{"/", "Main"},
+		{"/.", "Main"},
+		{"/index.go", "Main"},
+		{"/about.go", "About"},
+		{"/user-profile.html", "Main"},
+		{"/a.b.c", "A"},
+	}
+	for _, c := range cases {
+		if got := entryname(c.in); got != c.want {
+			t.Errorf("entryname(%q)=%q 期望 %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFileFirstLine_BOM(t *testing.T) {
+	data := []byte("\xef\xbb\xbf//mock\nbody")
+	got, err := fileFirstLine(bufio.NewReader(bytes.NewReader(data)))
+	if err != nil || string(got) != "mock" {
+		t.Fatalf("got %q err=%v", got, err)
+	}
+}
+
+func TestFileFirstLine_WASM(t *testing.T) {
+	data := []byte{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00}
+	got, err := fileFirstLine(bufio.NewReader(bytes.NewReader(data)))
+	if err != nil || !strings.HasPrefix(string(got), "wasm-") {
+		t.Fatalf("got %q err=%v", got, err)
+	}
+}
+
+func TestFileFirstLine_Invalid(t *testing.T) {
+	cases := [][]byte{
+		{},
+		[]byte("not-comment\n"),
+		[]byte("//\n"),
+	}
+	for i, c := range cases {
+		if _, err := fileFirstLine(bufio.NewReader(bytes.NewReader(c))); err == nil {
+			t.Errorf("case %d 应报错", i)
+		}
+	}
+}
+
+func TestServerHandlerDynamic_PathTraversal(t *testing.T) {
+	sh := &ServerHandlerDynamic{
+		RootPath: t.TempDir(),
+		PagePath: "../etc/passwd",
+		Module:   func(string) (DynamicTemplater, error) { return &mockDynamicTemplater{}, nil },
+	}
+	rw := httptest.NewRecorder()
+	sh.ServeHTTP(rw, httptest.NewRequest("GET", "/x", nil))
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("非法路径应 500，得到 %d", rw.Code)
+	}
+}
+
+func TestServerHandlerDynamic_Closed(t *testing.T) {
+	sh := &ServerHandlerDynamic{
+		RootPath: t.TempDir(),
+		Module:   func(string) (DynamicTemplater, error) { return &mockDynamicTemplater{}, nil },
+	}
+	sh.Close()
+	rw := httptest.NewRecorder()
+	sh.ServeHTTP(rw, httptest.NewRequest("GET", "/x", nil))
+	if rw.Code != http.StatusInternalServerError {
+		t.Fatalf("关闭后应 500，得到 %d", rw.Code)
+	}
+	if err := sh.Close(); err != nil {
+		t.Fatalf("重复 Close 应返回 nil：%v", err)
+	}
+}
+
+func TestRefCountedTemplater(t *testing.T) {
+	m := &mockDynamicTemplater{executeBody: "x"}
+	r := &refCountedTemplater{DynamicTemplater: m, refs: 1}
+	if !r.acquire() {
+		t.Fatal("acquire 应成功")
+	}
+	r.release()
+	r.Close() // refs=0 且销毁 → 关闭
+	if r.acquire() {
+		t.Fatal("未销毁应能 acquire")
 	}
 }

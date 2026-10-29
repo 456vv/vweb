@@ -1,6 +1,7 @@
 package vweb
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -68,4 +69,31 @@ func Test_ForType(t *testing.T) {
 		F: []*TForMethod{{}, {}, {}},
 	}
 	t.Logf("\n%s", ForType(tForType, true, 3))
+}
+
+func TestForMethod_Nil(t *testing.T) {
+	if got := ForMethod(nil); got != "<nil>" {
+		t.Fatalf("ForMethod(nil)=%q", got)
+	}
+}
+
+func TestForType_Nil(t *testing.T) {
+	if got := ForType(nil, false, 1); got != "<nil>" {
+		t.Fatalf("ForType(nil)=%q", got)
+	}
+}
+
+func TestForType_CircularRef(t *testing.T) {
+	type Node struct{ Next *Node }
+	n := &Node{}
+	n.Next = n
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("循环引用 panic: %v", r)
+		}
+	}()
+	out := ForType(n, false, 10)
+	if !strings.Contains(out, "Circular") && !strings.Contains(out, "Next") {
+		t.Fatalf("输出=%q", out)
+	}
 }

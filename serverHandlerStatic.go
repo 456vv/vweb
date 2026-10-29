@@ -3,6 +3,7 @@ package vweb
 import (
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -296,8 +297,8 @@ func (T *ServerHandlerStatic) setHeader(rw http.ResponseWriter, req *http.Reques
 		}
 	} else if ims := req.Header.Get("If-Modified-Since"); ims != "" {
 		if t, err := http.ParseTime(ims); err == nil {
-			// 秒级精度：文件修改时间不晚于客户端时间 → 304
-			if !modTime.After(t.Add(time.Second - 1)) {
+			// 秒级截断比较，与 RFC 7232 一致。
+			if !modTime.Truncate(time.Second).After(t) {
 				rw.Header().Del("Content-Type")
 				rw.Header().Del("Content-Length")
 				rw.WriteHeader(http.StatusNotModified)
@@ -319,8 +320,9 @@ func (T *ServerHandlerStatic) setHeader(rw http.ResponseWriter, req *http.Reques
 	if ir := req.Header.Get("If-Range"); ir != "" && rangeHeader != "" {
 		useRange := false
 		if strings.HasPrefix(ir, `W/"`) || strings.HasPrefix(ir, `"`) {
-			// 强比较：必须完全一致（含 W/ 前缀）
-			if ir == etag {
+			// If-Range 中 ETag 必须强比较；服务端生成的是弱 ETag（W/...），
+			// 按 RFC 7233 §3.2，弱 ETag 永远不匹配 If-Range，回退到全量响应。
+			if !strings.HasPrefix(etag, `W/`) && ir == etag {
 				useRange = true
 			}
 		} else if t, err := http.ParseTime(ir); err == nil {
@@ -409,24 +411,37 @@ func (T *ServerHandlerStatic) body(rw http.ResponseWriter, blocks []blockRange, 
 	buf := *bufp
 	defer copyBufPool.Put(bufp)
 
+	// copyAndLog 复制并记录非客户端原因的错误
+	copyAndLog := func(dst io.Writer, src io.Reader) {
+		if _, err := io.CopyBuffer(dst, src, buf); err != nil && !isClientGone(err) {
+			log.Printf("vweb: static file copy error %q: %v", filePath, err)
+		}
+	}
+
 	// 1. 无 Range 参数：全量传输
 	if len(blocks) == 0 {
 		rw.WriteHeader(http.StatusOK)
-		io.CopyBuffer(rw, file, buf)
+		copyAndLog(rw, file)
 		return
 	}
 
 	// 2. 单 Range 请求：分段读取部分内容
 	if len(blocks) == 1 {
 		b := blocks[0]
+		// 防御性检查，避免 length<=0 时 Content-Range 非法
+		if b.length <= 0 {
+			http.Error(rw, "Invalid range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
 		rw.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", b.start, b.start+b.length-1, size))
 		rw.Header().Set("Content-Length", strconv.FormatInt(b.length, 10))
 		rw.WriteHeader(http.StatusPartialContent)
 
 		if _, err := file.Seek(b.start, io.SeekStart); err != nil {
+			log.Printf("vweb: static file seek error %q: %v", filePath, err)
 			return
 		}
-		io.CopyBuffer(rw, io.LimitReader(file, b.length), buf)
+		copyAndLog(rw, io.LimitReader(file, b.length))
 		return
 	}
 
@@ -446,20 +461,41 @@ func (T *ServerHandlerStatic) body(rw http.ResponseWriter, blocks []blockRange, 
 
 		w, err := mw.CreatePart(partH)
 		if err != nil {
+			log.Printf("vweb: multipart create part error %q: %v", filePath, err)
 			break
 		}
 		if _, err := file.Seek(b.start, io.SeekStart); err != nil {
+			log.Printf("vweb: static file seek error %q: %v", filePath, err)
 			break
 		}
 		if _, err := io.CopyBuffer(w, io.LimitReader(file, b.length), buf); err != nil {
+			if !isClientGone(err) {
+				log.Printf("vweb: static file copy error %q: %v", filePath, err)
+			}
 			break
 		}
 	}
-	mw.Close()
+	if err := mw.Close(); err != nil && !isClientGone(err) {
+		log.Printf("vweb: multipart close error %q: %v", filePath, err)
+	}
 }
 
-// isLocalPath 检查相对路径是否安全（无 ".."、非绝对路径等）
-// 保留原有可导出/包内函数名称与签名
+// isClientGone 判断错误是否由客户端主动断开导致（不值得作为服务端错误记录）。
+// io.CopyBuffer 在客户端关闭连接、网络中断时通常返回 broken pipe /
+// connection reset / use of closed network connection；这类错误高频但无服务端价值，
+// 过滤后保留真正需要关注的磁盘/协议错误。用字符串匹配而非 syscall 常量，
+// 避免在 js/wasm、TinyGo 等平台上 syscall 常量不可用的兼容性问题。
+func isClientGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "broken pipe") ||
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "use of closed network connection")
+}
+
+// isLocalPath 检查相对路径是否安全
 func isLocalPath(rel string) bool {
 	if rel == "" || rel == "." {
 		return true

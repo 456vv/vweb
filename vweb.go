@@ -1,7 +1,7 @@
 package vweb
 
 // 其它
-const defaultDataBufioSize int = 32 * 1024 // 默认数据缓冲32MB
+const defaultDataBufioSize int = 32 * 1024 // 默认数据缓冲32K
 
 // 随机数的可用字符
 const encodeStd = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._"

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -1034,4 +1035,141 @@ func Test_autoConvert(t *testing.T) {
 			t.Fatal("expected {1 test}")
 		}
 	})
+}
+
+func TestType_ParseInvalid(t *testing.T) {
+	cases := []string{
+		"", "[]", "[abc]int", "map[string]", "map[",
+		"struct{", "struct{ A int", "func(", "chan", "chan<-", "<-chan",
+	}
+	for _, s := range cases {
+		if _, err := Type(s); err == nil {
+			t.Errorf("Type(%q) 应报错", s)
+		}
+	}
+}
+
+func TestType_RecursionLimit(t *testing.T) {
+	s := strings.Repeat("[]", maxConvertDepth+5) + "int"
+	if _, err := Type(s); err == nil {
+		t.Fatal("超过递归上限应报错")
+	}
+}
+
+func TestValue_EmptyAndUnknown(t *testing.T) {
+	if v := Value(""); v.IsValid() {
+		t.Fatalf("空字符串应返回无效 Value，得到 %v", v)
+	}
+	if v := Value("NotAType"); v.IsValid() {
+		t.Fatalf("未知类型应返回无效 Value，得到 %v", v)
+	}
+}
+
+func TestInit_NonSettable(t *testing.T) {
+	x := 5
+	if typeInit(reflect.ValueOf(&x), true) {
+		t.Fatal("非可设置值应返回 false")
+	}
+	if x != 5 {
+		t.Fatal("x 不应被修改")
+	}
+}
+
+func TestInit_NilInterfaceStaysNil(t *testing.T) {
+	var i any
+	if typeInit(toValue(&i), false) {
+		t.Fatal("nil 接口无法推断类型，应返回 false")
+	}
+	if i != nil {
+		t.Fatalf("应保持 nil，得到 %v", i)
+	}
+}
+
+func TestConvert_OverflowErrors(t *testing.T) {
+	var i8 int8
+	if Convert(&i8, int64(math.MaxInt8+1)) {
+		t.Fatal("int8 溢出应失败")
+	}
+	var u uint
+	if Convert(&u, -1) {
+		t.Fatal("负数转 uint 应失败")
+	}
+	var i int
+	if Convert(&i, math.NaN()) {
+		t.Fatal("NaN 转 int 应失败")
+	}
+	if Convert(&i, 3.14) {
+		t.Fatal("非整数 float 转 int 应失败")
+	}
+}
+
+func TestConvert_SliceToArrayLengthMismatch(t *testing.T) {
+	var arr [3]int
+	if Convert(&arr, []int{1, 2}) {
+		t.Fatal("短 slice → array 应失败")
+	}
+	if Convert(&arr, []int{1, 2, 3, 4}) {
+		t.Fatal("长 slice → array 应失败")
+	}
+}
+
+func TestTo_NilToNonNilable(t *testing.T) {
+	if _, err := To("int", nil); err == nil {
+		t.Fatal("nil 转 int 应报错")
+	}
+}
+
+func TestTo_Complex(t *testing.T) {
+	got, err := To("complex128", complex64(1+2i))
+	if err != nil || got != complex128(complex64(1+2i)) {
+		t.Fatalf("got %v err=%v", got, err)
+	}
+}
+
+func TestAutoConvert_DeepRecursion(t *testing.T) {
+	cur := any("leaf")
+	for i := 0; i < 5; i++ {
+		cur = []any{cur}
+	}
+	got, err := autoConvert(reflect.TypeOf([]any{}), cur)
+	if err != nil || !reflect.DeepEqual(cur, got.Interface()) {
+		t.Fatalf("got %v, %v err=%v", got, cur, err)
+	}
+}
+
+func TestAutoConvert_ChanToInt_Fails(t *testing.T) {
+	if _, err := autoConvert(reflect.TypeOf(0), make(chan int)); err == nil {
+		t.Fatal("chan → int 应失败")
+	}
+}
+
+func TestAutoConvert_NilSliceToArray_Fails(t *testing.T) {
+	var s []int
+	if _, err := autoConvert(reflect.TypeOf([2]int{}), s); err == nil {
+		t.Fatal("nil slice → array 应失败")
+	}
+}
+
+func TestAutoConvert_StringToFixedByteArray(t *testing.T) {
+	got, err := autoConvert(reflect.TypeOf([3]byte{}), "abc")
+	if err != nil || got.Interface().([3]byte) != [3]byte{'a', 'b', 'c'} {
+		t.Fatalf("got %v err=%v", got, err)
+	}
+	if _, err := autoConvert(reflect.TypeOf([2]byte{}), "abc"); err == nil {
+		t.Fatal("长度不匹配应失败")
+	}
+}
+
+func TestAutoConvert_StructFieldMismatch(t *testing.T) {
+	type A struct {
+		X int
+		Y string
+	}
+	type B struct {
+		X int
+		Z string
+	}
+	if _, err := autoConvert(reflect.TypeOf(B{}), A{X: 1, Y: "y"}); err == nil {
+		t.Fatal("字段名不同应失败")
+	}
 }

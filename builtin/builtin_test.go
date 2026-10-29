@@ -26,10 +26,8 @@ type B struct {
 	i int // 未导出字段
 }
 type B1 struct {
-	*C
-	F map[string]string
 	G []int
-	H [3]int
+	J map[string][]*C
 }
 type C struct {
 	D int
@@ -245,6 +243,42 @@ func TestCopyStructDeep(t *testing.T) {
 		}
 		if a.B.C == nil || a.B.C.D != 1 {
 			t.Fatalf("嵌套指针未初始化/拷贝: %+v", a.B.C)
+		}
+	})
+
+	t.Run("复杂嵌套指针初始化和拷贝2", func(t *testing.T) {
+		type (
+			C struct {
+				D int
+			}
+			A struct {
+				B map[string][]*C
+			}
+		)
+
+		c := []*C{{D: 1}}
+		a := A{
+			B: map[string][]*C{
+				"A": c,
+			},
+		}
+		b := A{
+			B: map[string][]*C{
+				"A": {&C{D: 1}},
+			},
+		}
+		err := CopyStructDeep(reflect.ValueOf(&a), reflect.ValueOf(&b), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bm := b.B["A"]
+		bm[0].D = 2
+
+		if v := c[0].D; v != 1 {
+			t.Fatalf("指针拷贝后修改原值，期望原值不变，实际为 %d", v)
+		}
+		if v := a.B["A"][0].D; v != 1 {
+			t.Fatalf("指针拷贝后修改原值，期望原值不变，实际为 %d", v)
 		}
 	})
 
@@ -3062,4 +3096,481 @@ func TestParseType_KeywordBoundaryAndQuotes(t *testing.T) {
 			t.Fatalf("应是 MapOf 拒绝 key，而不是解析截断: %v", err)
 		}
 	})
+}
+
+func TestSet_StructPointerFieldNotEmbedded(t *testing.T) {
+	type Inner struct{ V int }
+	type Outer struct{ P *Inner }
+	var o Outer
+	if err := Set(&o, "P.V", 1); err == nil {
+		t.Fatal("普通指针路径不应自动分配")
+	}
+}
+
+func TestSet_MapKeyRangeCheck(t *testing.T) {
+	m := map[int8]string{}
+	if err := Set(m, 1000, "x"); err == nil {
+		t.Fatal("超出 int8 范围应报错")
+	}
+	if len(m) != 0 {
+		t.Fatalf("失败后 map 应不变，得到 %v", m)
+	}
+	m[1] = "a"
+	if err := Set(m, 2, "b", 300, "c"); err == nil {
+		t.Fatal("应报错")
+	}
+	if m[2] != "" {
+		t.Fatalf("应回滚，得到 %v", m)
+	}
+}
+
+func TestSet_SliceToNilSlice(t *testing.T) {
+	type S struct{ X []int }
+	s := S{X: []int{1}}
+	if err := Set(&s, "X", nil); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if s.X != nil {
+		t.Fatalf("nil slice 应覆盖为 nil，得到 %v", s.X)
+	}
+}
+
+func TestGet_StringByte(t *testing.T) {
+	v, err := Get("中文", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, ok := v.(byte)
+	if !ok || b != "中"[0] {
+		t.Fatalf("byte=%v", v)
+	}
+}
+
+func TestGetSlice_ArrayByValueCopied(t *testing.T) {
+	arr := [3]int{1, 2, 3}
+	got := GetSlice(arr, 0, 2).([]int)
+	got[0] = 99
+	if arr[0] != 1 {
+		t.Fatalf("值数组切片应复制，arr=%v", arr)
+	}
+}
+
+func TestGetSlice_NilSlice(t *testing.T) {
+	var s []int
+	if got := GetSlice(s, 0, 1); got != nil {
+		t.Fatalf("nil 切片非空区间应返回 nil，得到 %v", got)
+	}
+}
+
+func TestSetSlice_NilDst(t *testing.T) {
+	var d []int
+	if SetSlice(d, 0, 0, []int{}) {
+		t.Fatal("nil dst 应失败")
+	}
+}
+
+func TestSetSlice_Overlap(t *testing.T) {
+	d := []int{1, 2, 3, 4, 5}
+	if !SetSlice(d, 0, 3, d[2:5]) {
+		t.Fatal("失败")
+	}
+	if !reflect.DeepEqual(d, []int{3, 4, 5, 4, 5}) {
+		t.Fatalf("%v", d)
+	}
+}
+
+func TestSet_ArrayIndexOutOfRangeNoGrow(t *testing.T) {
+	arr := [3]int{}
+	if err := Set(&arr, 5, 1); !errors.Is(err, ErrIndexOutOfRange) {
+		t.Fatalf("数组不应自动扩容：%v", err)
+	}
+}
+
+func TestSet_NilMapError(t *testing.T) {
+	var m map[string]int
+	if !errors.Is(Set(m, "a", 1), ErrNilMap) {
+		t.Fatal("nil map 应返回 ErrNilMap")
+	}
+}
+
+func TestGet_StructShadowEmbedded(t *testing.T) {
+	type Emb struct{ Target string }
+	type S struct {
+		Emb
+		Target string
+	}
+	s := S{Emb: Emb{Target: "inner"}, Target: "outer"}
+	v, err := Get(s, "Target")
+	if err != nil || v != "outer" {
+		t.Fatalf("外层字段应遮蔽嵌入字段：%v %v", v, err)
+	}
+}
+
+func TestLen_DeepPointerChain(t *testing.T) {
+	s := []int{1, 2, 3}
+	v := reflect.ValueOf(s)
+	for i := 0; i < 100; i++ {
+		p := reflect.New(v.Type())
+		p.Elem().Set(v)
+		v = p
+	}
+	if got := Len(v.Interface()); got != 3 {
+		t.Fatalf("深指针链 Len=%d，期望 3", got)
+	}
+}
+
+func TestCap_NilPointerToArray(t *testing.T) {
+	var p *[5]int
+	if got := Cap(p); got != 5 {
+		t.Fatalf("nil *[5]int Cap 应为 5，得到 %d", got)
+	}
+}
+
+func TestConvert_SliceToArrayPointer(t *testing.T) {
+	var p *[3]int
+	if !Convert(&p, []int{1, 2, 3}) {
+		t.Fatal("slice→*[3]int 转换失败")
+	}
+	if p == nil || *p != [3]int{1, 2, 3} {
+		t.Fatalf("got %v", p)
+	}
+}
+
+func TestCopy_StringToNonByteSlice(t *testing.T) {
+	if n := Copy(&[]int{0}, "abc"); n != 0 {
+		t.Fatalf("string → []int 应返回 0，得到 %v", n)
+	}
+}
+
+func TestAppend_NamedSlice(t *testing.T) {
+	type MyInts []int
+	got := Append(MyInts{1}, 2, 3).(MyInts)
+	if !reflect.DeepEqual(got, MyInts{1, 2, 3}) {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestCompute_Shifts(t *testing.T) {
+	if v, err := Compute(int32(2), "<<", 3); err != nil || v != int32(16) {
+		t.Fatalf("%v %v", v, err)
+	}
+}
+
+func TestEQ_FuncComparison(t *testing.T) {
+	f1 := func() {}
+	f2 := func() {}
+	_ = EQ(f1, f2)
+	_ = NE(f1, f2)
+	type F1 func()
+	type F2 func()
+	var a F1 = func() {}
+	var b F2 = func() {}
+	if EQ(a, b) {
+		t.Fatal("不同类型函数不应相等")
+	}
+}
+
+func TestCompare_NaN(t *testing.T) {
+	nan := math.NaN()
+	if LT(nan, 1) || GT(nan, 1) || LE(nan, 1) || GE(nan, 1) {
+		t.Fatal("NaN 比较都应返回 false")
+	}
+}
+
+func TestBool_Struct(t *testing.T) {
+	if !Bool(struct{}{}) {
+		t.Fatal("空结构体应视为 true")
+	}
+}
+
+func TestDepthField_NilPtrChain(t *testing.T) {
+	type Inner struct{ V int }
+	type Outer struct{ P *Inner }
+	o := Outer{}
+	if _, err := DepthField(o, "P", "V"); err == nil {
+		t.Fatal("nil 指针路径应报错")
+	}
+}
+
+func TestMake_ChanUnidirectionalPanic(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Make 单向 channel 应 panic")
+		}
+	}()
+	Make("<-chan int")
+}
+
+// ========== 以下追加至 builtin/builtin_test.go 末尾 ==========
+
+// TestGet_Boundary 覆盖取值的类型判定、遮蔽、nil 嵌入指针、未导出字段。
+func TestGet_Boundary(t *testing.T) {
+	type Inner struct {
+		X int `json:"x"`
+	}
+	type Sample struct {
+		Name string `json:"name" mapstructure:"full_name"`
+		Age  int    `json:"age"`
+		Inner
+		hide int
+	}
+	s := Sample{Name: "n", Age: 7, Inner: Inner{X: 9}, hide: 8}
+
+	cases := []struct {
+		name    string
+		obj     any
+		key     any
+		want    any
+		wantErr error
+	}{
+		{"map 数字键→十进制字符串", map[string]int{"1": 10}, 1, 10, nil},
+		{"map 未命中→(nil,nil)", map[string]int{}, "missing", nil, nil},
+		{"nil map 未命中", (map[string]int)(nil), "a", nil, nil},
+		{"切片负索引", []int{10, 20, 30}, -1, 30, nil},
+		{"切片越界", []int{10, 20, 30}, -4, nil, ErrIndexOutOfRange},
+		{"切片浮点索引拒绝", []int{10, 20, 30}, 1.5, nil, ErrKeyType},
+		{"字符串按字节", "abc", 0, byte('a'), nil},
+		{"中文按字节索引", "你好", 0, "你"[0], nil},
+		{"数字按十进制字符", 12345, 0, byte('1'), nil},
+		{"数字越界", 12345, 99, nil, ErrIndexOutOfRange},
+		{"结构体 json 标签", s, "name", "n", nil},
+		{"结构体 mapstructure 标签", s, "full_name", "n", nil},
+		{"嵌入字段提升", s, "X", 9, nil},
+		{"未导出字段隐藏", s, "hide", nil, ErrFieldNotFound},
+		{"未导出字段按索引隐藏", s, 3, nil, ErrFieldNotFound},
+		{"nil 指针", (*Sample)(nil), "Name", nil, ErrNilValue},
+		{"interface 解包+键转字符串", any(map[int]int{2: 4}), "2", 4, nil},
+	}
+	for _, c := range cases[:1] {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Get(c.obj, c.key)
+			if c.wantErr != nil {
+				if !errors.Is(err, c.wantErr) {
+					t.Fatalf("err=%v want=%v", err, c.wantErr)
+				}
+				return
+			}
+			if err != nil || !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("got=%#v err=%v want=%#v", got, err, c.want)
+			}
+		})
+	}
+
+	t.Run("外层字段遮蔽嵌入", func(t *testing.T) {
+		type Emb struct{ V string }
+		type S struct {
+			Emb
+			V string
+		}
+		got, _ := Get(S{Emb: Emb{V: "inner"}, V: "outer"}, "V")
+		if got != "outer" {
+			t.Fatalf("应得 outer，实得 %v", got)
+		}
+	})
+
+	t.Run("匿名嵌入指针为 nil", func(t *testing.T) {
+		type Inner struct{ V int }
+		type Outer struct{ *Inner }
+		if _, err := Get(Outer{}, "V"); err == nil {
+			t.Fatal("应返回错误而非 panic")
+		}
+	})
+}
+
+// TestSet_Boundary 覆盖事务回滚、嵌入指针清理、不可变类型、nil map。
+func TestSet_Boundary(t *testing.T) {
+	t.Run("map 后写失败前写回滚", func(t *testing.T) {
+		m := map[string]int{"a": 1}
+		if err := Set(m, "a", 2, []byte("bad"), 3); err == nil {
+			t.Fatal("want err")
+		}
+		if m["a"] != 1 {
+			t.Fatalf("未回滚：%v", m)
+		}
+	})
+
+	t.Run("切片扩容+后写失败整体回滚", func(t *testing.T) {
+		s := []int{1, 2}
+		if err := Set(&s, 3, 99, 4, "bad"); err == nil {
+			t.Fatal("want err")
+		}
+		if !reflect.DeepEqual(s, []int{1, 2}) {
+			t.Fatalf("未回滚：%v", s)
+		}
+	})
+
+	t.Run("嵌入指针自动分配+失败逆序清理", func(t *testing.T) {
+		type Inner struct{ V int }
+		type Outer struct{ *Inner }
+		o := &Outer{}
+		if err := Set(o, "V", 1, "nope", 2); err == nil {
+			t.Fatal("want err")
+		}
+		if o.Inner != nil {
+			t.Fatal("失败应清掉自动分配的嵌入指针")
+		}
+	})
+
+	t.Run("普通指针路径不自动分配", func(t *testing.T) {
+		type Inner struct{ V int }
+		type Outer struct{ P *Inner }
+		var o Outer
+		if err := Set(&o, "P.V", 1); err == nil {
+			t.Fatal("普通指针路径不应自动分配")
+		}
+	})
+
+	t.Run("map key 越界拒绝", func(t *testing.T) {
+		m := map[int8]string{}
+		if err := Set(m, 1000, "x"); err == nil {
+			t.Fatal("1000 超 int8 范围应报错")
+		}
+	})
+
+	t.Run("string/number 不可变", func(t *testing.T) {
+		s := "ab"
+		if !errors.Is(Set(&s, 0, byte('z')), ErrImmutable) {
+			t.Fatal("string 不可改")
+		}
+		n := 12
+		if !errors.Is(Set(&n, 0, byte('1')), ErrImmutable) {
+			t.Fatal("number 不可改")
+		}
+	})
+
+	t.Run("nil map / nil obj", func(t *testing.T) {
+		var m map[string]int
+		if !errors.Is(Set(m, "a", 1), ErrNilMap) {
+			t.Fatal("nil map 应报错")
+		}
+		if !errors.Is(Set(nil, "a", 1), ErrNilValue) {
+			t.Fatal("nil obj 应报错")
+		}
+	})
+
+	t.Run("奇数参数", func(t *testing.T) {
+		m := map[string]int{}
+		if !errors.Is(Set(m, "only"), ErrInvalidArgCount) {
+			t.Fatal("奇数参数应报错")
+		}
+	})
+}
+
+// TestCompare_Boundary 补充 NaN 与类型混算的边界。
+func TestCompare_Boundary(t *testing.T) {
+	nan := math.NaN()
+	if LT(nan, 1) || GT(nan, 1) || LE(nan, 1) || GE(nan, 1) {
+		t.Fatal("NaN 参与比较应为 false")
+	}
+	if LT("b", "a") || !LT("a", "b") {
+		t.Fatal("字符串比较错误")
+	}
+	if LT(int8(1), int8(2)) != true {
+		t.Fatal("整数比较错误")
+	}
+}
+
+func TestAnd(t *testing.T) {
+	if !And(true) {
+		t.Fatal("And(true)")
+	}
+	if And(false) {
+		t.Fatal("And(false)")
+	}
+	if !And(true, true, true) {
+		t.Fatal("And(1,1,1)")
+	}
+	if And(true, false) {
+		t.Fatal("And(1,0)")
+	}
+	if And(0) {
+		t.Fatal("And(0)")
+	}
+	if !And(1, 2, 3) {
+		t.Fatal("And(1,2,3)")
+	}
+	if And(1, 0) {
+		t.Fatal("And(1,0)")
+	}
+	if And("", "x") {
+		t.Fatal("And(\"\",x)")
+	}
+	if !And("x", "y") {
+		t.Fatal("And(\"x\",\"y\")")
+	}
+}
+
+func TestOr(t *testing.T) {
+	if Or(false) {
+		t.Fatal("Or(false)")
+	}
+	if !Or(true) {
+		t.Fatal("Or(true)")
+	}
+	if !Or(false, true) {
+		t.Fatal("Or(0,1)")
+	}
+	if Or(false, false, 0) {
+		t.Fatal("Or(0,0,0)")
+	}
+	if !Or(0, "", 1) {
+		t.Fatal("Or(0,\"\",1)")
+	}
+	if !Or(nil, "x") {
+		t.Fatal("Or(nil,\"x\")")
+	}
+}
+
+func TestNot(t *testing.T) {
+	if Not(true) {
+		t.Fatal("Not(true)")
+	}
+	if !Not(false) {
+		t.Fatal("Not(false)")
+	}
+	if !Not(0) {
+		t.Fatal("Not(0)")
+	}
+	if Not(1) {
+		t.Fatal("Not(1)")
+	}
+	if !Not("") {
+		t.Fatal("Not(\"\")")
+	}
+	if Not("x") {
+		t.Fatal("Not(\"x\")")
+	}
+}
+
+type eqStructWithIface struct{ V any }
+
+func TestEQ_NE_DeepEqualAndInterfacePanic(t *testing.T) {
+	if !EQ(nil, nil) {
+		t.Fatal("EQ(nil,nil)")
+	}
+	if EQ(nil, 1) {
+		t.Fatal("EQ(nil,1)")
+	}
+	if !NE(nil, 1) {
+		t.Fatal("NE(nil,1)")
+	}
+
+	if !EQ([]int{1, 2}, []int{1, 2}) {
+		t.Fatal("DeepEqual 相等切片")
+	}
+	if EQ([]int{1}, []int{2}) {
+		t.Fatal("DeepEqual 不等切片")
+	}
+
+	// int 与 int64 不走隐式转换，应不相等
+	if EQ(1, int64(1)) {
+		t.Fatal("int 与 int64 不应相等")
+	}
+
+	// 含 interface 的 struct，直接 == 会 panic，EQ 内部 recover 后 DeepEqual
+	a := eqStructWithIface{V: []int{1}}
+	b := eqStructWithIface{V: []int{1}}
+	if !EQ(a, b) {
+		t.Fatal("应通过 DeepEqual 判定相等")
+	}
 }

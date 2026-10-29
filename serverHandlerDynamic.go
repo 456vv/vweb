@@ -57,6 +57,8 @@ type refCountedTemplater struct {
 	mu        sync.Mutex
 	refs      int
 	destroyed bool
+	// 增加 closed 标志保证底层 Close 最多执行一次。
+	closed bool
 }
 
 // Close 释放并关闭引用（减少缓存占用的1个计数，若归0则真实关闭）
@@ -67,8 +69,11 @@ func (r *refCountedTemplater) Close() error {
 		return nil
 	}
 	r.destroyed = true
-	r.refs-- // 扣除缓存持有的引用
-	shouldClose := r.refs <= 0
+	r.refs--
+	shouldClose := r.refs <= 0 && !r.closed
+	if shouldClose {
+		r.closed = true
+	}
 	r.mu.Unlock()
 
 	if shouldClose {
@@ -92,8 +97,16 @@ func (r *refCountedTemplater) acquire() bool {
 // release 释放当前操作的计数，归0且销毁时真实关闭
 func (r *refCountedTemplater) release() {
 	r.mu.Lock()
+	if r.closed {
+		// 底层已关闭，不应再改动计数，避免 refs 变成负数。
+		r.mu.Unlock()
+		return
+	}
 	r.refs--
-	shouldClose := r.refs <= 0 && r.destroyed
+	shouldClose := r.refs <= 0 && r.destroyed && !r.closed
+	if shouldClose {
+		r.closed = true
+	}
 	r.mu.Unlock()
 
 	if shouldClose {
@@ -230,12 +243,10 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 
 	// ---------- 快速路径：先检查缓存是否仍然有效（不打开文件内容） ----------
 	var modeTime time.Time
-	var reader io.ReadCloser // only set when we must parse
+	var reader io.ReadCloser
 	if T.ReadFile == nil {
-		// 本地文件系统：仅 Stat，避免不必要的 Open
 		fi, statErr := os.Stat(fileAbs)
 		if statErr != nil {
-			// 文件被删除或损坏时，自动清理陈旧缓存
 			T.cleanupCacheEntry(pagePath)
 			return nil, fmt.Errorf("vweb: Failed to stat file! Error: %s", rel)
 		}
@@ -265,13 +276,16 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 	}
 	T.mu.RUnlock()
 
-	// 本地文件系统：延迟打开文件，并获取最新的 mtime，避免 TOCTOU 竞态
+	// 本地文件系统：延迟打开文件，并在打开后重新取 mtime，避免 Stat→Open 之间文件被替换。
 	if reader == nil {
-		// 需要重新解析：打开文件
-		reader, err = os.OpenFile(fileAbs, os.O_RDONLY, 0)
+		f, err := os.OpenFile(fileAbs, os.O_RDONLY, 0)
 		if err != nil {
 			return nil, fmt.Errorf("vweb: Failed to open file! Error: %s", rel)
 		}
+		if fi, statErr := f.Stat(); statErr == nil {
+			modeTime = fi.ModTime()
+		}
+		reader = f
 		defer reader.Close()
 	}
 
@@ -287,9 +301,6 @@ func (T *ServerHandlerDynamic) cleanupCacheEntry(pagePath string) {
 			e.exec.Close()
 			delete(T.pageCache, pagePath)
 		}
-	}
-	if T.pathLocks != nil {
-		delete(T.pathLocks, pagePath)
 	}
 }
 
@@ -442,7 +453,7 @@ func entryname(name string) string {
 // fileFirstLine 读取并判定首行格式作为解析引擎标志（去除 BOM 及处理 WASM 字节码特例）
 func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
 	h, peekErr := buf.Peek(8)
-	if peekErr != nil && peekErr != io.EOF {
+	if peekErr != nil && peekErr != io.EOF && peekErr != bufio.ErrBufferFull {
 		return nil, fmt.Errorf("vweb: Failed to peek file header: %w", peekErr)
 	}
 
@@ -465,7 +476,7 @@ func fileFirstLine(buf *bufio.Reader) (dynamicType []byte, err error) {
 	if len(h) >= 4 && bytes.Equal(h[:4], wasmMagic) {
 		if len(h) >= 8 {
 			// wasm-01000000
-			return []byte(fmt.Sprintf("wasm-%0x", h[4:8])), nil
+			return fmt.Appendf(nil, "wasm-%0x", h[4:8]), nil
 		}
 		return []byte("wasm"), nil
 	}
@@ -525,6 +536,7 @@ func (T *ServerHandlerDynamic) Close() error {
 	}
 	entries := T.pageCache
 	T.pageCache = nil
+	// 同时清空 pathLocks，防止关闭后残留锁对象被误用
 	T.pathLocks = nil
 	T.mu.Unlock()
 
