@@ -23,6 +23,7 @@ import (
 	"github.com/456vv/verror"
 	"github.com/456vv/vweb/v3"
 	"github.com/456vv/vweb/v3/builtin"
+	"github.com/goccy/go-yaml"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -73,12 +74,12 @@ func publicCopy(transit, dsc, src any, handle HandleFunc) bool {
 
 // SiteForward 配置-转发-配置
 type SiteForward struct {
-	Status       bool     // 启用或禁止
-	Path         []string // 多种路径匹配
-	ExcludePath  []string // 排除多种路径匹配
-	RePath       string   // 重写路径
-	RedirectCode int      // 重定向状态码，默认不转向
-	End          bool     // 不进行二次匹配/转发
+	Status       bool     `yaml:"Status"`       // 启用或禁止
+	Path         []string `yaml:"Path"`         // 多种路径匹配
+	ExcludePath  []string `yaml:"ExcludePath"`  // 排除多种路径匹配
+	RePath       string   `yaml:"RePath"`       // 重写路径
+	RedirectCode int      `yaml:"RedirectCode"` // 重定向状态码，默认不转向
+	End          bool     `yaml:"End"`          // 不进行二次匹配/转发
 	// forwardWriter 为运行时状态，不属于持久化配置；合并公共配置时不应共享该指针。
 	forwardWriter *vweb.ForwardRewriter
 }
@@ -104,58 +105,57 @@ func (T *SiteForward) Compile() (fw *vweb.ForwardRewriter, err error) {
 // SiteForwards 转发集合
 type SiteForwards struct {
 	// 引用公共配置后，该结构中的字段如果也有设置，将会优先使用。
-	PublicName string // 引用公共配置的名字
-
-	List []SiteForward
+	PublicName string        `yaml:"PublicName"` // 引用公共配置的名字
+	List       []SiteForward `yaml:"List"`
 }
 
 // SitePluginTLS 配置-插件-TLS
 type SitePluginTLS struct {
-	ServerName         string        // 服务器名称
-	InsecureSkipVerify bool          // 跳过证书验证
-	NextProtos         []string      // ALPN 协议，如：http/1.1
-	CipherSuites       []uint16      // 密码套件列表
-	ClientSessionCache int           // TLS 会话恢复 ClientSessionState 缓存大小（Client 端）
-	CurvePreferences   []tls.CurveID // ECDHE 握手曲线偏好（Client 端）
-	RootCAs            []string      // 根证书文件路径列表
+	ServerName         string        `yaml:"ServerName"`         // 服务器名称
+	InsecureSkipVerify bool          `yaml:"InsecureSkipVerify"` // 跳过证书验证
+	NextProtos         []string      `yaml:"NextProtos"`         // ALPN 协议，如：http/1.1
+	CipherSuites       []uint16      `yaml:"CipherSuites"`       // 密码套件列表
+	ClientSessionCache int           `yaml:"ClientSessionCache"` // TLS 会话恢复 ClientSessionState 缓存大小（Client 端）
+	CurvePreferences   []tls.CurveID `yaml:"CurvePreferences"`   // ECDHE 握手曲线偏好（Client 端）
+	RootCAs            []string      `yaml:"RootCAs"`            // 根证书文件路径列表
 }
 
 // SitePlugin 配置-插件
 type SitePlugin struct {
 	// 引用公共配置后，该结构中的字段如果也有设置，将会优先使用。
-	PublicName string // 引用公共配置的名字
-	Status     bool   // 状态，是否启用
+	PublicName string `yaml:"PublicName"` // 引用公共配置的名字
+	Status     bool   `yaml:"Status"`     // 状态，是否启用
 
 	// 公共
-	Addr          string // 地址
-	LocalAddr     string // 本地拨号 IP
-	Timeout       int64  // 拨号超时（毫秒单位）
-	KeepAlive     int64  // 保持连接超时（毫秒单位）
-	FallbackDelay int64  // 后退延时，等待双协议栈延时，（毫秒单位，默认 300ms）
-	IdeConn       int    // 空闲连接数（历史字段名，保持导出兼容）
+	Addr          string `yaml:"Addr"`          // 地址
+	LocalAddr     string `yaml:"LocalAddr"`     // 本地拨号 IP
+	Timeout       int64  `yaml:"Timeout"`       // 拨号超时（毫秒单位）
+	KeepAlive     int64  `yaml:"KeepAlive"`     // 保持连接超时（毫秒单位）
+	FallbackDelay int64  `yaml:"FallbackDelay"` // 后退延时，等待双协议栈延时，（毫秒单位，默认 300ms）
+	IdeConn       int    `yaml:"IdeConn"`       // 空闲连接数（历史字段名，保持导出兼容）
 
 	// RPC
-	Path    string // 路径
-	MaxConn int    // 最大连接数
+	Path    string `yaml:"Path"`    // 路径
+	MaxConn int    `yaml:"MaxConn"` // 最大连接数
 
 	// HTTP
-	ProxyURL               string         // 代理 URL（可含用户密码或 socks5）
-	Host                   string         // Host
-	Scheme                 string         // 协议
-	TLS                    *SitePluginTLS // TLS
-	TLSHandshakeTimeout    int64          // 握手超时（毫秒单位）
-	DisableKeepAlives      bool           // 禁止长连接
-	DisableCompression     bool           // 禁止压缩
-	MaxIdleConnsPerHost    int            // 每个主机最大空闲连接
-	MaxConnsPerHost        int            // 每个主机最大连接
-	IdleConnTimeout        int64          // 空闲连接超时（毫秒单位）
-	ResponseHeaderTimeout  int64          // 请求 Header 超时（毫秒单位）
-	ExpectContinueTimeout  int64          // 发送 Expect: 100-continue 的 PUT 超时
-	ProxyConnectHeader     http.Header    // CONNECT 代理请求额外标头
-	MaxResponseHeaderBytes int64          // 最大响应标头限制（字节）
-	ReadBufferSize         int            // 读取缓冲大小
-	WriteBufferSize        int            // 写入缓冲大小
-	ForceAttemptHTTP2      bool           // 支持 HTTP/2
+	ProxyURL               string         `yaml:"ProxyURL"`               // 代理 URL（可含用户密码或 socks5）
+	Host                   string         `yaml:"Host"`                   // Host
+	Scheme                 string         `yaml:"Scheme"`                 // 协议
+	TLS                    *SitePluginTLS `yaml:"TLS"`                    // TLS
+	TLSHandshakeTimeout    int64          `yaml:"TLSHandshakeTimeout"`    // 握手超时（毫秒单位）
+	DisableKeepAlives      bool           `yaml:"DisableKeepAlives"`      // 禁止长连接
+	DisableCompression     bool           `yaml:"DisableCompression"`     // 禁止压缩
+	MaxIdleConnsPerHost    int            `yaml:"MaxIdleConnsPerHost"`    // 每个主机最大空闲连接
+	MaxConnsPerHost        int            `yaml:"MaxConnsPerHost"`        // 每个主机最大连接
+	IdleConnTimeout        int64          `yaml:"IdleConnTimeout"`        // 空闲连接超时（毫秒单位）
+	ResponseHeaderTimeout  int64          `yaml:"ResponseHeaderTimeout"`  // 请求 Header 超时（毫秒单位）
+	ExpectContinueTimeout  int64          `yaml:"ExpectContinueTimeout"`  // 发送 Expect: 100-continue 的 PUT 超时
+	ProxyConnectHeader     http.Header    `yaml:"ProxyConnectHeader"`     // CONNECT 代理请求额外标头
+	MaxResponseHeaderBytes int64          `yaml:"MaxResponseHeaderBytes"` // 最大响应标头限制（字节）
+	ReadBufferSize         int            `yaml:"ReadBufferSize"`         // 读取缓冲大小
+	WriteBufferSize        int            `yaml:"WriteBufferSize"`        // 写入缓冲大小
+	ForceAttemptHTTP2      bool           `yaml:"ForceAttemptHTTP2"`      // 支持 HTTP/2
 }
 
 // clone 对 SitePlugin 进行深度复制，以防并发协程共享指针/切片导致的数据竞争或非预期修改。
@@ -183,8 +183,8 @@ func (T *SitePlugin) ConfigPluginRPCClient(c *vweb.PluginRPCClient) error {
 
 // SitePlugins 配置-插件
 type SitePlugins struct {
-	RPC  map[string]SitePlugin
-	HTTP map[string]SitePlugin
+	RPC  map[string]SitePlugin `yaml:"RPC"`
+	HTTP map[string]SitePlugin `yaml:"HTTP"`
 }
 
 // clone 对 SitePluginTLS 进行深度复制。
@@ -260,22 +260,23 @@ func (T *SitePlugins) ConfigSitePluginRPC(origin *SitePlugin, handle HandleFunc)
 
 // SiteHeaderType 配置-标头-类型
 type SiteHeaderType struct {
-	Header      map[string][]string // Header
-	PageExpired int64               // 页面过期(秒单位)
+	Header      map[string][]string `yaml:"Header"`      // Header
+	PageExpired int64               `yaml:"PageExpired"` // 页面过期(秒单位)
 }
 
 // SiteHeader 配置-标头
 type SiteHeader struct {
 	// 引用公共配置后，该结构中的字段如果也有设置，将会优先使用。
-	PublicName      string                    // 引用公共配置的名字
-	Static, Dynamic map[string]SiteHeaderType // 静态 / 动态 Header，key 形如 ".html"
-	MIME            map[string]string         // MIME 类型
+	PublicName string                    `yaml:"PublicName"` // 引用公共配置的名字
+	Static     map[string]SiteHeaderType `yaml:"Static"`     // 静态 Header，key 形如 ".html"
+	Dynamic    map[string]SiteHeaderType `yaml:"Dynamic"`    // 动态 Header，key 形如 ".html"
+	MIME       map[string]string         `yaml:"MIME"`       // MIME 类型
 }
 
 // SiteDirectory 配置-目录
 type SiteDirectory struct {
-	Root    string   // 主目录
-	Virtual []string // 虚目录
+	Root    string   `yaml:"Root"`    // 主目录
+	Virtual []string `yaml:"Virtual"` // 虚目录
 }
 
 // RootDir 根目录
@@ -323,60 +324,60 @@ const (
 
 // SiteLog 配置-日志，这个功能后面待加。
 type SiteLog struct {
-	Level     SiteLogLevel // 级别
-	Directory string       // 目录
+	Level     SiteLogLevel `yaml:"Level"`     // 级别
+	Directory string       `yaml:"Directory"` // 目录
 }
 
 // SiteSession 配置-会话
 type SiteSession struct {
 	// 引用公共配置后，该结构中的字段如果也有设置，将会优先使用。
-	PublicName string // 引用公共配置的名字
-	Name       string // 会话名称
-	Expired    int64  // 过期时间（秒单位，默认 20 分钟）
-	Size       int    // 会话 ID 长度（默认 40）
-	Salt       string // 加盐（伪随机数补充熵，可为空）
+	PublicName string `yaml:"PublicName"` // 引用公共配置的名字
+	Name       string `yaml:"Name"`       // 会话名称
+	Expired    int64  `yaml:"Expired"`    // 过期时间（秒单位，默认 20 分钟）
+	Size       int    `yaml:"Size"`       // 会话 ID 长度（默认 40）
+	Salt       string `yaml:"Salt"`       // 加盐（伪随机数补充熵，可为空）
 }
 
 // SiteDynamic 动态相关配置
 type SiteDynamic struct {
 	// 引用公共配置后，该结构中的字段如果也有设置，将会优先使用。
-	PublicName string // 引用公共配置的名字
+	PublicName string `yaml:"PublicName"` // 引用公共配置的名字
 
-	Ext                []string // 动态文件后缀
-	Cache              bool     // 动态文件缓存解析，非缓存执行
-	CacheParseTimeout  int64    // 动态文件缓存解析超时，（秒为单位）
-	CacheStaticFileDir string   // 缓存静态文件目录，仅适于 markdown 转 HTML
-	CacheStaticTimeout int64    // 缓存静态超时，（秒为单位）
+	Ext                []string `yaml:"Ext"`                // 动态文件后缀
+	Cache              bool     `yaml:"Cache"`              // 动态文件缓存解析，非缓存执行
+	CacheParseTimeout  int64    `yaml:"CacheParseTimeout"`  // 动态文件缓存解析超时，（秒为单位）
+	CacheStaticFileDir string   `yaml:"CacheStaticFileDir"` // 缓存静态文件目录，仅适于 markdown 转 HTML
+	CacheStaticTimeout int64    `yaml:"CacheStaticTimeout"` // 缓存静态超时，（秒为单位）
 }
 
 // Site 配置-站点
 type Site struct {
-	Status   bool   // 状态，是否启动此站点
-	Name     string // 站点别名
-	Identity string // 站点维一码，可以说是池名
+	Status   bool   `yaml:"Status"`   // 状态，是否启动此站点
+	Name     string `yaml:"Name"`     // 站点别名
+	Identity string `yaml:"Identity"` // 站点维一码，可以说是池名
 
-	Host      []string                // 域名绑定
-	Forward   map[string]SiteForwards // 转发
-	Plugin    SitePlugins             // 插件
-	Directory SiteDirectory           // 目录
+	Host      []string                `yaml:"Host"`      // 域名绑定
+	Forward   map[string]SiteForwards `yaml:"Forward"`   // 转发
+	Plugin    SitePlugins             `yaml:"Plugin"`    // 插件
+	Directory SiteDirectory           `yaml:"Directory"` // 目录
 
-	IndexFile []string // 默认页
-	Dynamic   SiteDynamic
+	IndexFile []string    `yaml:"IndexFile"` // 默认页
+	Dynamic   SiteDynamic `yaml:"Dynamic"`
 
-	Header    SiteHeader        // HTTP头
-	Log       SiteLog           // 日志
-	ErrorPage map[string]string // 错误页
+	Header    SiteHeader        `yaml:"Header"`    // HTTP头
+	Log       SiteLog           `yaml:"Log"`       // 日志
+	ErrorPage map[string]string `yaml:"ErrorPage"` // 错误页
 
-	Session SiteSession // 会话
+	Session SiteSession `yaml:"Session"` // 会话
 }
 
 // SitePublic 公共站点配置
 type SitePublic struct {
-	Header  map[string]SiteHeader
-	Session map[string]SiteSession
-	Plugin  SitePlugins
-	Forward map[string]SiteForwards
-	Dynamic map[string]SiteDynamic
+	Header  map[string]SiteHeader   `yaml:"Header"`
+	Session map[string]SiteSession  `yaml:"Session"`
+	Plugin  SitePlugins             `yaml:"Plugin"`
+	Forward map[string]SiteForwards `yaml:"Forward"`
+	Dynamic map[string]SiteDynamic  `yaml:"Dynamic"`
 }
 
 // ConfigSiteSession 将公共 Session 配置合并到 origin（公共为底，origin 非零字段覆盖）。
@@ -516,26 +517,27 @@ func equalFoldASCII(a, b string) bool {
 
 // Sites 站点集合
 type Sites struct {
-	Public SitePublic
-	Site   []Site // 站点
+	Public SitePublic `yaml:"Public"`
+	Site   []Site     `yaml:"Site"` // 站点
 }
 
 // ServerTLSFile 证书文件对
 type ServerTLSFile struct {
-	CertFile, KeyFile string // 证书，key 文件地址
+	CertFile string `yaml:"CertFile"` // 证书文件
+	KeyFile  string `yaml:"KeyFile"`  // key 文件地址
 }
 
 // ServerTLS TLS 相关配置
 type ServerTLS struct {
-	RootCAs                     []ServerTLSFile // 服务端证书文件
-	NextProtos                  []string        // http版本
-	CipherSuites                []uint16        // 密码套件（仅影响 TLS 1.0–1.2；TLS 1.3 由运行时固定安全套件处理，不可配置）
-	SessionTicketsDisabled      bool            // 设置为 true 可禁用会话票证 (恢复) 支持。
-	SetSessionTicketKeys        [][32]byte      // 会话恢复票证
-	DynamicRecordSizingDisabled bool            // 禁用TLS动态记录自适应大小
-	MinVersion                  uint16          // 最小SSL/TLS版本。如果为零，则SSLv3的被取为最小（现代 Go 实际最低为 TLS 1.0，推荐 TLS 1.2+）。
-	MaxVersion                  uint16          // 最大SSL/TLS版本。如果为零，则该包所支持的最高版本被使用。
-	ClientCAs                   []string        // 客户端拥有的“权威组织”证书的列表。(Server/Client端使用)
+	RootCAs                     []ServerTLSFile `yaml:"RootCAs"`                     // 服务端证书文件
+	NextProtos                  []string        `yaml:"NextProtos"`                  // http版本
+	CipherSuites                []uint16        `yaml:"CipherSuites"`                // 密码套件（仅影响 TLS 1.0–1.2；TLS 1.3 由运行时固定安全套件处理，不可配置）
+	SessionTicketsDisabled      bool            `yaml:"SessionTicketsDisabled"`      // 设置为 true 可禁用会话票证 (恢复) 支持。
+	SetSessionTicketKeys        [][32]byte      `yaml:"SetSessionTicketKeys"`        // 会话恢复票证
+	DynamicRecordSizingDisabled bool            `yaml:"DynamicRecordSizingDisabled"` // 禁用TLS动态记录自适应大小
+	MinVersion                  uint16          `yaml:"MinVersion"`                  // 最小SSL/TLS版本。如果为零，则SSLv3的被取为最小（现代 Go 实际最低为 TLS 1.0，推荐 TLS 1.2+）。
+	MaxVersion                  uint16          `yaml:"MaxVersion"`                  // 最大SSL/TLS版本。如果为零，则该包所支持的最高版本被使用。
+	ClientCAs                   []string        `yaml:"ClientCAs"`                   // 客户端拥有的“权威组织”证书的列表。(Server/Client端使用)
 }
 
 // CipherSuitesAuto 根据 MinVersion/MaxVersion 自动填充安全密码套件。
@@ -578,37 +580,37 @@ func (T *ServerTLS) CipherSuitesAuto() {
 // Server 服务器参数
 type Server struct {
 	// 引用公共配置后，该结构中的 CC 和 CS 如果也有设置，将会优先使用。
-	PublicName                   string     // 引用公共配置的名字
-	ReadTimeout                  int64      // 设置读取超时(毫秒单位)
-	WriteTimeout                 int64      // 设置写入超时(毫秒单位)
-	ReadHeaderTimeout            int64      // 读取标头超时(毫秒单位）
-	IdleTimeout                  int64      // 保持连接空闲超时，如果为0，使用 ReadTimeout,(毫秒单位）
-	MaxHeaderBytes               int        // 如果0，最大请求头的大小，http.DefaultMaxHeaderBytes
-	KeepAlivesEnabled            bool       // 支持客户端Keep-Alive
-	ShutdownConn                 bool       // 服务器关闭监听，不会即时关闭正在下载的连接。空闲后再关闭。(默认即时关闭)
-	DisableGeneralOptionsHandler bool       // 如果为真，将“OPTIONS *”请求传递给处理程序，否则响应 200 OK 和 Content-Length: 0。
-	TLS                          *ServerTLS // TLS
+	PublicName                   string     `yaml:"PublicName"`                   // 引用公共配置的名字
+	ReadTimeout                  int64      `yaml:"ReadTimeout"`                  // 设置读取超时(毫秒单位)
+	WriteTimeout                 int64      `yaml:"WriteTimeout"`                 // 设置写入超时(毫秒单位)
+	ReadHeaderTimeout            int64      `yaml:"ReadHeaderTimeout"`            // 读取标头超时(毫秒单位）
+	IdleTimeout                  int64      `yaml:"IdleTimeout"`                  // 保持连接空闲超时，如果为0，使用 ReadTimeout,(毫秒单位）
+	MaxHeaderBytes               int        `yaml:"MaxHeaderBytes"`               // 如果0，最大请求头的大小，http.DefaultMaxHeaderBytes
+	KeepAlivesEnabled            bool       `yaml:"KeepAlivesEnabled"`            // 支持客户端Keep-Alive
+	ShutdownConn                 bool       `yaml:"ShutdownConn"`                 // 服务器关闭监听，不会即时关闭正在下载的连接。空闲后再关闭。(默认即时关闭)
+	DisableGeneralOptionsHandler bool       `yaml:"DisableGeneralOptionsHandler"` // 如果为真，将“OPTIONS *”请求传递给处理程序，否则响应 200 OK 和 Content-Length: 0。
+	TLS                          *ServerTLS `yaml:"TLS"`                          // TLS
 }
 
 // Conn 连接相关参数
 type Conn struct {
 	// 引用公共配置后，该以结构中的CC和CS如果也有设置，将会使用优先使用。
-	PublicName      string // 引用公共配置的名字
-	Deadline        int64  // 设置读写超时(毫秒单位)
-	WriteDeadline   int64  // 设置写入超时(毫秒单位)
-	ReadDeadline    int64  // 设置读取超时(毫秒单位)
-	KeepAlive       bool   // 即使没有任何通信，一个客户端可能希望保持连接到服务器的状态。
-	KeepAlivePeriod int64  // 保持连接超时(毫秒单位)
-	Linger          int    // 连接关闭后，等待发送或待确认的数据（秒单位)。如果 sec > 0，经过sec秒后，所有剩余的未发送数据都可能会被丢弃。则与sec < 0 一样在后台发送数据。
-	NoDelay         bool   // 设置操作系统是否延迟发送数据包,建议设置为true(无延迟)
-	ReadBuffer      int    // 在缓冲区读取数据大小
-	WriteBuffer     int    // 写入数据到缓冲区大小
+	PublicName      string `yaml:"PublicName"`      // 引用公共配置的名字
+	Deadline        int64  `yaml:"Deadline"`        // 设置读写超时(毫秒单位)
+	WriteDeadline   int64  `yaml:"WriteDeadline"`   // 设置写入超时(毫秒单位)
+	ReadDeadline    int64  `yaml:"ReadDeadline"`    // 设置读取超时(毫秒单位)
+	KeepAlive       bool   `yaml:"KeepAlive"`       // 即使没有任何通信，一个客户端可能希望保持连接到服务器的状态。
+	KeepAlivePeriod int64  `yaml:"KeepAlivePeriod"` // 保持连接超时(毫秒单位)
+	Linger          int    `yaml:"Linger"`          // 连接关闭后，等待发送或待确认的数据（秒单位)。如果 sec > 0，经过sec秒后，所有剩余的未发送数据都可能会被丢弃。则与sec < 0 一样在后台发送数据。
+	NoDelay         bool   `yaml:"NoDelay"`         // 设置操作系统是否延迟发送数据包,建议设置为true(无延迟)
+	ReadBuffer      int    `yaml:"ReadBuffer"`      // 在缓冲区读取数据大小
+	WriteBuffer     int    `yaml:"WriteBuffer"`     // 写入数据到缓冲区大小
 }
 
 // ServerPublic 公共服务器配置
 type ServerPublic struct {
-	CC map[string]Conn   // 连接设置
-	CS map[string]Server // 服务器设置
+	CC map[string]Conn   `yaml:"CC"` // 连接设置
+	CS map[string]Server `yaml:"CS"` // 服务器设置
 }
 
 // ConfigConn 将公共连接配置合并到 origin（origin 非零字段优先）。
@@ -662,22 +664,22 @@ func (T *ServerPublic) ConfigServer(origin *Server, handle func(name string, dsc
 
 // Listen 监听配置
 type Listen struct {
-	Status bool   // 状态，是否启动此服务器
-	CC     Conn   // 连接设置
-	CS     Server // 服务器设置
+	Status bool   `yaml:"Status"` // 状态，是否启动此服务器
+	CC     Conn   `yaml:"CC"`     // 连接设置
+	CS     Server `yaml:"CS"`     // 服务器设置
 }
 
 // Servers 服务器集合
 type Servers struct {
-	Public ServerPublic
-	Listen map[string]Listen
+	Public ServerPublic      `yaml:"Public"`
+	Listen map[string]Listen `yaml:"Listen"`
 }
 
 // Config 配置
 type Config struct {
-	Servers Servers      // 服务器集
-	Sites   Sites        // 站点集
-	mu      sync.RWMutex // 保护并发解析与修改（未导出）
+	Servers Servers      `yaml:"Servers"` // 服务器集
+	Sites   Sites        `yaml:"Sites"`   // 站点集
+	mu      sync.RWMutex `yaml:"-"`       // 保护并发解析与修改（未导出）
 }
 
 // ParseFile 解析服务器配置文件，一个 JSON 格式的文件。
@@ -747,9 +749,8 @@ func (T *Config) ParseReader(r io.Reader) error {
 // parseFileLocked 内部使用（调用方必须已持有写锁）
 func (T *Config) parseFileLocked(file string) error {
 	lower := strings.ToLower(file)
-	// 子配置仍按原有逻辑处理，后续单独扩展
-	if strings.HasSuffix(lower, ".site.json") || strings.HasSuffix(lower, ".listen.json") ||
-		strings.HasSuffix(lower, ".site.toml") || strings.HasSuffix(lower, ".listen.toml") {
+	// 子配置按子配置逻辑处理
+	if isSubConfigName(lower) {
 		return loadSubConf(file, T)
 	}
 
@@ -817,6 +818,23 @@ func (T *Config) ParseReaderTOML(r io.Reader) error {
 	var tmp Config
 	if err := d.Decode(&tmp); err != nil {
 		return fmt.Errorf("strict decode toml %w", err)
+	}
+	T.Servers = tmp.Servers
+	T.Sites = tmp.Sites
+	T.ensureMaps()
+	return nil
+}
+
+// ParseReaderYAML 以严格模式解析 YAML 数据。
+// 与 ParseReaderTOML 行为对齐：拒绝未知字段。
+func (T *Config) ParseReaderYAML(r io.Reader) error {
+	T.mu.Lock()
+	defer T.mu.Unlock()
+
+	d := yaml.NewDecoder(r, yaml.DisallowUnknownField())
+	var tmp Config
+	if err := d.Decode(&tmp); err != nil {
+		return fmt.Errorf("strict decode yaml: %w", err)
 	}
 	T.Servers = tmp.Servers
 	T.Sites = tmp.Sites
@@ -1093,13 +1111,16 @@ func parseConf(path string, v any) error {
 	return nil
 }
 
-// loadSubConf 加载并合并子配置（.site.json / .listen.json）
+// loadSubConf 加载并合并子配置（.site.json / .listen.json / .site.toml / .listen.toml / .site.yaml / .listen.yaml / .site.yml / .listen.yml）
 // 注意：调用方必须已持有 Config.mu 写锁。
 func loadSubConf(path string, conf *Config) error {
 	lower := strings.ToLower(path)
 
 	switch {
-	case strings.HasSuffix(lower, ".site.json"):
+	case strings.HasSuffix(lower, ".site.json"),
+		strings.HasSuffix(lower, ".site.yaml"),
+		strings.HasSuffix(lower, ".site.yml"):
+		// JSON / YAML 顶层都是数组，直接解码为 []Site
 		var incoming []Site
 		if err := parseConf(path, &incoming); err != nil {
 			return err
@@ -1117,7 +1138,10 @@ func loadSubConf(path string, conf *Config) error {
 		}
 		mergeSites(conf, wrapper.Site)
 
-	case strings.HasSuffix(lower, ".listen.json"), strings.HasSuffix(lower, ".listen.toml"):
+	case strings.HasSuffix(lower, ".listen.json"),
+		strings.HasSuffix(lower, ".listen.toml"),
+		strings.HasSuffix(lower, ".listen.yaml"),
+		strings.HasSuffix(lower, ".listen.yml"):
 		var incoming map[string]Listen
 		if err := parseConf(path, &incoming); err != nil {
 			return err
@@ -1161,7 +1185,11 @@ func isSubConfigName(name string) bool {
 	return strings.HasSuffix(lower, ".site.json") ||
 		strings.HasSuffix(lower, ".listen.json") ||
 		strings.HasSuffix(lower, ".site.toml") ||
-		strings.HasSuffix(lower, ".listen.toml")
+		strings.HasSuffix(lower, ".listen.toml") ||
+		strings.HasSuffix(lower, ".site.yaml") ||
+		strings.HasSuffix(lower, ".listen.yaml") ||
+		strings.HasSuffix(lower, ".site.yml") ||
+		strings.HasSuffix(lower, ".listen.yml")
 }
 
 // decodeByExt 按文件后缀选择 JSON 或 TOML 解码器。
@@ -1170,10 +1198,14 @@ func decodeByExt(ext string, r io.Reader, v any) error {
 	const (
 		extJSON = ".json"
 		extTOML = ".toml"
+		extYAML = ".yaml"
+		extYML  = ".yml"
 	)
-	switch ext {
+	switch strings.ToLower(ext) {
 	case extTOML:
 		return toml.NewDecoder(r).Decode(v)
+	case extYAML, extYML:
+		return yaml.NewDecoder(r).Decode(v) // 普通解析，不启用严格模式
 	default:
 		return json.NewDecoder(r).Decode(v)
 	}

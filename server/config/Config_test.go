@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/tls"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -150,12 +151,9 @@ func TestSitePublic_ConfigSiteHeader_NoPollute(t *testing.T) {
 		t.Fatal("合并失败")
 	}
 
-	// 关键：公共模板的 Static 不应包含 origin 的 ".css"
 	if _, dirty := pubStatic[".css"]; dirty {
 		t.Fatalf("公共模板 Static 被 origin 污染: %+v", pubStatic)
 	}
-
-	// origin 同时具有公共和自身条目
 	if _, ok := origin.Static[".html"]; !ok {
 		t.Fatalf("origin 缺少公共条目: %+v", origin.Static)
 	}
@@ -163,7 +161,6 @@ func TestSitePublic_ConfigSiteHeader_NoPollute(t *testing.T) {
 		t.Fatalf("origin 缺少自身条目: %+v", origin.Static)
 	}
 
-	// 修改 origin 的 map 不应回写公共模板
 	h := origin.Static[".html"].Header
 	h["X-A"] = []string{"changed"}
 
@@ -181,7 +178,6 @@ func TestSitePublic_ConfigSiteForward_AppendAndDeepCopy(t *testing.T) {
 	pub := &SitePublic{Forward: map[string]SiteForwards{
 		"pub": {List: []SiteForward{{Path: pubPath, RePath: "/x"}}},
 	}}
-	// 模拟公共模板已 Compile，forwardWriter 非 nil
 	fs := pub.Forward["pub"]
 	fs.List[0].forwardWriter = &vweb.ForwardRewriter{}
 	pub.Forward["pub"] = fs
@@ -200,17 +196,14 @@ func TestSitePublic_ConfigSiteForward_AppendAndDeepCopy(t *testing.T) {
 	if origin.List[0].RePath != "/y" || origin.List[1].RePath != "/x" {
 		t.Fatalf("追加顺序错误: %+v", origin.List)
 	}
-	// 复制出的 rewriter 必须被清空
 	if origin.List[0].forwardWriter != nil {
 		t.Fatal("forwardWriter 未在复制时清空")
 	}
-	// 修改 origin 的 Path 不应影响公共模板 Path
 	origin.List[0].Path[0] = "/changed"
 	if pubPath[0] != "/a" {
 		t.Fatalf("公共 Path 被修改: %v", pubPath)
 	}
 
-	// 空列表时仍返回 ok（表示引用成功）
 	pubEmpty := &SitePublic{Forward: map[string]SiteForwards{"pub": {List: nil}}}
 	origin2 := SiteForwards{PublicName: "pub"}
 	if !pubEmpty.ConfigSiteForward(&origin2, nil) {
@@ -234,7 +227,6 @@ func TestSitePublic_ConfigSiteDynamic_ExtCopy(t *testing.T) {
 	if !origin.Cache || len(origin.Ext) != 2 {
 		t.Fatalf("合并结果错误: %+v", origin)
 	}
-	// 修改 origin.Ext 不应影响公共 Ext
 	origin.Ext[0] = "changed"
 	if pubExt[0] != ".go" {
 		t.Fatalf("公共 Ext 被修改: %v", pubExt)
@@ -339,14 +331,13 @@ func TestSitePlugins_ConfigSitePluginRPC(t *testing.T) {
 		}}
 	}
 
-	// 1) 合并语义：origin 全零 / 非零覆盖 / handle 排除 / RPC 与 HTTP 模板分离
 	t.Run("merge semantics", func(t *testing.T) {
 		tests := []struct {
 			name   string
 			pub    *SitePlugins
 			origin SitePlugin
 			handle func(string, reflect.Value, reflect.Value) bool
-			want   SitePlugin // 仅比较 PublicName/Addr/Path/MaxConn/Timeout
+			want   SitePlugin
 		}{
 			{
 				name:   "origin 全零继承公共",
@@ -397,7 +388,6 @@ func TestSitePlugins_ConfigSitePluginRPC(t *testing.T) {
 		}
 	})
 
-	// 2) 深拷贝隔离：TLS / ProxyConnectHeader 不共享；origin 自带 TLS 覆盖且深拷贝
 	t.Run("deep copy isolation", func(t *testing.T) {
 		pub := newPub()
 		pubTLS := pub.RPC["pub"].TLS
@@ -444,7 +434,6 @@ func TestSitePlugins_ConfigSitePluginRPC(t *testing.T) {
 		}
 	})
 
-	// 3) 无效输入：nil receiver / nil origin / nil map / PublicName 空 / 未找到
 	t.Run("invalid inputs", func(t *testing.T) {
 		tests := []struct {
 			name string
@@ -478,7 +467,7 @@ func TestSitePlugins_ConfigSitePluginRPC(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// ServerPublic.ConfigConn（合并语义、公共模板隔离、bool 零值陷阱）
+// ServerPublic.ConfigConn
 // -----------------------------------------------------------------------------
 
 func TestServerPublic_ConfigConn(t *testing.T) {
@@ -492,7 +481,6 @@ func TestServerPublic_ConfigConn(t *testing.T) {
 		}}
 	}
 
-	// 1) 合并语义：origin 全零继承 / 非零覆盖 / handle 排除 / bool 零值陷阱
 	t.Run("merge semantics", func(t *testing.T) {
 		tests := []struct {
 			name   string
@@ -536,9 +524,6 @@ func TestServerPublic_ConfigConn(t *testing.T) {
 				},
 			},
 			{
-				// 记录当前实现行为：bool 零值 false 被 configExclude 跳过，
-				// 因此公共 KeepAlive=true 无法被 origin 关掉。若将来支持 bool 覆盖，
-				// 本用例会失败，提醒审视语义变更。
 				name:   "bool 零值无法关闭公共开关",
 				pub:    newPub(),
 				origin: Conn{PublicName: "pub", KeepAlive: false, NoDelay: false},
@@ -563,7 +548,6 @@ func TestServerPublic_ConfigConn(t *testing.T) {
 		}
 	})
 
-	// 2) 公共 CC 不被污染：map value 是值拷贝，写回 origin 不应影响公共模板
 	t.Run("公共 CC 不被污染", func(t *testing.T) {
 		pub := newPub()
 		origin := Conn{PublicName: "pub", Deadline: 9999, Linger: -1, ReadBuffer: 1}
@@ -575,7 +559,6 @@ func TestServerPublic_ConfigConn(t *testing.T) {
 		}
 	})
 
-	// 3) 无效输入：nil receiver / nil origin / PublicName 空 / nil map / 未找到
 	t.Run("invalid inputs", func(t *testing.T) {
 		tests := []struct {
 			name string
@@ -632,16 +615,13 @@ func TestServerPublic_ConfigServer_TLSDeepCopy(t *testing.T) {
 	if origin.TLS == nil {
 		t.Fatal("TLS 未设置")
 	}
-	// 公共 TLS 不应被修改
 	if len(pubTLS.NextProtos) == 0 || pubTLS.NextProtos[0] != "h2" {
 		t.Fatalf("公共 NextProtos 被修改: %v", pubTLS.NextProtos)
 	}
-	// origin 的 TLS 切片应独立
 	if len(origin.TLS.NextProtos) > 0 && len(pubTLS.NextProtos) > 0 &&
 		&origin.TLS.NextProtos[0] == &pubTLS.NextProtos[0] {
 		t.Fatal("NextProtos 底层数组仍共享")
 	}
-	// 空 CipherSuites 应被 CipherSuitesAuto 填充
 	if len(origin.TLS.CipherSuites) == 0 {
 		t.Fatal("CipherSuites 应被填充")
 	}
@@ -699,7 +679,7 @@ func TestServerTLS_CipherSuitesAuto(t *testing.T) {
 	}
 
 	var nilT *ServerTLS
-	nilT.CipherSuitesAuto() // 不应 panic
+	nilT.CipherSuitesAuto()
 }
 
 // -----------------------------------------------------------------------------
@@ -826,7 +806,6 @@ func TestSiteDirectory_RootDir(t *testing.T) {
 			t.Fatalf("got=%q want=%q", got, want)
 		}
 	})
-
 	t.Run("虚拟目录命中，返回其父目录", func(t *testing.T) {
 		d := &SiteDirectory{Root: "/default", Virtual: []string{"/data/upload"}}
 		got := d.RootDir("/upload/file.txt")
@@ -834,7 +813,6 @@ func TestSiteDirectory_RootDir(t *testing.T) {
 			t.Fatalf("got=%q want=/data", got)
 		}
 	})
-
 	t.Run("虚拟目录未命中，返回默认 Root", func(t *testing.T) {
 		d := &SiteDirectory{Root: "/default", Virtual: []string{"/data/upload"}}
 		got := d.RootDir("/other/file.txt")
@@ -842,7 +820,6 @@ func TestSiteDirectory_RootDir(t *testing.T) {
 			t.Fatalf("got=%q want=/default", got)
 		}
 	})
-
 	t.Run("空 Virtual 项被忽略", func(t *testing.T) {
 		d := &SiteDirectory{Root: "/default", Virtual: []string{"", "/data/upload"}}
 		got := d.RootDir("/upload/x")
@@ -864,22 +841,22 @@ func Test_SiteForward(t *testing.T) {
 			upath:   "/",
 			rpath:   "/",
 			re:      false,
-		}, { // 路径被排除了，不重定向
+		}, {
 			forward: &SiteForward{ExcludePath: []string{"/a/index.html"}, Path: []string{"/a/index.html"}, RePath: "/b/index.html"},
 			upath:   "/a/index.html",
 			rpath:   "/a/index.html",
 			re:      false,
-		}, { // 路径不匹配，不重定向
+		}, {
 			forward: &SiteForward{ExcludePath: []string{}, Path: []string{"/a/index.html"}, RePath: "/b/index.html"},
 			upath:   "/c/index.html",
 			rpath:   "/c/index.html",
 			re:      false,
-		}, { // 全部匹配，重定向
+		}, {
 			forward: &SiteForward{ExcludePath: []string{}, Path: []string{"/a/index.html"}, RePath: "/b/index.html"},
 			upath:   "/a/index.html",
 			rpath:   "/b/index.html",
 			re:      true,
-		}, { // 正则匹配，重定向
+		}, {
 			forward: &SiteForward{ExcludePath: []string{}, Path: []string{"/(\\w)/index.html"}, RePath: "/$1/b/index.html"},
 			upath:   "/a/index.html",
 			rpath:   "/a/b/index.html",
@@ -921,12 +898,20 @@ func Test_DataParse(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// TOML 配置支持
+// 多格式配置解析（TOML / YAML）—— 表驱动，一次覆盖两种格式
 // -----------------------------------------------------------------------------
 
-// TestConfig_ParseReaderTOML 验证 TOML 数据流式解析（含数组表、嵌套表、map 键带点号）。
-func TestConfig_ParseReaderTOML(t *testing.T) {
-	const data = `
+// TestConfig_ParseReader_Formats 验证 TOML / YAML 的流式解析（数组、嵌套 map、动态字段）。
+func TestConfig_ParseReader_Formats(t *testing.T) {
+	tests := []struct {
+		name  string
+		parse func(*Config, io.Reader) error
+		data  string
+	}{
+		{
+			name:  "toml",
+			parse: (*Config).ParseReaderTOML,
+			data: `
 [Servers.Listen."127.0.0.1:8080"]
 Status = true
 
@@ -939,82 +924,284 @@ IndexFile = ["index.html", "index.htm"]
 [Sites.Site.Dynamic]
 Ext = [".go", ".md"]
 Cache = true
-`
-	var c Config
-	if err := c.ParseReaderTOML(strings.NewReader(data)); err != nil {
-		t.Fatalf("ParseReaderTOML: %v", err)
-	}
-	if !c.Servers.Listen["127.0.0.1:8080"].Status {
-		t.Fatalf("Listen 未解析: %+v", c.Servers.Listen)
-	}
-	if len(c.Sites.Site) != 1 {
-		t.Fatalf("Sites 长度 = %d", len(c.Sites.Site))
-	}
-	s := c.Sites.Site[0]
-	if s.Identity != "s1" || !s.Status {
-		t.Fatalf("Site 解析错误: %+v", s)
-	}
-	if !reflect.DeepEqual(s.Host, []string{"example.com"}) {
-		t.Fatalf("Host = %v", s.Host)
-	}
-	if !s.Dynamic.Cache || !reflect.DeepEqual(s.Dynamic.Ext, []string{".go", ".md"}) {
-		t.Fatalf("Dynamic = %+v", s.Dynamic)
-	}
-	if c.Servers.Public.CC == nil {
-		t.Fatal("ensureMaps 未生效")
-	}
+`,
+		},
+		{
+			name:  "yaml",
+			parse: (*Config).ParseReaderYAML,
+			data: `
+Servers:
+  Listen:
+    "127.0.0.1:8080":
+      Status: true
 
-	// 无效 TOML（未闭合的表头）应报错
-	if err := c.ParseReaderTOML(strings.NewReader("[unclosed")); err == nil {
-		t.Fatal("无效 TOML 应报错")
+Sites:
+  Site:
+    - Identity: s1
+      Status: true
+      Host:
+        - example.com
+      IndexFile:
+        - index.html
+        - index.htm
+      Dynamic:
+        Ext:
+          - .go
+          - .md
+        Cache: true
+`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Config
+			if err := tc.parse(&c, strings.NewReader(tc.data)); err != nil {
+				t.Fatalf("ParseReader%s: %v", tc.name, err)
+			}
+			if !c.Servers.Listen["127.0.0.1:8080"].Status {
+				t.Fatalf("Listen 未解析: %+v", c.Servers.Listen)
+			}
+			if len(c.Sites.Site) != 1 {
+				t.Fatalf("Sites 长度 = %d", len(c.Sites.Site))
+			}
+			s := c.Sites.Site[0]
+			if s.Identity != "s1" || !s.Status {
+				t.Fatalf("Site 解析错误: %+v", s)
+			}
+			if !reflect.DeepEqual(s.Host, []string{"example.com"}) {
+				t.Fatalf("Host = %v", s.Host)
+			}
+			if !reflect.DeepEqual(s.IndexFile, []string{"index.html", "index.htm"}) {
+				t.Fatalf("IndexFile = %v", s.IndexFile)
+			}
+			if !s.Dynamic.Cache || !reflect.DeepEqual(s.Dynamic.Ext, []string{".go", ".md"}) {
+				t.Fatalf("Dynamic = %+v", s.Dynamic)
+			}
+			if c.Servers.Public.CC == nil {
+				t.Fatal("ensureMaps 未生效")
+			}
+		})
 	}
 }
 
-// TestConfig_ParseFile_TOML 验证 .toml 主配置文件走 TOML 解码器。
-func TestConfig_ParseFile_TOML(t *testing.T) {
-	dir := t.TempDir()
-
-	path := filepath.Join(dir, "config.toml")
-	body := `
-[Servers.Listen.x]
-Status = true
-
+// TestConfig_SiteForward_Formats 验证 TOML / YAML 中 Forward.List 数组表均可被正确解析。
+func TestConfig_SiteForward_Formats(t *testing.T) {
+	tests := []struct {
+		name  string
+		parse func(*Config, io.Reader) error
+		data  string
+	}{
+		{
+			name:  "toml",
+			parse: (*Config).ParseReaderTOML,
+			data: `
 [[Sites.Site]]
-Identity = "s-toml"
-`
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var c Config
-	if err := c.ParseFile(path); err != nil {
-		t.Fatalf("ParseFile toml: %v", err)
-	}
-	if _, ok := c.Servers.Listen["x"]; !ok {
-		t.Fatalf("Listen 未解析: %+v", c.Servers.Listen)
-	}
-	if len(c.Sites.Site) != 1 || c.Sites.Site[0].Identity != "s-toml" {
-		t.Fatalf("Sites 解析错误: %+v", c.Sites.Site)
-	}
+Identity = "s1"
 
-	// 文件不存在
-	if err := c.ParseFile(filepath.Join(dir, "missing.toml")); err == nil {
-		t.Fatal("不存在的文件应报错")
-	}
+[[Sites.Site.Forward.fwd.List]]
+Path = ["/a", "/b"]
+RePath = "/x"
+End = true
 
-	// 坏 TOML 内容
-	bad := filepath.Join(dir, "bad.toml")
-	if err := os.WriteFile(bad, []byte("= invalid"), 0o644); err != nil {
-		t.Fatal(err)
+[[Sites.Site.Forward.fwd.List]]
+Path = ["^/api/\\d+$"]
+RePath = "/v1"
+RedirectCode = 301
+`,
+		},
+		{
+			name:  "yaml",
+			parse: (*Config).ParseReaderYAML,
+			data: `
+Sites:
+  Site:
+    - Identity: s1
+      Forward:
+        fwd:
+          List:
+            - Path:
+                - /a
+                - /b
+              RePath: /x
+              End: true
+            - Path:
+                - ^/api/\d+$
+              RePath: /v1
+              RedirectCode: 301
+`,
+		},
 	}
-	var c2 Config
-	if err := c2.ParseFile(bad); err == nil {
-		t.Fatal("损坏的 TOML 应报错")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Config
+			if err := tc.parse(&c, strings.NewReader(tc.data)); err != nil {
+				t.Fatalf("ParseReader%s: %v", tc.name, err)
+			}
+			if len(c.Sites.Site) != 1 {
+				t.Fatalf("Sites = %+v", c.Sites.Site)
+			}
+			fwd, ok := c.Sites.Site[0].Forward["fwd"]
+			if !ok {
+				t.Fatalf("Forward.fwd 缺失: %+v", c.Sites.Site[0].Forward)
+			}
+			if len(fwd.List) != 2 {
+				t.Fatalf("List 长度 = %d, want 2", len(fwd.List))
+			}
+			if !reflect.DeepEqual(fwd.List[0].Path, []string{"/a", "/b"}) {
+				t.Fatalf("List[0].Path = %v", fwd.List[0].Path)
+			}
+			if !fwd.List[0].End {
+				t.Fatal("End 未解析")
+			}
+			if fwd.List[1].RedirectCode != 301 {
+				t.Fatalf("RedirectCode = %d", fwd.List[1].RedirectCode)
+			}
+		})
 	}
 }
 
-// TestConfig_ParseFiles_TOML 验证主 .toml + .site.toml / .listen.toml 子配置的合并语义：
-//   - .site.toml 以 Identity 为准，同名替换、异名追加
-//   - .listen.toml 以监听地址为键，合并到 Servers.Listen
+// TestConfig_SitePluginTLS_Formats 验证 TOML / YAML 中 SitePlugin.TLS 指针字段可由子表创建。
+func TestConfig_SitePluginTLS_Formats(t *testing.T) {
+	tests := []struct {
+		name  string
+		parse func(*Config, io.Reader) error
+		data  string
+	}{
+		{
+			name:  "toml",
+			parse: (*Config).ParseReaderTOML,
+			data: `
+[[Sites.Site]]
+Identity = "s1"
+
+[Sites.Site.Plugin.HTTP.pub]
+Status = true
+Addr = "1.2.3.4:80"
+Scheme = "http"
+
+[Sites.Site.Plugin.HTTP.pub.TLS]
+ServerName = "svc"
+InsecureSkipVerify = true
+NextProtos = ["h2", "http/1.1"]
+CipherSuites = [4865, 4866]
+`,
+		},
+		{
+			name:  "yaml",
+			parse: (*Config).ParseReaderYAML,
+			data: `
+Sites:
+  Site:
+    - Identity: s1
+      Plugin:
+        HTTP:
+          pub:
+            Status: true
+            Addr: 1.2.3.4:80
+            Scheme: http
+            TLS:
+              ServerName: svc
+              InsecureSkipVerify: true
+              NextProtos:
+                - h2
+                - http/1.1
+              CipherSuites:
+                - 4865
+                - 4866
+`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Config
+			if err := tc.parse(&c, strings.NewReader(tc.data)); err != nil {
+				t.Fatalf("ParseReader%s: %v", tc.name, err)
+			}
+			p := c.Sites.Site[0].Plugin.HTTP["pub"]
+			if p.TLS == nil {
+				t.Fatal("TLS 未解析")
+			}
+			if p.TLS.ServerName != "svc" || !p.TLS.InsecureSkipVerify {
+				t.Fatalf("TLS = %+v", p.TLS)
+			}
+			if !reflect.DeepEqual(p.TLS.NextProtos, []string{"h2", "http/1.1"}) {
+				t.Fatalf("NextProtos = %v", p.TLS.NextProtos)
+			}
+			if !reflect.DeepEqual(p.TLS.CipherSuites, []uint16{4865, 4866}) {
+				t.Fatalf("CipherSuites = %v", p.TLS.CipherSuites)
+			}
+		})
+	}
+}
+
+// TestConfig_IndependentParse_Formats 验证多次 TOML / YAML 解析互不共享指针/切片。
+func TestConfig_IndependentParse_Formats(t *testing.T) {
+	tests := []struct {
+		name  string
+		parse func(*Config, io.Reader) error
+		data  string
+	}{
+		{
+			name:  "toml",
+			parse: (*Config).ParseReaderTOML,
+			data: `
+[[Sites.Site]]
+Identity = "s1"
+
+[Sites.Site.Plugin.RPC.pub]
+Addr = "1.2.3.4:5"
+
+[Sites.Site.Plugin.RPC.pub.TLS]
+NextProtos = ["h2"]
+`,
+		},
+		{
+			name:  "yaml",
+			parse: (*Config).ParseReaderYAML,
+			data: `
+Sites:
+  Site:
+    - Identity: s1
+      Plugin:
+        RPC:
+          pub:
+            Addr: 1.2.3.4:5
+            TLS:
+              NextProtos:
+                - h2
+`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var a, b Config
+			if err := tc.parse(&a, strings.NewReader(tc.data)); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.parse(&b, strings.NewReader(tc.data)); err != nil {
+				t.Fatal(err)
+			}
+			aTLS := a.Sites.Site[0].Plugin.RPC["pub"].TLS
+			bTLS := b.Sites.Site[0].Plugin.RPC["pub"].TLS
+			if aTLS == nil || bTLS == nil {
+				t.Fatal("TLS 未解析")
+			}
+			if aTLS == bTLS {
+				t.Fatal("多次解析应得到独立 TLS 指针")
+			}
+			if len(aTLS.NextProtos) > 0 && len(bTLS.NextProtos) > 0 &&
+				&aTLS.NextProtos[0] == &bTLS.NextProtos[0] {
+				t.Fatal("NextProtos 底层数组不应共享")
+			}
+			aTLS.NextProtos[0] = "changed"
+			if bTLS.NextProtos[0] != "h2" {
+				t.Fatalf("%s: b 的 NextProtos 被污染: %v", tc.name, bTLS.NextProtos)
+			}
+		})
+	}
+}
+
+// TestConfig_ParseFiles_TOML 验证主 .toml + .site.toml / .listen.toml 子配置合并。
 func TestConfig_ParseFiles_TOML(t *testing.T) {
 	dir := t.TempDir()
 
@@ -1028,8 +1215,6 @@ Identity = "s1"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	// 站点子配置：s2 新增，s1 同名替换（TOML 根必须是 table，故用 [[Site]] 包裹）
 	if err := os.WriteFile(filepath.Join(dir, "extra.site.toml"), []byte(`
 [[Site]]
 Identity = "s2"
@@ -1040,8 +1225,6 @@ Name = "replaced"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	// 监听子配置：新增 9090
 	if err := os.WriteFile(filepath.Join(dir, "extra.listen.toml"), []byte(`
 ["127.0.0.1:9090"]
 Status = true
@@ -1053,7 +1236,6 @@ Status = true
 	if err := c.ParseFiles(main); err != nil {
 		t.Fatalf("ParseFiles: %v", err)
 	}
-
 	if len(c.Sites.Site) != 2 {
 		t.Fatalf("Sites 长度 = %d, want 2", len(c.Sites.Site))
 	}
@@ -1086,14 +1268,12 @@ func TestConfig_ParseFiles_MixedTOMLJSON(t *testing.T) {
 	}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// TOML 站点子配
 	if err := os.WriteFile(filepath.Join(dir, "extra.site.toml"), []byte(`
 [[Site]]
 Identity = "s2"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// JSON 监听子配置
 	if err := os.WriteFile(filepath.Join(dir, "extra.listen.json"), []byte(`{"b":{"Status":true}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1117,120 +1297,6 @@ Identity = "s2"
 	}
 }
 
-// TestConfig_TOML_SiteForward 验证 TOML 中 Forward.List 数组表可被正确解析。
-func TestConfig_TOML_SiteForward(t *testing.T) {
-	const data = `
-[[Sites.Site]]
-Identity = "s1"
-
-[[Sites.Site.Forward.fwd.List]]
-Path = ["/a", "/b"]
-RePath = "/x"
-End = true
-
-[[Sites.Site.Forward.fwd.List]]
-Path = ["^/api/\\d+$"]
-RePath = "/v1"
-RedirectCode = 301
-`
-	var c Config
-	if err := c.ParseReaderTOML(strings.NewReader(data)); err != nil {
-		t.Fatalf("ParseReaderTOML: %v", err)
-	}
-	if len(c.Sites.Site) != 1 {
-		t.Fatalf("Sites = %+v", c.Sites.Site)
-	}
-	fwd, ok := c.Sites.Site[0].Forward["fwd"]
-	if !ok {
-		t.Fatalf("Forward.fwd 缺失: %+v", c.Sites.Site[0].Forward)
-	}
-	if len(fwd.List) != 2 {
-		t.Fatalf("List 长度 = %d, want 2", len(fwd.List))
-	}
-	if !reflect.DeepEqual(fwd.List[0].Path, []string{"/a", "/b"}) {
-		t.Fatalf("List[0].Path = %v", fwd.List[0].Path)
-	}
-	if !fwd.List[0].End {
-		t.Fatal("End 未解析")
-	}
-	if fwd.List[1].RedirectCode != 301 {
-		t.Fatalf("RedirectCode = %d", fwd.List[1].RedirectCode)
-	}
-}
-
-// TestConfig_TOML_SitePluginTLS 验证 SitePlugin.TLS 指针字段可由 TOML 子表创建。
-func TestConfig_TOML_SitePluginTLS(t *testing.T) {
-	const data = `
-[[Sites.Site]]
-Identity = "s1"
-
-[Sites.Site.Plugin.HTTP.pub]
-Status = true
-Addr = "1.2.3.4:80"
-Scheme = "http"
-
-[Sites.Site.Plugin.HTTP.pub.TLS]
-ServerName = "svc"
-InsecureSkipVerify = true
-NextProtos = ["h2", "http/1.1"]
-CipherSuites = [4865, 4866]
-`
-	var c Config
-	if err := c.ParseReaderTOML(strings.NewReader(data)); err != nil {
-		t.Fatalf("ParseReaderTOML: %v", err)
-	}
-	p := c.Sites.Site[0].Plugin.HTTP["pub"]
-	if p.TLS == nil {
-		t.Fatal("TLS 未解析")
-	}
-	if p.TLS.ServerName != "svc" || !p.TLS.InsecureSkipVerify {
-		t.Fatalf("TLS = %+v", p.TLS)
-	}
-	if !reflect.DeepEqual(p.TLS.NextProtos, []string{"h2", "http/1.1"}) {
-		t.Fatalf("NextProtos = %v", p.TLS.NextProtos)
-	}
-	if !reflect.DeepEqual(p.TLS.CipherSuites, []uint16{4865, 4866}) {
-		t.Fatalf("CipherSuites = %v", p.TLS.CipherSuites)
-	}
-}
-
-// TestConfig_TOML_IndependentParse 验证多次 TOML 解析互不共享指针/切片。
-func TestConfig_TOML_IndependentParse(t *testing.T) {
-	const data = `
-[[Sites.Site]]
-Identity = "s1"
-
-[Sites.Site.Plugin.RPC.pub]
-Addr = "1.2.3.4:5"
-
-[Sites.Site.Plugin.RPC.pub.TLS]
-NextProtos = ["h2"]
-`
-	var a, b Config
-	if err := a.ParseReaderTOML(strings.NewReader(data)); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.ParseReaderTOML(strings.NewReader(data)); err != nil {
-		t.Fatal(err)
-	}
-	aTLS := a.Sites.Site[0].Plugin.RPC["pub"].TLS
-	bTLS := b.Sites.Site[0].Plugin.RPC["pub"].TLS
-	if aTLS == nil || bTLS == nil {
-		t.Fatal("TLS 未解析")
-	}
-	if aTLS == bTLS {
-		t.Fatal("多次解析应得到独立 TLS 指针")
-	}
-	if len(aTLS.NextProtos) > 0 && len(bTLS.NextProtos) > 0 &&
-		&aTLS.NextProtos[0] == &bTLS.NextProtos[0] {
-		t.Fatal("NextProtos 底层数组不应共享")
-	}
-	aTLS.NextProtos[0] = "changed"
-	if bTLS.NextProtos[0] != "h2" {
-		t.Fatalf("b 的 NextProtos 被污染: %v", bTLS.NextProtos)
-	}
-}
-
 func TestConfig_ParseFiles_MissingDir(t *testing.T) {
 	var c Config
 	if err := c.ParseFiles("/nonexistent/dir/config.json"); err == nil {
@@ -1249,9 +1315,434 @@ Foo = 1
 	}
 }
 
+// -----------------------------------------------------------------------------
+// YAML 独有测试（解析语义、扩展名、严格模式、混用、一致性）
+// -----------------------------------------------------------------------------
+
+// TestConfig_ParseFile_TOML 验证 .toml 主配置文件走 TOML 解码器。
+func TestConfig_ParseFile_TOML(t *testing.T) {
+	dir := t.TempDir()
+
+	path := filepath.Join(dir, "config.toml")
+	body := `
+[Servers.Listen.x]
+Status = true
+
+[[Sites.Site]]
+Identity = "s-toml"
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var c Config
+	if err := c.ParseFile(path); err != nil {
+		t.Fatalf("ParseFile toml: %v", err)
+	}
+	if _, ok := c.Servers.Listen["x"]; !ok {
+		t.Fatalf("Listen 未解析: %+v", c.Servers.Listen)
+	}
+	if len(c.Sites.Site) != 1 || c.Sites.Site[0].Identity != "s-toml" {
+		t.Fatalf("Sites 解析错误: %+v", c.Sites.Site)
+	}
+
+	if err := c.ParseFile(filepath.Join(dir, "missing.toml")); err == nil {
+		t.Fatal("不存在的文件应报错")
+	}
+
+	bad := filepath.Join(dir, "bad.toml")
+	if err := os.WriteFile(bad, []byte("= invalid"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var c2 Config
+	if err := c2.ParseFile(bad); err == nil {
+		t.Fatal("损坏的 TOML 应报错")
+	}
+}
+
+// TestConfig_ParseReaderYAML_UnknownField 验证严格模式（DisallowUnknownField）
+// 对顶层和嵌套未知字段都会报错。
+func TestConfig_ParseReaderYAML_UnknownField(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+	}{
+		{
+			name: "顶层未知字段",
+			data: "UnknownTop: 1\n",
+		},
+		{
+			name: "嵌套未知字段",
+			data: `
+Servers:
+  Listen:
+    "x":
+      Status: true
+      SomeFutureField: 1
+`,
+		},
+		{
+			name: "站点内未知字段",
+			data: `
+Sites:
+  Site:
+    - Identity: s1
+      Nonexistent: true
+`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Config
+			err := c.ParseReaderYAML(strings.NewReader(tc.data))
+			if err == nil {
+				t.Fatalf("未知字段应报错，data=%q", tc.data)
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "unknown") &&
+				!strings.Contains(strings.ToLower(err.Error()), "field") {
+				t.Fatalf("错误信息未指明未知字段: %v", err)
+			}
+		})
+	}
+}
+
+// TestConfig_ParseFile_YAML 验证 .yaml 主配置走 YAML 解码器；
+// 主配置走 decodeByExt 非严格模式（容忍未知字段），与 ParseReaderYAML 严格模式对照。
+func TestConfig_ParseFile_YAML(t *testing.T) {
+	dir := t.TempDir()
+
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+Servers:
+  Listen:
+    x:
+      Status: true
+Sites:
+  Site:
+    - Identity: s-yaml
+      ExtraUnknownField: tolerated
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var c Config
+	if err := c.ParseFile(path); err != nil {
+		t.Fatalf("ParseFile yaml 应宽容未知字段: %v", err)
+	}
+	if _, ok := c.Servers.Listen["x"]; !ok {
+		t.Fatalf("Listen 未解析: %+v", c.Servers.Listen)
+	}
+	if len(c.Sites.Site) != 1 || c.Sites.Site[0].Identity != "s-yaml" {
+		t.Fatalf("Sites 解析错误: %+v", c.Sites.Site)
+	}
+
+	if err := c.ParseFile(filepath.Join(dir, "missing.yaml")); err == nil {
+		t.Fatal("不存在的文件应报错")
+	}
+
+	bad := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(bad, []byte("Sites: [unclosed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var c2 Config
+	if err := c2.ParseFile(bad); err == nil {
+		t.Fatal("损坏的 YAML 应报错")
+	}
+}
+
+// TestConfig_ParseFile_YAML_ReplaceSemantics 验证 parseFileLocked 是“整份替换”语义。
+func TestConfig_ParseFile_YAML_ReplaceSemantics(t *testing.T) {
+	dir := t.TempDir()
+
+	first := filepath.Join(dir, "first.yaml")
+	if err := os.WriteFile(first, []byte(`
+Servers:
+  Listen:
+    ":9001":
+      Status: true
+Sites:
+  Site:
+    - Identity: first
+      Status: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	second := filepath.Join(dir, "second.yaml")
+	if err := os.WriteFile(second, []byte(`
+Servers:
+  Listen:
+    ":9002":
+      Status: true
+Sites:
+  Site:
+    - Identity: second
+      Status: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var c Config
+	if err := c.ParseFile(first); err != nil {
+		t.Fatalf("ParseFile first: %v", err)
+	}
+	if _, ok := c.Servers.Listen[":9001"]; !ok {
+		t.Fatal("first: Listen[:9001] 缺失")
+	}
+	if err := c.ParseFile(second); err != nil {
+		t.Fatalf("ParseFile second: %v", err)
+	}
+	if _, ok := c.Servers.Listen[":9002"]; !ok {
+		t.Fatal("second: Listen[:9002] 缺失")
+	}
+	if _, ok := c.Servers.Listen[":9001"]; ok {
+		t.Fatal("second: Listen[:9001] 不应残留（应为整份替换）")
+	}
+	if len(c.Sites.Site) != 1 || c.Sites.Site[0].Identity != "second" {
+		t.Fatalf("second: Sites = %+v", c.Sites.Site)
+	}
+}
+
+// TestConfig_ParseFiles_YAML 验证主 .yaml + .site.yaml / .listen.yaml 子配置合并语义。
+// .yml 扩展名由 decodeByExt / isSubConfigName 单元测试覆盖，此处只测 .yaml。
+func TestConfig_ParseFiles_YAML(t *testing.T) {
+	dir := t.TempDir()
+
+	main := filepath.Join(dir, "main.yaml")
+	if err := os.WriteFile(main, []byte(`
+Servers:
+  Listen:
+    "127.0.0.1:8080":
+      Status: true
+Sites:
+  Site:
+    - Identity: s1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "extra.site.yaml"), []byte(`
+- Identity: s2
+- Identity: s1
+  Name: replaced
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "extra.listen.yaml"), []byte(`
+"127.0.0.1:9090":
+  Status: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var c Config
+	if err := c.ParseFiles(main); err != nil {
+		t.Fatalf("ParseFiles: %v", err)
+	}
+
+	if len(c.Sites.Site) != 2 {
+		t.Fatalf("Sites 长度 = %d, want 2", len(c.Sites.Site))
+	}
+	found := map[string]Site{}
+	for _, s := range c.Sites.Site {
+		found[s.Identity] = s
+	}
+	if found["s1"].Name != "replaced" {
+		t.Fatalf("s1 应被同名替换: %+v", found["s1"])
+	}
+	if _, ok := found["s2"]; !ok {
+		t.Fatal("s2 未加载")
+	}
+	if len(c.Servers.Listen) != 2 {
+		t.Fatalf("Listen 长度 = %d, want 2", len(c.Servers.Listen))
+	}
+	if _, ok := c.Servers.Listen["127.0.0.1:9090"]; !ok {
+		t.Fatalf("监听子配置未加载: %+v", c.Servers.Listen)
+	}
+}
+
+// TestConfig_ParseFile_SiteYAMLDirect 验证 .site.yaml 也可以被 ParseFile 直接加载。
+func TestConfig_ParseFile_SiteYAMLDirect(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "only.site.yaml")
+	if err := os.WriteFile(p, []byte(`
+- Identity: single
+  Status: true
+  Host:
+    - single.example.com
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var c Config
+	if err := c.ParseFile(p); err != nil {
+		t.Fatalf("ParseFile .site.yaml: %v", err)
+	}
+	if len(c.Sites.Site) != 1 || c.Sites.Site[0].Identity != "single" {
+		t.Fatalf("独立子配置加载错误: %+v", c.Sites.Site)
+	}
+}
+
+// TestConfig_ParseFiles_MixedJSONTOMLYAML 验证 JSON/TOML/YAML 三种子配置在同一目录下可混用。
+func TestConfig_ParseFiles_MixedJSONTOMLYAML(t *testing.T) {
+	dir := t.TempDir()
+
+	main := filepath.Join(dir, "main.json")
+	if err := os.WriteFile(main, []byte(`{
+		"Servers": {"Listen": {"a": {"Status": true}}},
+		"Sites": {"Site": [{"Identity": "s1"}]}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "t.site.toml"), []byte(`
+[[Site]]
+Identity = "s2"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "y.site.yaml"), []byte(`
+- Identity: s3
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "j.listen.json"), []byte(`{"b":{"Status":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "y.listen.yaml"), []byte(`
+"c":
+  Status: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var c Config
+	if err := c.ParseFiles(main); err != nil {
+		t.Fatalf("ParseFiles mixed: %v", err)
+	}
+	for _, addr := range []string{"a", "b", "c"} {
+		if _, ok := c.Servers.Listen[addr]; !ok {
+			t.Fatalf("Listen[%q] 未加载: %+v", addr, c.Servers.Listen)
+		}
+	}
+	idents := map[string]bool{}
+	for _, s := range c.Sites.Site {
+		idents[s.Identity] = true
+	}
+	for _, id := range []string{"s1", "s2", "s3"} {
+		if !idents[id] {
+			t.Fatalf("Site %q 未加载: %+v", id, c.Sites.Site)
+		}
+	}
+}
+
+// TestConfig_YAML_EmptyDocument 验证空 YAML 输入不 panic。
+func TestConfig_YAML_EmptyDocument(t *testing.T) {
+	var c Config
+	err := c.ParseReaderYAML(strings.NewReader(""))
+	if err == nil {
+		if c.Servers.Listen == nil || c.Servers.Public.CC == nil {
+			t.Fatalf("空 YAML 且返回 nil 时 ensureMaps 应被调用: %+v", c.Servers)
+		}
+	}
+}
+
+// TestConfig_YAML_MatchesTOML 验证同一份语义配置用 YAML 与 TOML 解析后关键字段一致。
+func TestConfig_YAML_MatchesTOML(t *testing.T) {
+	const ymlData = `
+Servers:
+  Listen:
+    ":8080":
+      Status: true
+Sites:
+  Site:
+    - Identity: same
+      Status: true
+      Host:
+        - a.example.com
+`
+	const tomlData = `
+[Servers.Listen.":8080"]
+Status = true
+
+[[Sites.Site]]
+Identity = "same"
+Status = true
+Host = ["a.example.com"]
+`
+	var cY, cT Config
+	if err := cY.ParseReaderYAML(strings.NewReader(ymlData)); err != nil {
+		t.Fatalf("yaml: %v", err)
+	}
+	if err := cT.ParseReaderTOML(strings.NewReader(tomlData)); err != nil {
+		t.Fatalf("toml: %v", err)
+	}
+	if len(cY.Sites.Site) != 1 || len(cT.Sites.Site) != 1 {
+		t.Fatalf("Sites 数量不一致: yaml=%d toml=%d", len(cY.Sites.Site), len(cT.Sites.Site))
+	}
+	yS, tS := cY.Sites.Site[0], cT.Sites.Site[0]
+	if yS.Identity != tS.Identity || yS.Status != tS.Status {
+		t.Fatalf("Identity/Status 不一致: yaml=%+v toml=%+v", yS, tS)
+	}
+	if !reflect.DeepEqual(yS.Host, tS.Host) {
+		t.Fatalf("Host 不一致: yaml=%v toml=%v", yS.Host, tS.Host)
+	}
+	if !cY.Servers.Listen[":8080"].Status || !cT.Servers.Listen[":8080"].Status {
+		t.Fatal("Listen 状态不一致")
+	}
+}
+
+// TestDecodeByExt_YAML 直接验证 decodeByExt 对 .yaml / .yml 的分发逻辑。
+func TestDecodeByExt_YAML(t *testing.T) {
+	body := `Sites: {Site: [{Identity: s1}]}`
+	for _, ext := range []string{".yaml", ".yml", ".YAML", ".YML"} {
+		t.Run(ext, func(t *testing.T) {
+			var c Config
+			if err := decodeByExt(ext, strings.NewReader(body), &c); err != nil {
+				t.Fatalf("decodeByExt(%s): %v", ext, err)
+			}
+			if len(c.Sites.Site) != 1 || c.Sites.Site[0].Identity != "s1" {
+				t.Fatalf("解析错误: %+v", c.Sites.Site)
+			}
+		})
+	}
+
+	var c Config
+	if err := decodeByExt(".conf", strings.NewReader(`{"Sites":{"Site":[{"Identity":"j"}]}}`), &c); err != nil {
+		t.Fatalf("未知扩展名应回退 JSON: %v", err)
+	}
+	if len(c.Sites.Site) != 1 || c.Sites.Site[0].Identity != "j" {
+		t.Fatalf("回退 JSON 解析错误: %+v", c.Sites.Site)
+	}
+}
+
+// TestIsSubConfigName_YAML 直接验证 isSubConfigName 对 YAML 子配置名的识别。
+func TestIsSubConfigName_YAML(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"x.site.yaml", true},
+		{"x.site.yml", true},
+		{"x.listen.yaml", true},
+		{"x.listen.yml", true},
+		{"x.site.json", true},
+		{"x.listen.toml", true},
+		{"x.config.yaml", false},
+		{"x.site.yaml.bak", false},
+		{"yaml", false},
+	}
+	for _, tc := range tests {
+		if got := isSubConfigName(tc.name); got != tc.want {
+			t.Fatalf("isSubConfigName(%q) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// SiteForward / SiteDirectory / 插件客户端
+// -----------------------------------------------------------------------------
+
 func TestConfigSiteForward_EmptyPublicName(t *testing.T) {
 	pub := &SitePublic{Forward: map[string]SiteForwards{"p": {}}}
-	origin := SiteForwards{} // 空 PublicName
+	origin := SiteForwards{}
 	if pub.ConfigSiteForward(&origin, nil) {
 		t.Fatal("PublicName 为空应返回 false")
 	}
@@ -1292,7 +1783,7 @@ func TestSitePlugin_clone(t *testing.T) {
 }
 
 func TestConfigSitePluginHTTP_NilMap(t *testing.T) {
-	var p SitePlugins // nil maps
+	var p SitePlugins
 	origin := &SitePlugin{PublicName: "x"}
 	if p.ConfigSitePluginHTTP(origin, nil) {
 		t.Fatal("nil map 应返回 false")
