@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/456vv/vmap/v2"
 	"github.com/456vv/vweb/v3/server/config"
 )
 
@@ -103,4 +104,14 @@ func isLocalPath(rel string) bool {
 
 	// 检查中间是否存在 ".." 组件（同时兼容 / 与系统分隔符）
 	return !slices.Contains(strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == filepath.Separator }), "..")
+}
+
+func closeAllMap(v any) {
+	if m, ok := v.(*vmap.Map); ok {
+		m.Range(func(key any, value any) bool {
+			closeAllMap(value)
+			return true
+		})
+		m.Close()
+	}
 }

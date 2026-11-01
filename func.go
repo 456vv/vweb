@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/456vv/vmap/v2"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -299,4 +300,14 @@ func ExecFunc(f any, args ...any) ([]any, error) {
 func isRegex(re *regexp.Regexp) bool {
 	prefix, complete := re.LiteralPrefix()
 	return !complete || prefix == ""
+}
+
+func closeAllMap(v any) {
+	if m, ok := v.(*vmap.Map); ok {
+		m.Range(func(key any, value any) bool {
+			closeAllMap(value)
+			return true
+		})
+		m.Close()
+	}
 }

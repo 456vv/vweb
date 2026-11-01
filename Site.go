@@ -122,7 +122,11 @@ func (T *SitePool) Close() error {
 			if site, ok := value.(*Site); ok {
 				sessions = append(sessions, site.sessions)
 				// 清除全局数据
-				site.global.Reset()
+				site.global.Range(func(k, v any) bool {
+					closeAllMap(v)
+					site.global.Del(k)
+					return true
+				})
 				// 清除网站扩展数据
 				site.Extend.Reset()
 			}

@@ -17,8 +17,7 @@ type Sessioner interface {
 	GetHas(key any) (val any, ok bool)                    // 读取判断
 	Del(key any)                                          // 删除
 	SetExpired(key any, d time.Duration)                  // 过期
-	SetExpiredCall(key any, d time.Duration, f func(any)) // 过期调用
-	Reset()                                               // 重置
+	Reset()												  // 重置
 	Defer(call any, args ...any) error                    // 退出调用
 	Free()                                                // 释放调用
 }

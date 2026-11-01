@@ -1115,7 +1115,12 @@ func (T *Group) updateSitePoolDel(siteEffectiveIdent, siteEffectiveHosts []strin
 			// 清除Session
 			site.Sessions().InstantDeadAll()
 			// 清除全局数据
-			site.Global().Reset()
+			gloabl := site.Global()
+			gloabl.Range(func(k, v any) bool {
+				closeAllMap(v)
+				gloabl.Del(k)
+				return true
+			})
 			// 清除网站扩展数据
 			site.Extend.Reset()
 		}
