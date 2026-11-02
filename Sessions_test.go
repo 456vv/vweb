@@ -150,7 +150,7 @@ func TestSessions_SetSession(t *testing.T) {
 	b := new(Session)
 	bSession := ss.SetSession("id", b)
 	<-cleanup
-	if unsafe.Pointer(bSession.(*Session)) != unsafe.Pointer(b) {
+	if unsafe.Pointer(bSession) != unsafe.Pointer(b) {
 		t.Fatal("没有覆盖之前的会话")
 	}
 }

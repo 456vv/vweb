@@ -162,6 +162,10 @@ func (T *serverHandlerStaticHeader) setAcceptRanges() {
 }
 
 func (T *serverHandlerStaticHeader) setContentType(filePath string) {
+	// 站点 MIME 或上游可能已设置 Content-Type，不能再用扩展名默认值覆盖。
+	if T.header.Get("Content-Type") != "" {
+		return
+	}
 	// 自动识别 MIME 类型，防止浏览器直接下载
 	ctype := mime.TypeByExtension(strings.ToLower(filepath.Ext(filePath)))
 	if ctype == "" {
@@ -173,11 +177,16 @@ func (T *serverHandlerStaticHeader) setContentType(filePath string) {
 // setPageExpired 设置缓存过期策略 (Cache-Control & Expires)
 func (T *serverHandlerStaticHeader) setPageExpired(pageExpired int64) {
 	if pageExpired > 0 {
+		// pageExpired * time.Second 在极大值下会发生溢出。
+		maxSeconds := int64(time.Duration(1<<63-1) / time.Second)
+		if pageExpired > maxSeconds {
+			pageExpired = maxSeconds
+		}
 		T.header.Set("Cache-Control", fmt.Sprintf("public, max-age=%d", pageExpired))
 		T.header.Set("Expires", time.Now().Add(time.Duration(pageExpired)*time.Second).UTC().Format(http.TimeFormat))
-	} else {
-		T.header.Set("Cache-Control", "no-cache")
+		return
 	}
+	T.header.Set("Cache-Control", "no-cache")
 }
 
 func (T *serverHandlerStaticHeader) setContentRange(r string) {
@@ -315,6 +324,10 @@ func (T *ServerHandlerStatic) setHeader(rw http.ResponseWriter, req *http.Reques
 	}
 
 	rangeHeader := req.Header.Get("Range")
+	// RFC 9110 规定不认识的 Range 单位应忽略；非法 bytes 区间仍由 ranges 返回 416。
+	if rangeHeader != "" && !strings.HasPrefix(rangeHeader, "bytes=") {
+		rangeHeader = ""
+	}
 
 	// 若同时存在 If-Range，需校验后才应用 Range（RFC 7233）
 	if ir := req.Header.Get("If-Range"); ir != "" && rangeHeader != "" {

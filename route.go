@@ -129,12 +129,12 @@ func (T *Route) addHandle(url string, handle http.Handler) {
 
 	// 精确路径直接存 sync.Map，模式路径同时维护有序列表以保证匹配顺序确定
 	T.rt.Store(url, pathPlaceholder)
-	// 若已存在同 url 的旧项则替换，保持注册顺序稳定
 	for i, p := range T.list {
 		if p != nil && p.url == url {
-			// 指针替换是原子的；routePathPlaceholder 创建后只读，
-			// 遍历方读到旧或新指针都是合法对象。
-			T.list[i] = pathPlaceholder
+			next := make([]*routePathPlaceholder, len(T.list))
+			copy(next, T.list)
+			next[i] = pathPlaceholder
+			T.list = next
 			return
 		}
 	}

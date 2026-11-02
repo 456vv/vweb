@@ -284,8 +284,8 @@ func TestServerHandlerStatic_InvalidRangePrefix(t *testing.T) {
 	req := httptest.NewRequest("GET", "/testfile.txt", nil)
 	req.Header.Set("Range", "items=0-9")
 	h.ServeHTTP(rw, req)
-	if rw.Code != http.StatusRequestedRangeNotSatisfiable {
-		t.Fatalf("非法 Range 应 416，得到 %d", rw.Code)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("非法 Range 应 200，得到 %d", rw.Code)
 	}
 }
 
@@ -311,7 +311,7 @@ func TestStatic_Range_Boundary(t *testing.T) {
 		{"重叠 Range 合并", map[string]string{"Range": "bytes=0-9,5-14"}, 206, func(h http.Header) bool {
 			return h.Get("Content-Range") == "bytes 0-14/36"
 		}},
-		{"非法 Range 前缀→416", map[string]string{"Range": "items=0-9"}, 416, nil},
+		{"非法 Range 前缀→200", map[string]string{"Range": "items=0-9"}, 200, nil},
 		{"越界 Range→416", map[string]string{"Range": "bytes=100-200"}, 416, nil},
 	}
 	for _, c := range cases {

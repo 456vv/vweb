@@ -77,7 +77,7 @@ func (T *ExecCall) Func(call any, args ...any) error {
 			// 类型检查与转换
 			if argT.AssignableTo(targetType) {
 				prepArgs[i] = argV
-			} else if argT.ConvertibleTo(targetType) {
+			} else if argV.CanConvert(targetType) {
 				prepArgs[i] = argV.Convert(targetType)
 			} else {
 				return fmt.Errorf("vweb: arg[%d] type mismatch: cannot convert %s to %s", i, argT, targetType)

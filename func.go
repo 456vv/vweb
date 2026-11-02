@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	mathRand "math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -18,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/456vv/vmap/v2"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -150,17 +148,10 @@ func GenerateRandomID(rnd []byte) error {
 	if rnd == nil {
 		return errors.New("vweb: The parameter is nil, unable to generate random data")
 	}
+	// 修改原因：会话标识失败时不能退化为可预测的时间种子。
 	if _, err := rand.Read(rnd); err != nil {
-		// 当系统随机API函数不可用，将使用备用随机数。
-		// 该功能在效力上也不理想。
-		// 这可能是在万分之一的情况下使用到。
-		seed := time.Now().UnixNano()
-		source := mathRand.NewSource(seed)
-		rr := mathRand.New(source)
-		for i := range rnd {
-			r := rr.Int()
-			rnd[i] = byte(r)
-		}
+		clear(rnd)
+		return fmt.Errorf("vweb: generate secure random data: %w", err)
 	}
 	return nil
 }
@@ -300,14 +291,4 @@ func ExecFunc(f any, args ...any) ([]any, error) {
 func isRegex(re *regexp.Regexp) bool {
 	prefix, complete := re.LiteralPrefix()
 	return !complete || prefix == ""
-}
-
-func closeAllMap(v any) {
-	if m, ok := v.(*vmap.Map); ok {
-		m.Range(func(key any, value any) bool {
-			closeAllMap(value)
-			return true
-		})
-		m.Close()
-	}
 }

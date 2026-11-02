@@ -9,7 +9,6 @@ package base
 
 import (
 	"os"
-	"syscall"
 )
 
 var signalsToIgnore = []os.Signal{os.Interrupt}

@@ -46,7 +46,9 @@ func (T *SitePool) NewSite(name string) *Site {
 			Name:    "VID",
 			Size:    64,
 		},
-		global: vmap.NewMap(),
+		global: &Global{
+			Map: vmap.NewMap(),
+		},
 	}
 	actual, loaded := T.pool.LoadOrStore(name, site)
 	if loaded {
@@ -122,13 +124,9 @@ func (T *SitePool) Close() error {
 			if site, ok := value.(*Site); ok {
 				sessions = append(sessions, site.sessions)
 				// 清除全局数据
-				site.global.Range(func(k, v any) bool {
-					closeAllMap(v)
-					site.global.Del(k)
-					return true
-				})
+				site.global.ExpireAll()
 				// 清除网站扩展数据
-				site.Extend.Reset()
+				site.Extend.ExpireAll()
 			}
 			return true
 		})
@@ -160,7 +158,7 @@ func (T *SitePool) Close() error {
 // Site 站点数据存储
 type Site struct {
 	sessions *Sessions                // 会话集
-	global   Globaler                 // Global
+	global   *Global                  // Global
 	RootDir  func(path string) string // 网站的根目录z
 	Extend   vmap.Map                 // 接口类型，可以自己存在任何类型
 	identity string

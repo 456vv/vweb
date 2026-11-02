@@ -2716,56 +2716,59 @@ func capitalize(s string) string {
 // convertKey 将任意 key 转为 map 的 key 类型；失败返回 false。
 // 支持常见数字↔字符串、bool 等互转，并做目标类型位宽范围检查（禁止截断）。
 func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
+	if target == nil {
+		return reflect.Value{}, false
+	}
 	if key == nil {
 		switch target.Kind() {
 		case reflect.Interface, reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
-			return reflect.Zero(target), true
+			return normalizeMapKey(reflect.Zero(target), target)
 		}
 		return reflect.Value{}, false
 	}
+
 	kv := asValue(key)
 	if !kv.IsValid() {
 		return reflect.Value{}, false
 	}
 	if kv.Type().AssignableTo(target) {
-		return kv, true
+		return normalizeMapKey(kv, target)
 	}
 
 	switch target.Kind() {
-	case reflect.Bool: // 支持 Map 的 Bool 键的转换与解析
+	case reflect.Bool:
 		switch kv.Kind() {
 		case reflect.Bool:
-			return kv, true
+			return normalizeMapKey(kv, target)
 		case reflect.String:
 			b, err := strconv.ParseBool(kv.String())
 			if err == nil {
-				return reflect.ValueOf(b), true
+				return normalizeMapKey(reflect.ValueOf(b), target)
 			}
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			return reflect.ValueOf(kv.Int() != 0), true
+			return normalizeMapKey(reflect.ValueOf(kv.Int() != 0), target)
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-			return reflect.ValueOf(kv.Uint() != 0), true
+			return normalizeMapKey(reflect.ValueOf(kv.Uint() != 0), target)
 		case reflect.Float32, reflect.Float64:
 			f := kv.Float()
-			// NaN != 0 为真，不能当成 true 键。
+			// NaN != 0 为真，不能转换成 true 键。
 			if f != f {
 				return reflect.Value{}, false
 			}
-			return reflect.ValueOf(f != 0), true
+			return normalizeMapKey(reflect.ValueOf(f != 0), target)
 		}
 	case reflect.String:
-		// 数字→字符串：用十进制表示，而不是 rune 转换（Convert 会把 1 变成 "\x01"）
 		switch kv.Kind() {
 		case reflect.String:
-			return kv, true
+			return normalizeMapKey(kv, target)
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			return reflect.ValueOf(strconv.FormatInt(kv.Int(), 10)), true
+			return normalizeMapKey(reflect.ValueOf(strconv.FormatInt(kv.Int(), 10)), target)
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-			return reflect.ValueOf(strconv.FormatUint(kv.Uint(), 10)), true
+			return normalizeMapKey(reflect.ValueOf(strconv.FormatUint(kv.Uint(), 10)), target)
 		case reflect.Float32, reflect.Float64:
-			return reflect.ValueOf(strconv.FormatFloat(kv.Float(), 'f', -1, 64)), true
+			return normalizeMapKey(reflect.ValueOf(strconv.FormatFloat(kv.Float(), 'f', -1, 64)), target)
 		case reflect.Bool:
-			return reflect.ValueOf(strconv.FormatBool(kv.Bool())), true
+			return normalizeMapKey(reflect.ValueOf(strconv.FormatBool(kv.Bool())), target)
 		default:
 			return reflect.Value{}, false
 		}
@@ -2774,44 +2777,65 @@ func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 		if !ok {
 			return reflect.Value{}, false
 		}
-		// 范围检查：必须能完整放入目标类型，禁止截断
 		bits := target.Bits()
 		minv := -(int64(1) << (bits - 1))
 		maxv := (int64(1) << (bits - 1)) - 1
 		if i < minv || i > maxv {
 			return reflect.Value{}, false
 		}
-		return reflect.ValueOf(i).Convert(target), true
+		return normalizeMapKey(reflect.ValueOf(i).Convert(target), target)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		u, ok := toUint64ForKey(kv, key)
 		if !ok {
 			return reflect.Value{}, false
 		}
-		// 范围检查：必须能完整放入目标类型，禁止截断/wrap
 		if target.Bits() < 64 && u > (uint64(1)<<target.Bits())-1 {
 			return reflect.Value{}, false
 		}
-		return reflect.ValueOf(u).Convert(target), true
+		return normalizeMapKey(reflect.ValueOf(u).Convert(target), target)
 	case reflect.Float32, reflect.Float64:
 		f, ok := toFloat64ForKey(kv, key)
 		if !ok {
 			return reflect.Value{}, false
 		}
-		return reflect.ValueOf(f).Convert(target), true
+		return normalizeMapKey(reflect.ValueOf(f).Convert(target), target)
 	}
 
-	// 其它类型：仅在可安全 Convert 时放行（非数字/字符串的命名类型等）
-	if kv.Type().ConvertibleTo(target) {
-		return kv.Convert(target), true
+	if kv.CanConvert(target) {
+		return normalizeMapKey(kv.Convert(target), target)
 	}
 	return reflect.Value{}, false
+}
+
+// normalizeMapKey 统一收口命名类型转换和动态可比性检查。
+// 拒绝：无法转换为目标类型的键，以及不可比的键。例如，interface 键即使目标类型可比，其动态值仍可能是 slice、map 或 func。
+func normalizeMapKey(v reflect.Value, target reflect.Type) (reflect.Value, bool) {
+	if target == nil || !v.IsValid() {
+		return reflect.Value{}, false
+	}
+	if v.Type() != target {
+		switch {
+		case v.CanConvert(target):
+			v = v.Convert(target)
+		case v.Type().AssignableTo(target):
+			dst := reflect.New(target).Elem()
+			dst.Set(v)
+			v = dst
+		default:
+			return reflect.Value{}, false
+		}
+	}
+	if !v.Comparable() {
+		return reflect.Value{}, false
+	}
+	return v, true
 }
 
 // toInt64ForKey 将 key 转为 int64，失败返回 false。
 // 拒绝：无法解析的字符串、超出 int64 的 uint、NaN/Inf、非整数浮点。
 func toInt64ForKey(kv reflect.Value, key any) (int64, bool) {
-	if k, ok := key.(string); ok {
-		i, err := strconv.ParseInt(k, 10, 64)
+	if kv.Kind() == reflect.String {
+		i, err := strconv.ParseInt(kv.String(), 10, 64)
 		return i, err == nil
 	}
 	switch kv.Kind() {
@@ -2837,8 +2861,8 @@ func toInt64ForKey(kv reflect.Value, key any) (int64, bool) {
 // toUint64ForKey 将 key 转为 uint64，失败返回 false。
 // 拒绝：负数、无法解析的字符串、NaN/Inf、非整数。
 func toUint64ForKey(kv reflect.Value, key any) (uint64, bool) {
-	if k, ok := key.(string); ok {
-		u, err := strconv.ParseUint(k, 10, 64)
+	if kv.Kind() == reflect.String {
+		u, err := strconv.ParseUint(kv.String(), 10, 64)
 		return u, err == nil
 	}
 	switch kv.Kind() {
@@ -2863,8 +2887,8 @@ func toUint64ForKey(kv reflect.Value, key any) (uint64, bool) {
 // toFloat64ForKey 将 key 转为 float64。
 // 拒绝无法解析的字符串；NaN/Inf 对 float 目标通常可接受，故不额外过滤。
 func toFloat64ForKey(kv reflect.Value, key any) (float64, bool) {
-	if k, ok := key.(string); ok {
-		f, err := strconv.ParseFloat(k, 64)
+	if kv.Kind() == reflect.String {
+		f, err := strconv.ParseFloat(kv.String(), 64)
 		return f, err == nil
 	}
 	switch kv.Kind() {

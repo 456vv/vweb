@@ -48,3 +48,21 @@ func loadAutoCertHostPolicy(acm *autocert.Manager, p string) error {
 	acm.HostPolicy = autocert.HostWhitelist(hosts...)
 	return nil
 }
+
+// watchedSubConfig 的后缀集合与 config.isSubConfigName 保持一致。
+func watchedSubConfig(name string) bool {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(lower, ".site.json"),
+		strings.HasSuffix(lower, ".listen.json"),
+		strings.HasSuffix(lower, ".site.toml"),
+		strings.HasSuffix(lower, ".listen.toml"),
+		strings.HasSuffix(lower, ".site.yaml"),
+		strings.HasSuffix(lower, ".listen.yaml"),
+		strings.HasSuffix(lower, ".site.yml"),
+		strings.HasSuffix(lower, ".listen.yml"):
+		return true
+	default:
+		return false
+	}
+}

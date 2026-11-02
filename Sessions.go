@@ -12,7 +12,7 @@ import (
 )
 
 type manageSession struct {
-	s           Sessioner
+	s           *Session
 	recent      atomic.Int64
 	unavailable atomic.Bool
 }
@@ -80,7 +80,7 @@ func (T *Sessions) instantDeadAll(wg *sync.WaitGroup) {
 			if wg != nil {
 				defer wg.Done()
 			}
-			s.Free()
+			s.(*Session).Free()
 		}(s)
 	}
 }
@@ -195,7 +195,7 @@ func (T *Sessions) SessionID(req *http.Request) (id string, err error) {
 }
 
 // NewSession 新建会话
-func (T *Sessions) NewSession(id string) Sessioner {
+func (T *Sessions) NewSession(id string) *Session {
 	if s, ok := T.GetSession(id); ok {
 		return s
 	}
@@ -207,7 +207,7 @@ func (T *Sessions) NewSession(id string) Sessioner {
 //	id string   id标识符
 //	Sessioner   会话
 //	bool        是否存在
-func (T *Sessions) GetSession(id string) (Sessioner, bool) {
+func (T *Sessions) GetSession(id string) (*Session, bool) {
 	mse, ok := T.ss.GetHas(id)
 	if !ok {
 		return nil, false
@@ -231,7 +231,7 @@ func (T *Sessions) GetSession(id string) (Sessioner, bool) {
 }
 
 // SetSession 使用id写入新的会话
-func (T *Sessions) SetSession(id string, s Sessioner) Sessioner {
+func (T *Sessions) SetSession(id string, s *Session) *Session {
 	if s == nil {
 		return nil
 	}
@@ -250,10 +250,8 @@ func (T *Sessions) SetSession(id string, s Sessioner) Sessioner {
 			}
 		}
 	}
-	if t, can := s.(*Session); can {
-		// 对应这个id，并保存
-		t.id = id
-	}
+	// 对应这个id，并保存
+	s.id = id
 	ms := &manageSession{s: s}
 	ms.recent.Store(time.Now().UnixNano())
 	T.ss.Set(id, ms)
@@ -284,7 +282,7 @@ func (T *Sessions) DelSession(id string) {
 }
 
 // writeToClient 写入到客户端
-func (T *Sessions) writeToClient(rw http.ResponseWriter, req *http.Request) Sessioner {
+func (T *Sessions) writeToClient(rw http.ResponseWriter, req *http.Request) *Session {
 	if T.Name == "" {
 		return nil
 	}

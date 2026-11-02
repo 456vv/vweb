@@ -915,26 +915,27 @@ func (T *Group) updateExtInfo(cSite config.Site) {
 			if !p.Status {
 				continue
 			}
-
 			if p.Addr == "" {
 				T.errorf("server: 名称 %s 的HTTP插件配 Addr 字段不可以为空", name)
 				continue
 			}
 
+			// 已发布的 http.Transport 可能正在被请求使用，不能原地修改其配置。
 			httpC := new(vweb.PluginHTTPClient)
-			if inf, ok := plugin.http.Load(name); ok {
-				if c, ok := inf.(*vweb.PluginHTTPClient); ok && c != nil {
-					httpC = c
-				}
-			}
-
 			if err := p.ConfigPluginHTTPClient(httpC); err != nil {
 				T.errorf("server: 名称 %s 的HTTP插件配置错误: %s\n", name, err)
 				continue
 			}
-			plugin.http.Store(name, httpC)
+
+			old, _ := plugin.http.Swap(name, httpC)
 			httpEffectiveNames = append(httpEffectiveNames, name)
+			if previous, ok := old.(*vweb.PluginHTTPClient); ok &&
+				previous != nil && previous.Tr != nil {
+				// 修改原因：只关闭被替换客户端的空闲连接，已开始的请求继续使用旧 Transport。
+				previous.Tr.CloseIdleConnections()
+			}
 		}
+
 		for name, p := range cSite.Plugin.RPC {
 			if !p.Status {
 				continue
@@ -948,9 +949,10 @@ func (T *Group) updateExtInfo(cSite config.Site) {
 			rpcC := new(vweb.PluginRPCClient)
 			if inf, ok := plugin.rpc.Load(name); ok {
 				if c, ok := inf.(*vweb.PluginRPCClient); ok && c != nil {
-					rpcC = c
+					rpcC.ConnPool = c.ConnPool
 				}
 			}
+
 			if err := p.ConfigPluginRPCClient(rpcC); err != nil {
 				T.errorf("server: 名称 %s 的RPC插件配置错误: %s", name, err)
 				continue
@@ -1115,12 +1117,7 @@ func (T *Group) updateSitePoolDel(siteEffectiveIdent, siteEffectiveHosts []strin
 			// 清除Session
 			site.Sessions().InstantDeadAll()
 			// 清除全局数据
-			gloabl := site.Global()
-			gloabl.Range(func(k, v any) bool {
-				closeAllMap(v)
-				gloabl.Del(k)
-				return true
-			})
+			site.Global().Reset()
 			// 清除网站扩展数据
 			site.Extend.Reset()
 		}

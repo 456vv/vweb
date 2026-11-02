@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -106,43 +105,49 @@ func main() {
 	}
 	defer watcher.Close()
 
-	// 加载配置文件，支持子配置
-	var conf config.Config
-	updateConfig := func(path string) {
-		if err := conf.ParseFiles(path); err != nil {
-			log.Printf("加载配置文件出现错误: %s\n", err.Error())
-			return
-		}
-		if err := group.UpdateConfig(&conf); err != nil {
-			log.Printf("更新配置出现错误: %s\n", err.Error())
-			return
-		}
-		log.Printf("加载配置文件成功: %s\n", path)
-	}
-	// 主动加载配置
-	updateConfig(*fConfigFile)
+	// 加载配置文件，支持子配置文件。
+	var reloadMu sync.Mutex
+	updateConfig := func() {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
 
-	// 监听配置文件
-	if err := watcher.Monitor(filepath.Dir(*fConfigFile), func(e fsnotify.Event) {
-		switch e.Op {
-		case fsnotify.Create, fsnotify.Write, fsnotify.Remove:
-			if strings.HasSuffix(e.Name, ".json") {
-				updateConfig(e.Name)
-			}
-		default:
+		var next config.Config
+		// 始终从主配置重建全部子配置，子配置删除后不会残留在旧对象中。
+		if err := next.ParseFiles(*fConfigFile); err != nil {
+			log.Printf("加载配置文件出现错误: %s\n", err)
+			return
 		}
+		if err := group.UpdateConfig(&next); err != nil {
+			log.Printf("更新配置出现错误: %s\n", err)
+			return
+		}
+		log.Printf("加载配置文件成功: %s\n", *fConfigFile)
+	}
+	updateConfig()
+
+	if err := watcher.Monitor(filepath.Dir(*fConfigFile), func(e fsnotify.Event) {
+		// fsnotify.Op 是位掩码，Write|Chmod 等组合值不是独立 case。
+		if e.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
+			return
+		}
+		name := filepath.Base(e.Name)
+		// 只接受主配置和子配置。目录中无关 JSON/YAML 不能触发覆盖。
+		if name != filepath.Base(*fConfigFile) && !watchedSubConfig(name) {
+			return
+		}
+		updateConfig()
 	}); err != nil {
 		log.Printf("监视配置目录出现错误：%v\n", err)
 	}
 
-	// 监听自动申请证书白名单
 	if err := watcher.Monitor(filepath.Clean(*fAllowCertHost), func(event fsnotify.Event) {
-		switch event.Op {
-		case fsnotify.Create, fsnotify.Write:
-			if err := loadAutoCertHostPolicy(group.CertManager, event.Name); err != nil {
-				log.Printf("重新加载自动证书允许文件失败：%v\n", err)
-			}
-		default:
+		// 修改原因：与配置监视相同，按位判断实际发生的事件。
+		// 这不解决 HostPolicy 字段本身的并发替换问题。
+		if event.Op&(fsnotify.Create|fsnotify.Write) == 0 {
+			return
+		}
+		if err := loadAutoCertHostPolicy(group.CertManager, event.Name); err != nil {
+			log.Printf("重新加载自动证书允许文件失败：%v\n", err)
 		}
 	}); err != nil {
 		log.Printf("监视证书白名单出现错误：%v\n", err)

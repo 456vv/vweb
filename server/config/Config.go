@@ -694,12 +694,13 @@ func (T *Config) ParseFile(file string) error {
 	return T.parseFileLocked(file)
 }
 
-// ParseFiles 先加载主配置，再自动加载同目录下所有 .site.json / .listen.json 子配置。
 func (T *Config) ParseFiles(file string) error {
 	T.mu.Lock()
 	defer T.mu.Unlock()
 
-	if err := T.parseFileLocked(file); err != nil {
+	// 任一主配置或子配置失败时，不能留下已经写入 T 的半份配置。
+	var next Config
+	if err := next.parseFileLocked(file); err != nil {
 		return err
 	}
 
@@ -710,18 +711,17 @@ func (T *Config) ParseFiles(file string) error {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || !isSubConfigName(entry.Name()) {
 			continue
 		}
-		name := entry.Name()
-		if !isSubConfigName(name) {
-			continue
-		}
-		subPath := filepath.Join(dir, name)
-		if err := loadSubConf(subPath, T); err != nil {
+		if err := loadSubConf(filepath.Join(dir, entry.Name()), &next); err != nil {
 			return err
 		}
 	}
+
+	// Config 内含 RWMutex，不能对 T 做整体赋值。
+	T.Servers = next.Servers
+	T.Sites = next.Sites
 	return nil
 }
 
@@ -1162,20 +1162,19 @@ func mergeSites(conf *Config, incoming []Site) {
 	if len(incoming) == 0 {
 		return
 	}
-	identityIndex := make(map[string]int, len(conf.Sites.Site))
-	for i, s := range conf.Sites.Site {
-		identityIndex[s.Identity] = i
+
+	index := make(map[string]int, len(conf.Sites.Site)+len(incoming))
+	for i, site := range conf.Sites.Site {
+		index[site.Identity] = i
 	}
-	var toAppend []Site
-	for _, s := range incoming {
-		if idx, exists := identityIndex[s.Identity]; exists {
-			conf.Sites.Site[idx] = s
-		} else {
-			toAppend = append(toAppend, s)
+
+	for _, site := range incoming {
+		if i, ok := index[site.Identity]; ok {
+			conf.Sites.Site[i] = site
+			continue
 		}
-	}
-	if len(toAppend) > 0 {
-		conf.Sites.Site = append(conf.Sites.Site, toAppend...)
+		index[site.Identity] = len(conf.Sites.Site)
+		conf.Sites.Site = append(conf.Sites.Site, site)
 	}
 }
 

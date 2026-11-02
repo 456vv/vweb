@@ -14,6 +14,15 @@ type Globaler interface {
 	Del(key any)                                          // 删除
 	SetExpired(key any, d time.Duration)                  // 过期
 	SetExpiredCall(key any, d time.Duration, f func(any)) // 过期调用
+	TTL(key any) (time.Duration, bool)                    // 某个KEY过期时间
 	Range(f func(key, value any) bool)                    // 遍历
-	GetNewMaps(keys ...any) *vmap.Map                     // 更多
+	Reset()                                               // 重置
+}
+
+type Global struct {
+	*vmap.Map
+}
+
+func (T *Global) Reset() {
+	T.Map.ExpireAll()
 }

@@ -16,10 +16,12 @@ type Sessioner interface {
 	Get(key any) any                                      // 读取
 	GetHas(key any) (val any, ok bool)                    // 读取判断
 	Del(key any)                                          // 删除
+	Dels(keys []any)                                      // 一次多删除
 	SetExpired(key any, d time.Duration)                  // 过期
-	Reset()												  // 重置
+	SetExpiredCall(key any, d time.Duration, f func(any)) // 过期调用
+	TTL(key any) (time.Duration, bool)                    // 某个KEY过期时间
+	Reset()                                               // 重置
 	Defer(call any, args ...any) error                    // 退出调用
-	Free()                                                // 释放调用
 }
 
 // Session 会话用于用户保存数据
@@ -28,6 +30,10 @@ type Session struct {
 	id       string   // id，给Sessions使用的
 	exitCall ExitCall // 退回调用函数
 	freed    atomic.Bool
+}
+
+func (T *Session) Reset() {
+	T.Map.ExpireAll()
 }
 
 // Token 读取当前的令牌

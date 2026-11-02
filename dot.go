@@ -236,11 +236,9 @@ func (T *Dot) SaveStatic(path string) (wr io.WriteCloser, err error) {
 
 	staticDir := filepath.Dir(staticAbs)
 
-	// 判断目录是否存在，不存在创建目录
-	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(staticDir, 0o755); err != nil {
-			return nil, err
-		}
+	// 不存在创建目录
+	if err := os.MkdirAll(staticDir, 0o755); err != nil {
+		return nil, err
 	}
 
 	storage := &staticFileStorage{
@@ -249,7 +247,6 @@ func (T *Dot) SaveStatic(path string) (wr io.WriteCloser, err error) {
 	}
 	return storage, nil
 }
-
 
 type staticFileStorage struct {
 	name      string
@@ -272,17 +269,25 @@ func (t *staticFileStorage) Write(p []byte) (n int, err error) {
 }
 
 func (t *staticFileStorage) Close() error {
-	t.closed = true
-
-	if t.file == nil {
-		return nil
-	} else {
-		tempPath := t.file.Name()
-		t.file.Close()
-		if err := os.Rename(tempPath, filepath.Join(t.staticDir, t.name)); err != nil {
-			os.Remove(tempPath)
-			return err
-		}
+	if t.closed {
 		return nil
 	}
+	t.closed = true
+
+	// 保持原语义：没有 Write 时不创建文件。
+	if t.file == nil {
+		return nil
+	}
+
+	tempPath := t.file.Name()
+	// 关闭失败说明内容未可靠提交，此时不能发布到目标文件名。
+	if err := t.file.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Rename(tempPath, filepath.Join(t.staticDir, t.name)); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	return nil
 }
