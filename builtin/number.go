@@ -59,6 +59,7 @@ func Compute(x any, symbol string, y any) (any, error) {
 	}
 }
 
+
 func computeShift(xx reflect.Value, symbol string, yy reflect.Value) (any, error) {
 	if !isIntKind(xx.Kind()) || !isIntKind(yy.Kind()) {
 		return nil, fmt.Errorf("operator %q not supported for type %s", symbol, xx.Kind())
@@ -119,18 +120,6 @@ func computeInt(xx reflect.Value, symbol string, yy reflect.Value) (any, error) 
 	if (symbol == "/" || symbol == "%") && yi == 0 {
 		return nil, fmt.Errorf("integer divide by zero")
 	}
-	// 规范规定最负整数 / -1 与 % -1 都是溢出。
-	// 旧代码只判断 int64，32 位平台的 int 以及其它位宽会 panic 或得到与运行时不一致的结果。
-	if symbol == "/" || symbol == "%" {
-		bits := xx.Type().Bits()
-		if bits < 1 || bits > 64 {
-			bits = 64
-		}
-		minVal := int64(-1) << (bits - 1)
-		if yi == -1 && xi == minVal {
-			return nil, fmt.Errorf("integer overflow")
-		}
-	}
 
 	var res int64
 	switch symbol {
@@ -159,6 +148,7 @@ func computeInt(xx reflect.Value, symbol string, yy reflect.Value) (any, error) 
 	// 使用 Convert 保证与目标类型位宽一致的环绕语义（与 Go 原生行为一致）
 	return reflect.ValueOf(res).Convert(xx.Type()).Interface(), nil
 }
+
 
 func computeUint(xx reflect.Value, symbol string, yy reflect.Value) (any, error) {
 	xu := xx.Uint()
@@ -191,6 +181,7 @@ func computeUint(xx reflect.Value, symbol string, yy reflect.Value) (any, error)
 	}
 	return reflect.ValueOf(res).Convert(xx.Type()).Interface(), nil
 }
+
 
 func computeFloat(xx reflect.Value, symbol string, yy reflect.Value) (any, error) {
 	// Go 对 float32 用 IEEE 单精度运算，不得先升 float64 再截回。
@@ -229,6 +220,7 @@ func computeFloat(xx reflect.Value, symbol string, yy reflect.Value) (any, error
 	}
 	return reflect.ValueOf(res).Convert(xx.Type()).Interface(), nil
 }
+
 
 func computeComplex(xx reflect.Value, symbol string, yy reflect.Value) (any, error) {
 	// complex64 必须按 complex64 运算，与 float32 路径对称。

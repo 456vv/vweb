@@ -12,26 +12,43 @@ import (
 	"github.com/456vv/vconnpool/v3"
 )
 
-// PluginRPC rpc插件接口
-type PluginRPC interface {
-	Type() PluginType                           // 类型
-	Register(value any)                         // 注册struct类型
-	Call(name string, arg any, reply any) error // 用于返回具体类型
-	Discard() error                             // 废弃连接
-	Close() error                               // 关闭
-}
-
-// PluginRPCClient 插件RPC客户端
-type PluginRPCClient struct {
-	ConnPool *vconnpool.Pool // 连接池
-	Addr     string          // 地址
-	Path     string          // 路径
-}
-
-// Connection 快速连接RPC
+// PluginRPC rpc 插件接口。
+// 用于与后端 RPC 服务通信：注册类型、发起调用、丢弃或关闭连接。
 //
-//	PluginRPC			插件RPC
-//	error				错误
+// 典型流程：
+//
+//	client := &PluginRPCClient{ConnPool: pool, Addr: "127.0.0.1:9000", Path: "/_goRPC_"}
+//	rpc, err := client.Connection()
+//	rpc.Register(MyType{})
+//	err = rpc.Call("Service.Method", arg, &reply)
+//	rpc.Close() // 或 Discard() 不回收连接
+type PluginRPC interface {
+	Type() PluginType                           // 类型，固定返回 PluginTypeRPC
+	Register(value any)                         // 注册 struct 类型（gob）
+	Call(name string, arg any, reply any) error // 远程调用
+	Discard() error                             // 废弃连接（不回池）
+	Close() error                               // 关闭并回池（若支持）
+}
+
+// PluginRPCClient 插件 RPC 客户端配置。
+// ConnPool 负责连接复用；Addr 为 TCP 地址；Path 为 HTTP CONNECT 路径。
+type PluginRPCClient struct {
+	ConnPool *vconnpool.Pool // 连接池（不可为空）
+	Addr     string          // 如 "127.0.0.1:9000"
+	Path     string          // 如 "/_goRPC_"
+}
+
+// Connection 从连接池拨号并建立 Go net/rpc 客户端。
+//
+// 返回：
+//   - PluginRPC: 可用的 RPC 句柄
+//   - error: ConnPool 为空、拨号失败、CONNECT 握手失败等
+//
+// 示例：
+//
+//	prpc, err := client.Connection()
+//	if err != nil { return err }
+//	defer prpc.Close()
 func (T *PluginRPCClient) Connection() (PluginRPC, error) {
 	if T.ConnPool == nil {
 		return nil, errors.New("vweb: ConnPool字段不可以为空！")
@@ -59,13 +76,13 @@ func (T *PluginRPCClient) Connection() (PluginRPC, error) {
 }
 
 // connectRPCClient 建立 HTTP CONNECT 后切换到 Go RPC。
+// 发送 "CONNECT <path> HTTP/1.0"，期望 "200 Connected to Go RPC"。
 func connectRPCClient(conn net.Conn, p string) (*rpc.Client, error) {
 	if _, err := io.WriteString(conn, "CONNECT "+p+" HTTP/1.0\r\n\r\n"); err != nil {
 		return nil, err
 	}
 
-	// 需要成功的HTTP响应
-	// 切换到RPC协议之前。
+	// 需要成功的 HTTP 响应，再切换到 RPC 协议
 	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "CONNECT"})
 	if err == nil && resp.Status == "200 Connected to Go RPC" {
 		return rpc.NewClient(conn), nil
@@ -82,41 +99,41 @@ func connectRPCClient(conn net.Conn, p string) (*rpc.Client, error) {
 	}
 }
 
-// pluginRPC 插件连接RPC
+// pluginRPC 插件连接 RPC 的具体实现。
 type pluginRPC struct {
-	*rpc.Client // 配置端
+	*rpc.Client // 内嵌标准 RPC 客户端
 	conn        net.Conn
 }
 
-// 插件类型
-//
-//	PluginType 插件类型
+// Type 返回插件类型 PluginTypeRPC。
 func (T *pluginRPC) Type() PluginType {
 	return PluginTypeRPC
 }
 
-// Register RPC注册类型，仅用于RPC客户端。默认gob编码
-//
-//	value any     注册类型
+// Register RPC 注册类型，仅用于 RPC 客户端。默认 gob 编码。
+// 示例：rpc.Register(MyStruct{})
 func (T *pluginRPC) Register(value any) {
 	gob.Register(value)
 }
 
-// 为 pluginRPC 实现 CallTo 方法
+// Call 发起远程过程调用。
+//
+// 参数：
+//   - name: "Service.Method"
+//   - arg: 入参
+//   - reply: 出参指针
+//
+// 返回：网络错误、服务端错误等
 func (T *pluginRPC) Call(name string, arg any, reply any) error {
 	return T.Client.Call(name, arg, reply)
 }
 
-// Close 关闭RPC连接
-//
-//	error     错误
+// Close 关闭 RPC 连接（通常归还连接池）。
 func (T *pluginRPC) Close() error {
 	return T.Client.Close()
 }
 
-// Discard 废弃, RPC这条连接不再回收
-//
-//	error     错误
+// Discard 废弃本连接，不再回收到池中（例如连接状态异常时）。
 func (T *pluginRPC) Discard() error {
 	if conn, ok := T.conn.(vconnpool.Conn); ok {
 		conn.Discard()

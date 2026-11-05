@@ -163,25 +163,30 @@ func TestServerHandlerDynamic_ServeHTTP_PagePathPreset(t *testing.T) {
 	}
 }
 
-// 文件不存在时返回500错误（使用默认 os.Open）
-func TestServerHandlerDynamic_ServeHTTP_FileNotFound(t *testing.T) {
+// 根目录不存在：服务器配置错误 → 500
+func TestServerHandlerDynamic_RootNotFound(t *testing.T) {
 	handler := &ServerHandlerDynamic{
 		RootPath: "/nonexistent/path",
-		Module: func(name string) (DynamicTemplater, error) {
-			return &mockDynamicTemplater{}, nil
-		},
+		Module:   func(string) (DynamicTemplater, error) { return &mockDynamicTemplater{}, nil },
 	}
-
-	req := newRequest("GET", "/nofile.html")
 	rw := httptest.NewRecorder()
-
-	handler.ServeHTTP(rw, req)
-
+	handler.ServeHTTP(rw, newRequest("GET", "/nofile.html"))
 	if rw.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status 500, got %d", rw.Code)
+		t.Fatalf("root missing should be 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "vweb: Failed to stat file! Error: nofile.html\n") {
-		t.Errorf("Expected open error message, got %q", rw.Body.String())
+}
+
+// 根目录正常、目标文件不存在：资源不存在 → 404
+func TestServerHandlerDynamic_FileNotFound(t *testing.T) {
+	dir := t.TempDir() // 空目录，文件不存在
+	handler := &ServerHandlerDynamic{
+		RootPath: dir,
+		Module:   func(string) (DynamicTemplater, error) { return &mockDynamicTemplater{}, nil },
+	}
+	rw := httptest.NewRecorder()
+	handler.ServeHTTP(rw, newRequest("GET", "/nofile.go"))
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("missing file should be 404, got %d", rw.Code)
 	}
 }
 
@@ -211,6 +216,30 @@ func TestServerHandlerDynamic_ServeHTTP_CustomReadFile(t *testing.T) {
 	}
 	if !strings.Contains(rw.Body.String(), "Custom Content") {
 		t.Errorf("Expected 'Custom Content', got %q", rw.Body.String())
+	}
+}
+
+// 虚拟路径下的穿越仍被拦截：/../etc/passwd 被 Clean 消解为 etc/passwd，
+// 最终映射为 /virtual/etc/passwd，不逃逸 RootPath 前缀。
+func TestServerHandlerDynamic_VirtualPathTraversal(t *testing.T) {
+	handler := &ServerHandlerDynamic{
+		RootPath: "/virtual",
+		ReadFile: func(filePath string, _ *url.URL) (io.ReadCloser, time.Time, error) {
+			return io.NopCloser(strings.NewReader("//mock\nx")), time.Now(), nil
+		},
+		Module: func(string) (DynamicTemplater, error) {
+			return &mockDynamicTemplater{executeBody: "ok"}, nil
+		},
+	}
+	rw := httptest.NewRecorder()
+	handler.ServeHTTP(rw, newRequest("GET", "/../etc/passwd"))
+	if rw.Code == http.StatusForbidden {
+		t.Fatalf("virtual path should not report 403 for cleaned path, got %d", rw.Code)
+	}
+	// 实际会映射到 /virtual/etc/passwd 并正常执行（Clean 已消除逃逸），
+	// 这里只确保没有意外 500。
+	if rw.Code != http.StatusOK {
+		t.Fatalf("got %d", rw.Code)
 	}
 }
 
@@ -720,8 +749,42 @@ func TestServerHandlerDynamic_PathTraversal(t *testing.T) {
 	}
 	rw := httptest.NewRecorder()
 	sh.ServeHTTP(rw, httptest.NewRequest("GET", "/x", nil))
-	if rw.Code != http.StatusInternalServerError {
-		t.Fatalf("非法路径应 500，得到 %d", rw.Code)
+	if rw.Code != http.StatusNotFound {
+		t.Fatalf("非法路径应 404，得到 %d", rw.Code)
+	}
+}
+
+func TestServerHandlerDynamic_DotDotWithinRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "b.go"), []byte("//mock\nhello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sh := &ServerHandlerDynamic{
+		RootPath: dir,
+		Module:   func(string) (DynamicTemplater, error) { return &mockDynamicTemplater{}, nil },
+	}
+	rw := httptest.NewRecorder()
+	sh.ServeHTTP(rw, httptest.NewRequest("GET", "/a/../b.go", nil))
+	if rw.Code != http.StatusOK {
+		t.Fatalf("/a/../b.go should resolve to b.go, got %d", rw.Code)
+	}
+}
+
+func TestServerHandlerDynamic_DotDotCannotEscape(t *testing.T) {
+	sh := &ServerHandlerDynamic{
+		RootPath: t.TempDir(),
+		Module:   func(string) (DynamicTemplater, error) { return &mockDynamicTemplater{}, nil },
+	}
+	for _, url := range []string{
+		"/../etc/passwd",
+		"/../../etc/passwd",
+		"/a/../../../etc/passwd",
+	} {
+		rw := httptest.NewRecorder()
+		sh.ServeHTTP(rw, httptest.NewRequest("GET", url, nil))
+		if rw.Code != http.StatusNotFound {
+			t.Fatalf("%s should be 404 (resolved inside root, missing), got %d", url, rw.Code)
+		}
 	}
 }
 

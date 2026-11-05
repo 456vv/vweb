@@ -29,6 +29,7 @@ var (
 	fAllowCertHost = flag.String("AllowCertHost", "ssl/auto/host.txt", "允许自动申请证书文件路径")
 )
 
+
 func main() {
 	log.Printf("程序版本：%s | %s\n", server.Version, version)
 

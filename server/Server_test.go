@@ -58,14 +58,16 @@ LzeIJd6AClByowsdS5v/DeZQnfDaW68OB3+vqKQbMbei
 `
 
 func Test_NewServerGroup_1(t *testing.T) {
-	as := assert.New(t, true)
 	sg := NewGroup()
-	time.AfterFunc(2*time.Second, func() {
-		err := sg.Close()
-		as.NotError(err)
-	})
+	as := assert.New(t, true)
 	_, err := sg.LoadConfigFile("./config/test/config.json")
 	as.NotError(err)
+
+	timer := time.AfterFunc(2*time.Second, func() {
+		sg.Close() // 回调里不要碰 t
+	})
+	defer timer.Stop()
+
 	err = sg.Start()
 	as.NotError(err)
 }
@@ -85,16 +87,17 @@ func Test_NewServerGroup_2(t *testing.T) {
 	as.NotError(err)
 
 	time.AfterFunc(2*time.Second, func() { sg.Close() })
-	sg.Start()
+	err = sg.Start()
+	as.NotError(err)
 }
 
 func Test_ServerGroup_LoadConfigFile(t *testing.T) {
 	sg := NewGroup()
 	defer sg.Close()
-	_, err := sg.LoadConfigFile("./config/test/config.json")
-	if err == nil && sg.config == nil {
-		t.Fatalf("加载配置文件错误")
-	}
+	ok, err := sg.LoadConfigFile("./config/test/config.json")
+	as := assert.New(t, true)
+	as.NotError(err).True(ok)
+	as.NotNil(sg.config) // 必须实际读到了
 }
 
 func Test_ServerGroup_httpIsDynamic1(t *testing.T) {
@@ -180,7 +183,7 @@ func Test_ConfigSiteDirectory_RootDir(t *testing.T) {
 		{
 			r:    &http.Request{URL: &url.URL{Path: "/B/C/"}},
 			conf: &config.SiteDirectory{Root: "", Virtual: []string{}},
-			root: "",
+			root: ".",
 		},
 	}
 	for i, test := range tests {
@@ -238,18 +241,22 @@ func Test_Server_ConfigServer(t *testing.T) {
 
 func Test_Server_updateSitePoolAdd(t *testing.T) {
 	sg := NewGroup()
+	defer sg.Close()
 	conf := config.Site{
 		Identity: "A",
 		Session:  config.SiteSession{Name: "BB", Expired: 10, Size: 128},
 	}
+	ss := sg.sitePool.NewSite(conf.Identity).Sessions()
 	sg.updateSitePoolAdd(conf)
-	if time.Duration(conf.Session.Expired)*time.Second != sg.sitePool.NewSite(conf.Identity).Sessions().Expired {
+	if time.Duration(conf.Session.Expired)*time.Second != ss.Expired {
 		t.Fatal("站点池的会话时间不一致")
 	}
 
-	sg.updateSitePoolDel([]string{}, []string{})
+	sg.updateSitePoolDel([]string{}, []string{}, nil)
+	ss = sg.sitePool.NewSite(conf.Identity).Sessions()
+	ss.Expired = 0
 	sg.updateSitePoolAdd(conf)
-	if time.Duration(conf.Session.Expired)*time.Second != sg.sitePool.NewSite(conf.Identity).Sessions().Expired {
+	if time.Duration(conf.Session.Expired)*time.Second != ss.Expired {
 		t.Fatal("站点池的【默认】会话时间不一致")
 	}
 }
@@ -343,7 +350,10 @@ func TestGroup_SetServer_NilRemoves(t *testing.T) {
 func TestGroup_StartTwice(t *testing.T) {
 	g := NewGroup()
 	done := make(chan struct{})
-	go func() { g.Start(); close(done) }()
+	go func() {
+		g.Start()
+		close(done)
+	}()
 	time.Sleep(30 * time.Millisecond)
 	if err := g.Start(); err == nil {
 		t.Fatal("重复 Start 应报错")
@@ -355,7 +365,10 @@ func TestGroup_StartTwice(t *testing.T) {
 func TestGroup_CloseTwice(t *testing.T) {
 	g := NewGroup()
 	done := make(chan struct{})
-	go func() { g.Start(); close(done) }()
+	go func() {
+		g.Start()
+		close(done)
+	}()
 	time.Sleep(30 * time.Millisecond)
 	if err := g.Close(); err != nil {
 		t.Fatal(err)

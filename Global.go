@@ -6,6 +6,7 @@ import (
 	"github.com/456vv/vmap/v2"
 )
 
+// Globaler 站点级全局键值存储接口（与 Session 类似，但作用于整个站点，非单用户）。
 type Globaler interface {
 	Set(key, val any)                                     // 设置
 	Has(key any) bool                                     // 判断
@@ -19,10 +20,13 @@ type Globaler interface {
 	Reset()                                               // 重置
 }
 
+// Global 站点全局数据，内嵌 vmap.Map。
 type Global struct {
 	*vmap.Map
 }
 
+// 实现说明：Global 通过内嵌 *vmap.Map 满足 Globaler 的大部分方法；
+// 具体方法由 vmap 提供，此处无需再包装。
 func (T *Global) Reset() {
 	T.Map.ExpireAll()
 }

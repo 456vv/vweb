@@ -8,6 +8,7 @@ import (
 	"net/http"
 )
 
+// Responser 类型定义。
 type Responser interface {
 	Write([]byte) (int, error)                        // 写入字节
 	WriteString(string) (int, error)                  // 写入字符串
@@ -110,9 +111,22 @@ func (T *response) Header() http.Header {
 //
 //	code int      状态码
 func (T *response) WriteHeader(code int) {
+	if T.isWrited {
+		return
+	}
+
+	// 100、102、103 等中间响应不是最终响应。
+	// 101 切换协议属于特殊情况，仍标记为已提交。
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		T.w.WriteHeader(code)
+		return
+	}
+
+	// 先交给底层校验状态码；
+	// 底层因非法状态码 panic 时，不提前污染本地提交状态。
+	T.w.WriteHeader(code)
 	T.statusCode = code
 	T.isWrited = true
-	T.w.WriteHeader(code)
 }
 
 // Error 错误
@@ -128,6 +142,12 @@ func (T *response) Error(err string, code int) {
 func (T *response) Flush() {
 	if f, ok := T.w.(http.Flusher); ok {
 		f.Flush()
+
+		// Flush 会提交响应，后续处理链不能继续生成另一份响应。
+		if T.statusCode == 0 {
+			T.statusCode = http.StatusOK
+		}
+		T.isWrited = true
 	}
 }
 
@@ -150,8 +170,15 @@ func (T *response) Push(target string, opts *http.PushOptions) error {
 //	error				错误
 func (T *response) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hijack, ok := T.w.(http.Hijacker); ok {
+		conn, rw, err := hijack.Hijack()
+		if err != nil {
+			// 劫持失败不能标记为已写入，
+			// 调用方仍应能够生成正常错误响应。
+			return conn, rw, err
+		}
+
 		T.isWrited = true
-		return hijack.Hijack()
+		return conn, rw, nil
 	}
 	return nil, nil, errors.New("vweb: 不支持 http.Hijacker")
 }

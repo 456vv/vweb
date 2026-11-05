@@ -43,6 +43,7 @@ var (
 // maxFieldCache 限制字段索引缓存条目，避免动态 StructOf 把 reflect.Type 永久钉住。
 const maxFieldCache int64 = 4096
 
+// indexCache 类型定义。
 type indexCache struct {
 	m sync.Map
 	n atomic.Int64
@@ -67,6 +68,7 @@ func fieldCacheBox() *indexCache {
 // flagRO = flagStickyRO | flagEmbedRO = 1<<5 | 1<<6，自 Go 1.5 起稳定。
 const flagRO uintptr = 96
 
+// valueHeader 类型定义。
 type valueHeader struct {
 	typ  unsafe.Pointer
 	ptr  unsafe.Pointer
@@ -106,6 +108,7 @@ func init() {
 			useUnsafeExport.Store(false)
 		}
 	}()
+	// dummy 类型定义。
 	type dummy struct{ x int }
 	v := reflect.ValueOf(dummy{x: 42}).FieldByName("x")
 	if v.IsValid() && !v.CanInterface() {
@@ -1105,6 +1108,8 @@ func Bool(a any) bool {
 	return isTrue(inDirect(asValue(a)))
 }
 
+// 长度（string/slice/map/chan/array）。
+// 示例：Len([]int{1,2})→2
 func Len(a any) int {
 	if a == nil {
 		return 0
@@ -1897,10 +1902,13 @@ func Init(v any, isZero bool, args ...any) bool {
 	return true
 }
 
+// 尝试把 b 转换赋给 a 指向的值。
 func Convert(a, b any) bool {
 	return typeConvert(toValue(a), asValue(b))
 }
 
+// 转换 v 为 typ 描述的类型。
+// 返回：(any, error)
 func To(typ, v any) (any, error) {
 	telem, err := Type(typ)
 	if err != nil {
@@ -2902,8 +2910,10 @@ func toFloat64ForKey(kv reflect.Value, key any) (float64, bool) {
 	return 0, false
 }
 
+// fieldIndex 类型定义。
 type fieldIndex map[string][]int
 
+// fieldIndexKey 类型定义。
 type fieldIndexKey struct {
 	t     reflect.Type
 	allow bool
@@ -2949,6 +2959,7 @@ func walkFields(tt reflect.Type, path []int, stack []reflect.Type, allow bool, m
 	nextStack[len(stack)] = tt
 
 	n := tt.NumField()
+	// embedInfo 类型定义。
 	type embedInfo struct {
 		ft  reflect.Type
 		idx []int

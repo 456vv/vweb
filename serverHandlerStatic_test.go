@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -380,5 +381,324 @@ func TestServerHandlerStatic_Ranges_EmptyFile(t *testing.T) {
 	h := &serverHandlerStaticHeader{fileInfo: &fakeFileInfo{size: 0}}
 	if r, n := h.ranges("bytes=0-9"); n != 0 || r != nil {
 		t.Fatalf("空文件应返回 (nil,0)，得到 %v,%d", r, n)
+	}
+}
+
+func writeTestFile(t *testing.T, dir, name string, data []byte) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// rangeHeaderN 生成 n 段互不相邻的单字节区间：bytes=0-0,2-2,...
+func rangeHeaderN(n int) string {
+	var b strings.Builder
+	b.WriteString("bytes=")
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, "%d-%d", i*2, i*2)
+	}
+	return b.String()
+}
+
+// TestRangeCountLimit 验证 Range 段数边界：99/100 段 multipart，101 段忽略 Range。
+func TestRangeCountLimit(t *testing.T) {
+	dir := t.TempDir()
+	data := make([]byte, 4096)
+	for i := range data {
+		data[i] = byte(i % 251)
+	}
+	writeTestFile(t, dir, "f.bin", data)
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	cases := []struct {
+		name          string
+		n             int
+		wantStatus    int
+		wantMultipart bool
+		wantBodyLen   int
+	}{
+		{"99_segments", 99, http.StatusPartialContent, true, 0},
+		{"100_segments", 100, http.StatusPartialContent, true, 0},
+		{"101_segments_ignored", 101, http.StatusOK, false, len(data)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/f.bin", nil)
+			req.Header.Set("Range", rangeHeaderN(tc.n))
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+			ct := rec.Header().Get("Content-Type")
+			isMultipart := strings.HasPrefix(ct, "multipart/byteranges")
+			if isMultipart != tc.wantMultipart {
+				t.Fatalf("multipart = %v, want %v (Content-Type=%q)", isMultipart, tc.wantMultipart, ct)
+			}
+			if tc.wantStatus == http.StatusOK && rec.Body.Len() != tc.wantBodyLen {
+				t.Fatalf("body len = %d, want %d", rec.Body.Len(), tc.wantBodyLen)
+			}
+		})
+	}
+}
+
+// TestCacheControlNotOverridden 验证 PageExpired=0 时不再用 no-cache 覆盖站点已设置的 Cache-Control。
+func TestCacheControlNotOverridden(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a.txt", []byte("hello"))
+	h := &ServerHandlerStatic{RootPath: dir, PageExpired: 0}
+
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Cache-Control", "public, max-age=3600")
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/a.txt", nil))
+
+	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=3600" {
+		t.Fatalf("Cache-Control = %q, want public, max-age=3600", got)
+	}
+}
+
+// TestIfRange 验证 If-Range 不匹配（弱 ETag / 过期时间）时回退到 200 全量。
+func TestIfRange(t *testing.T) {
+	dir := t.TempDir()
+	const body = "0123456789"
+	writeTestFile(t, dir, "a.txt", []byte(body))
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	// 先取一次 ETag
+	rec0 := httptest.NewRecorder()
+	h.ServeHTTP(rec0, httptest.NewRequest("GET", "/a.txt", nil))
+	etag := rec0.Header().Get("ETag")
+	if !strings.HasPrefix(etag, `W/`) {
+		t.Fatalf("etag = %q, want weak prefix W/", etag)
+	}
+
+	cases := []struct {
+		name    string
+		ifRange string
+	}{
+		{"weak_etag_never_matches", etag},
+		{"time_mismatch", time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/a.txt", nil)
+			req.Header.Set("Range", "bytes=0-4")
+			req.Header.Set("If-Range", tc.ifRange)
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			if rec.Body.Len() != len(body) {
+				t.Fatalf("body len = %d, want %d", rec.Body.Len(), len(body))
+			}
+		})
+	}
+}
+
+// TestNotModified 验证 304 路径（阶段 A 命中，不 Open）。
+func TestNotModified(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a.txt", []byte("hello"))
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	rec0 := httptest.NewRecorder()
+	h.ServeHTTP(rec0, httptest.NewRequest("GET", "/a.txt", nil))
+	etag := rec0.Header().Get("ETag")
+	lastMod := rec0.Header().Get("Last-Modified")
+
+	cases := []struct {
+		name   string
+		header string
+		value  string
+	}{
+		{"If-None-Match", "If-None-Match", etag},
+		{"If-Modified-Since", "If-Modified-Since", lastMod},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/a.txt", nil)
+			req.Header.Set(tc.header, tc.value)
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNotModified {
+				t.Fatalf("status = %d, want 304", rec.Code)
+			}
+			if rec.Body.Len() != 0 {
+				t.Fatalf("body len = %d, want 0", rec.Body.Len())
+			}
+		})
+	}
+}
+
+// TestEmptyFile 验证空文件返回 200 + Content-Length: 0。
+func TestEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "empty.txt", nil)
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/empty.txt", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if cl := rec.Header().Get("Content-Length"); cl != "0" {
+		t.Fatalf("Content-Length = %q, want 0", cl)
+	}
+}
+
+// TestContentLengthMatchesBody 验证响应头 Content-Length 与正文长度、文件大小一致（S1 契约）。
+func TestContentLengthMatchesBody(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("0123456789abcdef")
+	writeTestFile(t, dir, "a.txt", data)
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/a.txt", nil))
+
+	if cl := rec.Header().Get("Content-Length"); cl != fmt.Sprint(len(data)) {
+		t.Fatalf("Content-Length = %q, want %d", cl, len(data))
+	}
+	if rec.Body.Len() != len(data) {
+		t.Fatalf("body len = %d, want %d", rec.Body.Len(), len(data))
+	}
+}
+
+// TestHead 验证 HEAD 返回头、无正文。
+func TestHead(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("0123456789")
+	writeTestFile(t, dir, "a.txt", data)
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("HEAD", "/a.txt", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if cl := rec.Header().Get("Content-Length"); cl != fmt.Sprint(len(data)) {
+		t.Fatalf("Content-Length = %q, want %d", cl, len(data))
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("body len = %d, want 0", rec.Body.Len())
+	}
+}
+
+// TestSingleRange 验证单 Range 返回 206 与正确 Content-Range。
+func TestSingleRange(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a.txt", []byte("0123456789"))
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/a.txt", nil)
+	req.Header.Set("Range", "bytes=2-5")
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("status = %d, want 206", rec.Code)
+	}
+	if cr := rec.Header().Get("Content-Range"); cr != "bytes 2-5/10" {
+		t.Fatalf("Content-Range = %q, want bytes 2-5/10", cr)
+	}
+	if rec.Body.String() != "2345" {
+		t.Fatalf("body = %q, want 2345", rec.Body.String())
+	}
+}
+
+// TestRangeNotSatisfiable 验证越界 Range 返回 416。
+func TestRangeNotSatisfiable(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a.txt", []byte("0123456789"))
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/a.txt", nil)
+	req.Header.Set("Range", "bytes=100-200")
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestedRangeNotSatisfiable {
+		t.Fatalf("status = %d, want 416", rec.Code)
+	}
+}
+
+// TestPathTraversal404 验证 URL 路径中的 ../ 被 path.Clean 消除后 404。
+func TestPathTraversal404(t *testing.T) {
+	dir := t.TempDir()
+	h := &ServerHandlerStatic{RootPath: dir}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/../etc/passwd", nil)
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+// TestSymlinkEscapeForbidden 验证 root 内符号链接指向 root 外时返回 403。
+func TestSymlinkEscapeForbidden(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink requires privileges on Windows")
+	}
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeTestFile(t, outside, "secret.txt", []byte("secret"))
+	link := filepath.Join(root, "link.txt")
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	h := &ServerHandlerStatic{RootPath: root}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/link.txt", nil))
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+}
+
+// TestSameFile 单元测试：size/mtime 相同视为同一版本，变化则不同。
+func TestSameFile(t *testing.T) {
+	dir := t.TempDir()
+	p := writeTestFile(t, dir, "a.txt", []byte("x"))
+
+	fi1, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi2, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameFile(fi1, fi2) {
+		t.Fatal("sameFile(fi1, fi2) = false, want true")
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	if err := os.WriteFile(p, []byte("yy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fi3, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameFile(fi1, fi3) {
+		t.Fatal("sameFile(fi1, fi3) = true, want false after modification")
 	}
 }

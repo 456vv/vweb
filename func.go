@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -291,4 +292,17 @@ func ExecFunc(f any, args ...any) ([]any, error) {
 func isRegex(re *regexp.Regexp) bool {
 	prefix, complete := re.LiteralPrefix()
 	return !complete || prefix == ""
+}
+
+// classifyFileError 把文件系统错误归类为哨兵，供 ServeHTTP 映射状态码；
+// 未识别的错误保留底层原因（%w），走 500。
+func classifyFileError(err error, rel string) error {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return errors.Join(errFileNotFound, fmt.Errorf("%s: %w", rel, err))
+	case errors.Is(err, fs.ErrPermission):
+		return errors.Join(errPermissionDenied, fmt.Errorf("%s: %w", rel, err))
+	default:
+		return fmt.Errorf("vweb: file access error (%s): %w", rel, err)
+	}
 }

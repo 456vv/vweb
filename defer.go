@@ -122,6 +122,8 @@ var execCallPool = sync.Pool{
 	},
 }
 
+// 注册回调。
+// 参数 call: 函数；args: 参数。
 func (T *ExitCall) Defer(call any, args ...any) error {
 	// 从池中获取对象
 	df := execCallPool.Get().(*ExecCall)
@@ -146,6 +148,7 @@ func (T *ExitCall) Defer(call any, args ...any) error {
 	return nil
 }
 
+// 执行队列中全部回调。
 func (T *ExitCall) Free() {
 	T.m.Lock()
 	if T.closed {

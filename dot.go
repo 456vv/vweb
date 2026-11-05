@@ -12,7 +12,9 @@ import (
 	"github.com/456vv/vmap/v2"
 )
 
+// HandleFunc 类型定义。
 type HandleFunc []func(Doter)
+
 
 func (T HandleFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	site, _ := r.Context().Value(SiteContextKey).(*Site)
@@ -24,6 +26,9 @@ func (T HandleFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer d.Close()
 	for _, f := range T {
+		if f == nil {
+			continue
+		}
 		f(d)
 		if d.isWrited() {
 			break
@@ -31,6 +36,7 @@ func (T HandleFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DotContexter 类型定义。
 type DotContexter interface {
 	Context() context.Context        // 上下文
 	WithContext(ctx context.Context) // 替换上下文
@@ -97,6 +103,7 @@ func (T *Dot) Header() http.Header {
 	return T.W.Header()
 }
 
+
 func (T *Dot) response() *response {
 	if T.res == nil {
 		if res, ok := T.W.(*response); ok {
@@ -111,6 +118,7 @@ func (T *Dot) response() *response {
 	}
 	return T.res
 }
+
 
 func (T *Dot) isWrited() bool {
 	return T.response().isWrited
@@ -234,7 +242,13 @@ func (T *Dot) SaveStatic(path string) (wr io.WriteCloser, err error) {
 		return nil, errors.New("static path escapes root")
 	}
 
-	staticDir := filepath.Dir(staticAbs)
+	// 父目录可能是 symlink，直接 MkdirAll/CreateTemp 会写到 root 外。
+	// 先解析真实目标路径并校验仍在 root 下，再创建目录。
+	realStaticAbs, err := evalPathWithinRoot(rootAbs, staticAbs)
+	if err != nil {
+		return nil, errors.New("static path escapes root")
+	}
+	staticDir := filepath.Dir(realStaticAbs)
 
 	// 不存在创建目录
 	if err := os.MkdirAll(staticDir, 0o755); err != nil {
@@ -242,18 +256,20 @@ func (T *Dot) SaveStatic(path string) (wr io.WriteCloser, err error) {
 	}
 
 	storage := &staticFileStorage{
-		name:      filepath.Base(cleanPath),
+		name:      filepath.Base(realStaticAbs),
 		staticDir: staticDir,
 	}
 	return storage, nil
 }
 
+// staticFileStorage 类型定义。
 type staticFileStorage struct {
 	name      string
 	staticDir string
 	file      *os.File
 	closed    bool
 }
+
 
 func (t *staticFileStorage) Write(p []byte) (n int, err error) {
 	if t.closed {
@@ -267,6 +283,7 @@ func (t *staticFileStorage) Write(p []byte) (n int, err error) {
 	}
 	return t.file.Write(p)
 }
+
 
 func (t *staticFileStorage) Close() error {
 	if t.closed {

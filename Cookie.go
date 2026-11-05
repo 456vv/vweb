@@ -10,6 +10,7 @@ import (
 	"golang.org/x/net/http/httpguts"
 )
 
+// Cookier 类型定义。
 type Cookier interface {
 	ReadAll() map[string]string                                                                  // 读取所有
 	RemoveAll()                                                                                  // 删除所用
@@ -18,6 +19,7 @@ type Cookier interface {
 	Del(name string)                                                                             // 删除
 }
 
+// Cookie 类型定义。
 type Cookie struct {
 	R *http.Request       // 请求
 	W http.ResponseWriter // 响应
@@ -94,6 +96,7 @@ func (c *Cookie) Del(name string) {
 	c.Add(name, "", "/", "", -1, false, false, http.SameSiteDefaultMode)
 }
 
+
 func readCookies(h http.Header, filter string) []*http.Cookie {
 	lines := h["Cookie"]
 	if len(lines) == 0 {
@@ -135,6 +138,7 @@ func readCookies(h http.Header, filter string) []*http.Cookie {
 	return cookies
 }
 
+// 从 Header 解析全部 Set-Cookie 为 []Cookie。
 func readSetCookies(h http.Header) []*http.Cookie {
 	cookieCount := len(h["Set-Cookie"])
 	if cookieCount == 0 {
@@ -237,6 +241,7 @@ func readSetCookies(h http.Header) []*http.Cookie {
 	return cookies
 }
 
+
 func parseCookieValue(raw string, allowDoubleQuote bool) (string, bool) {
 	if allowDoubleQuote && len(raw) > 1 && raw[0] == '"' && raw[len(raw)-1] == '"' {
 		raw = raw[1 : len(raw)-1]
@@ -249,6 +254,7 @@ func parseCookieValue(raw string, allowDoubleQuote bool) (string, bool) {
 	return raw, true
 }
 
+
 func isCookieNameValid(raw string) bool {
 	if raw == "" {
 		return false
@@ -256,9 +262,11 @@ func isCookieNameValid(raw string) bool {
 	return strings.IndexFunc(raw, isNotToken) < 0
 }
 
+
 func isNotToken(r rune) bool {
 	return !httpguts.IsTokenRune(r)
 }
+
 
 func validCookieValueByte(b byte) bool {
 	return 0x20 <= b && b < 0x7f && b != '"' && b != ';' && b != '\\'

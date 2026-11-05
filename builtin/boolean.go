@@ -142,8 +142,7 @@ func EQ(a, b any) (eq bool) {
 		if va.IsNil() || vb.IsNil() {
 			return va.IsNil() == vb.IsNil()
 		}
-		// 非 nil 函数没有可靠身份。Pointer 只保证 nil 时为 0，闭包可能撞代码指针。
-		return va.Pointer() == vb.Pointer()
+		return false
 	}
 	if ta.Comparable() && tb.Comparable() {
 		return a == b
@@ -174,6 +173,7 @@ func typeMayPanicOnEqual(t reflect.Type) bool {
 	return res
 }
 
+// 递归检测 interface 及含 interface 的 array/struct。
 func typeMayPanicOnEqualRec(t reflect.Type, stack map[reflect.Type]struct{}) bool {
 	if t == nil {
 		return false
@@ -249,6 +249,7 @@ func compareOrdered(a, b any) (c int, ok bool, unordered bool) {
 	return 0, false, false
 }
 
+// 有符号与无符号整数比较。
 func cmpIntUint(i int64, u uint64) int {
 	if i < 0 {
 		return -1
@@ -256,6 +257,7 @@ func cmpIntUint(i int64, u uint64) int {
 	return cmp.Compare(uint64(i), u)
 }
 
+// 将数值 Value 转为 float64 供比较。
 func toCmpFloat(v reflect.Value) (float64, bool) {
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -278,6 +280,7 @@ func cmpIntToFloat(iv reflect.Value, f float64) int {
 	return cmpSignedFloat(iv.Int(), f)
 }
 
+// int64 与 float64 精确比较。
 func cmpSignedFloat(i int64, f float64) int {
 	// 2^63 能被 float64 精确表示，且大于一切 int64。
 	if math.IsInf(f, 1) || f >= 9223372036854775808.0 {
@@ -303,6 +306,7 @@ func cmpSignedFloat(i int64, f float64) int {
 	return 0
 }
 
+// uint64 与 float64 精确比较。
 func cmpUintFloat(u uint64, f float64) int {
 	// 2^64 能被 float64 精确表示，且大于一切 uint64。
 	if math.IsInf(f, 1) || f >= 18446744073709551616.0 {

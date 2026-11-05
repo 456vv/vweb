@@ -11,26 +11,47 @@ import (
 	"github.com/456vv/vmap/v2"
 )
 
+// manageSession 包装单个 Session，记录最近访问时间与是否已标记不可用。
 type manageSession struct {
 	s           *Session
-	recent      atomic.Int64
-	unavailable atomic.Bool
+	recent      atomic.Int64 // UnixNano，最近访问
+	unavailable atomic.Bool  // 已过期/删除，禁止再 Get
 }
 
-// Sessions 用于管理不同用户的会话。
+// Sessions 管理不同用户的会话。
 //
-// 注意：Sessions 内部含 sync.WaitGroup 与 vmap.Map，**不可按值复制**。
+// 注意：内部含 sync.WaitGroup 与 vmap.Map，**不可按值复制**。
+//
+// 配置字段：
+//   - Expired: 空闲过期时长（0 表示不过期）
+//   - Name: Cookie 名称，如 "VID"
+//   - Size: 会话 ID 字节长度（默认 64）
+//   - Salt: 可选加盐，增加伪随机熵
+//
+// 示例：
+//
+//	ss := &Sessions{Expired: 20 * time.Minute, Name: "VID", Size: 64}
+//	sess := ss.Session(w, r) // 自动读 Cookie 或新建并 Set-Cookie
 type Sessions struct {
-	Expired time.Duration // 保存session时间长
-	Name    string        // 标识名称。用于Cookie
-	Size    int           // 会话ID长度。用于Cookie。（默认64位）
-	Salt    string        // 加盐，由于计算机随机数是伪随机数。（可默认为空）。用于Cookie
-	ss      vmap.Map      // 集，map[id]*Session
+	Expired time.Duration // 保存 session 时间长
+	Name    string        // Cookie 名
+	Size    int           // 会话 ID 长度
+	Salt    string        // 加盐
+	ss      vmap.Map      // map[id]*manageSession
+	mu      sync.RWMutex
+	lastSizeWarn atomic.Int64 // 限流警告时间戳
 }
 
-// Len 当前Session数量
+// Configure 在写锁下更新配置（避免与 Get/Check 竞态）。
 //
-//	int	数量
+// 示例：ss.Configure(func(s *Sessions) { s.Expired = time.Hour })
+func (T *Sessions) Configure(f func(*Sessions)) {
+	T.mu.Lock()
+	defer T.mu.Unlock()
+	f(T)
+}
+
+// Len 当前会话数量。
 func (T *Sessions) Len() int {
 	return T.ss.Len()
 }
@@ -40,54 +61,69 @@ func (T *Sessions) InstantDeadAll() {
 	T.instantDeadAll(nil)
 }
 
-// InstantDeadAllInto 与 InstantDeadAll 行为一致，并把每个异步 Free 注册到调用方提供的 wg。
-// wg 不能为 nil（否则与 InstantDeadAll 等价，无必要调用本方法）。
-//
-// 使用约定：
-//   - 调用方保证 wg 的 Wait 在本方法返回之后才发起；
-//   - 调用方自行控制超时（本方法不阻塞）；
-//   - 多个 Sessions 可共享同一个 wg（SitePool.Close 正是如此）。
+// InstantDeadAllInto 与 InstantDeadAll 相同，但把每个异步 Free 注册到调用方 wg。
+// SitePool.Close 用此等待最多 3 秒。
 func (T *Sessions) InstantDeadAllInto(wg *sync.WaitGroup) {
-	if wg == nil {
-		// 防御：nil 等价于无跟踪调用，避免调用方误传
-		T.instantDeadAll(nil)
-		return
-	}
 	T.instantDeadAll(wg)
 }
 
-// instantDeadAll 是 InstantDeadAll / InstantDeadAllInto 的共同实现。
+// freeWorkerLimit 限制并发执行用户 Defer 的 goroutine 上限，防止会话爆炸时 goroutine 过多。
+const freeWorkerLimit = 64
+
+// instantDeadAll 收集所有 Session，清空表，再限制并发数执行 Reset+Free。
 func (T *Sessions) instantDeadAll(wg *sync.WaitGroup) {
-	var frees []Sessioner
-	T.ss.Range(func(id, mse any) bool {
-		ms := mse.(*manageSession)
-		if ms.unavailable.Swap(true) {
+	T.mu.Lock()
+	var frees []*Session
+	T.ss.Range(func(id, value any) bool {
+		ms, ok := value.(*manageSession)
+		if !ok || ms == nil || ms.s == nil {
 			return true
 		}
-		frees = append(frees, ms.s)
+
+		if !ms.unavailable.Swap(true) {
+			frees = append(frees, ms.s)
+		}
 		return true
 	})
 	T.ss.Reset()
+	T.mu.Unlock()
 
 	if len(frees) == 0 {
 		return
 	}
-	if wg != nil {
-		wg.Add(len(frees))
-	}
+
+	workers := min(freeWorkerLimit, len(frees))
+	ch := make(chan *Session, len(frees))
 	for _, s := range frees {
-		go func(s Sessioner) {
+		ch <- s
+	}
+	close(ch)
+
+	if wg != nil {
+		wg.Add(workers)
+	}
+	for i := 0; i < workers; i++ {
+		go func() {
 			if wg != nil {
 				defer wg.Done()
 			}
-			s.(*Session).Free()
-		}(s)
+			for s := range ch {
+				s.Reset()
+				// freed=true 表示已禁止继续使用；
+				// Free 仍负责执行 ExitCall，不能在此省略。
+				s.Free()
+			}
+		}()
 	}
 }
 
-// CheckDeadAll 定时来处理过期的Session
+// CheckDeadAll 定时检查并清理过期会话；返回被删除的 id 列表。
+// 在 Range 内只标记，Range 外再 Free，避免用户 Defer 回调死锁。
 func (T *Sessions) CheckDeadAll() []any {
-	if T.Expired == 0 {
+	T.mu.RLock()
+	expiredAfter := T.Expired
+	T.mu.RUnlock()
+	if expiredAfter == 0 {
 		return nil
 	}
 
@@ -95,26 +131,42 @@ func (T *Sessions) CheckDeadAll() []any {
 		id any
 		ms *manageSession
 	}
-	var expired []expiredEntry
-
+	var (
+		expired []expiredEntry
+		toFree  []*Session
+	)
 	currTime := time.Now()
+
+	// Range 内只做标记与收集，不执行用户代码。
+	// 用户在 Defer 里若回调 Sessions 方法会与 vmap.Map.Range 内部锁或后续 Lock 争用，
+	// 且会延长 Range 持锁时间，扩大延迟。
 	T.ss.Range(func(id, mse any) bool {
 		ms := mse.(*manageSession)
 		if ms.unavailable.Load() {
+			expired = append(expired, expiredEntry{id: id, ms: ms})
 			return true
 		}
-		recentTime := time.Unix(0, ms.recent.Load()).Add(T.Expired)
-		if currTime.After(recentTime) {
-			ms.unavailable.Store(true)
+		if currTime.After(time.Unix(0, ms.recent.Load()).Add(expiredAfter)) {
+			if !ms.unavailable.Swap(true) {
+				toFree = append(toFree, ms.s)
+			}
 			expired = append(expired, expiredEntry{id: id, ms: ms})
-			go ms.s.Free()
 		}
 		return true
 	})
 
+	// Range 结束后统一 Free。
+	for _, s := range toFree {
+		s.Reset()
+		s.Free()
+	}
+
 	if len(expired) == 0 {
 		return nil
 	}
+
+	T.mu.Lock()
+	defer T.mu.Unlock()
 
 	expID := make([]any, 0, len(expired))
 	for _, e := range expired {
@@ -125,9 +177,7 @@ func (T *Sessions) CheckDeadAll() []any {
 	return expID
 }
 
-// deleteIfSame 仅当 id 当前映射到指定的 manageSession 时才从会话表中删除。
-// 调用约定：调用方应已对 ms 执行 unavailable.Store(true)。
-// GetHas → Del 两步之间存在窗口；SetSession 并发替换后 Del 会误删新条目。
+// deleteIfSame 仅当 id 仍指向同一 manageSession 时删除，避免误删并发 Set 的新会话。
 func (T *Sessions) deleteIfSame(id any, ms *manageSession) bool {
 	cur, ok := T.ss.GetHas(id)
 	if !ok {
@@ -137,30 +187,13 @@ func (T *Sessions) deleteIfSame(id any, ms *manageSession) bool {
 	if !ok || curMS != ms {
 		return false
 	}
+
 	T.ss.Del(id)
 	return true
 }
 
-// triggerDeadSession 由用户来触发，并删除已挂载入的Defer
-func (T *Sessions) triggerDeadSession(ms *manageSession) (ok bool) {
-	if ms.unavailable.Load() {
-		return true
-	}
-	if T.Expired != 0 {
-		currTime := time.Now()
-		recentTime := time.Unix(0, ms.recent.Load()).Add(T.Expired)
-		if currTime.After(recentTime) {
-			ms.unavailable.Store(true)
-			go ms.s.Free()
-			return true
-		}
-	}
-	return
-}
-
-// generateSessionID 生成Session标识符
-//
-//	string  标识符
+// generateSessionID 生成会话标识符（crypto 随机 + 可选 Salt）。
+// Size<=0 时回退 64。
 func (T *Sessions) generateSessionID() string {
 	// 零值/负值回退到 64 字节，保证生成的 ID 有足够熵并避免 panic。
 	size := T.Size
@@ -179,11 +212,17 @@ func (T *Sessions) generateSessionID() string {
 	return id[:size]
 }
 
-// SessionID 从请求中读取会话标识
+// SessionID 从请求 Cookie 中读取会话标识。
+//
+// 返回：id 字符串，或错误（请求为空、Cookie 名未配置、客户端无该 Cookie）
 func (T *Sessions) SessionID(req *http.Request) (id string, err error) {
 	if req == nil {
 		return "", fmt.Errorf("vweb: 请求为空，无法读取会话ID")
 	}
+
+	T.mu.RLock()
+	defer T.mu.RUnlock()
+
 	if T.Name == "" {
 		return "", fmt.Errorf("vweb: 会话名称(Cookie名)不能为空")
 	}
@@ -194,20 +233,32 @@ func (T *Sessions) SessionID(req *http.Request) (id string, err error) {
 	return c.Value, nil
 }
 
-// NewSession 新建会话
+// NewSession 按 id 新建或返回已有会话。
 func (T *Sessions) NewSession(id string) *Session {
-	if s, ok := T.GetSession(id); ok {
+	T.mu.Lock()
+	if s, ok := T.getSessionLocked(id); ok {
+		T.mu.Unlock()
 		return s
 	}
-	return T.SetSession(id, new(Session))
+	s, toFree := T.setSessionLocked(id, new(Session))
+	T.mu.Unlock()
+	if toFree != nil {
+		toFree.Reset()
+		toFree.Free()
+	}
+	return s
 }
 
-// GetSession 使用id读取会话
-//
-//	id string   id标识符
-//	Sessioner   会话
-//	bool        是否存在
+// GetSession 使用 id 读取会话；过期则标记并异步 Free，返回 (nil, false)。
+// 成功时会刷新 recent 时间戳。
 func (T *Sessions) GetSession(id string) (*Session, bool) {
+	T.mu.RLock()
+	defer T.mu.RUnlock()
+
+	return T.getSessionLocked(id)
+}
+
+func (T *Sessions) getSessionLocked(id string) (*Session, bool) {
 	mse, ok := T.ss.GetHas(id)
 	if !ok {
 		return nil, false
@@ -221,47 +272,79 @@ func (T *Sessions) GetSession(id string) (*Session, bool) {
 		return nil, false
 	}
 
-	if T.triggerDeadSession(ms) {
-		// triggerDeadSession 已标记 unavailable 并 go Free，这里只负责身份校验删除
-		T.deleteIfSame(id, ms)
-		return nil, false
+	if T.Expired != 0 {
+		dead, toFree := T.triggerDeadSession(ms, T.Expired)
+		if dead {
+			if toFree != nil {
+				go func(s *Session) {
+					s.Reset()
+					s.Free()
+				}(toFree)
+			}
+			return nil, false
+		}
+		ms.recent.Store(time.Now().UnixNano())
 	}
-	ms.recent.Store(time.Now().UnixNano())
 	return ms.s, true
 }
 
-// SetSession 使用id写入新的会话
-func (T *Sessions) SetSession(id string, s *Session) *Session {
-	if s == nil {
-		return nil
+func (T *Sessions) triggerDeadSession(ms *manageSession, expired time.Duration) (dead bool, toFree *Session) {
+	if ms.unavailable.Load() {
+		return true, nil
 	}
+	if time.Now().Before(time.Unix(0, ms.recent.Load()).Add(expired)) {
+		return false, nil
+	}
+	if !ms.unavailable.Swap(true) {
+		return true, ms.s
+	}
+	return true, nil
+}
+
+// SetSession 写入会话；若同 id 已有不同 Token 的旧会话，则标记旧会话待 Free。
+func (T *Sessions) SetSession(id string, s *Session) *Session {
+	T.mu.Lock()
+	result, toFree := T.setSessionLocked(id, s)
+	T.mu.Unlock()
+	if toFree != nil {
+		toFree.Reset()
+		toFree.Free()
+	}
+	return result
+}
+
+func (T *Sessions) setSessionLocked(id string, s *Session) (result, toFree *Session) {
+	if s == nil {
+		return nil, nil
+	}
+
 	if inf, ok := T.ss.GetHas(id); ok {
 		if ms, ok := inf.(*manageSession); ok && ms != nil && ms.s != nil {
-			// 在执行ProcessDeadAll时候，已经过期了，只是还没有被删除
-			// 所以检测有没有过期，否则不能读取返回
 			if !ms.unavailable.Load() {
 				if ms.s.Token() == s.Token() {
-					return ms.s
+					// 同 token 复用
+					return ms.s, nil
 				}
-				// 设置为不可用,防止被读取
-				ms.unavailable.Store(true)
-				// 替换原有Session，需要清理原有的defer
-				go ms.s.Free()
+				// 不同 token：旧会话标记不可用，延迟到锁外 Free
+				if !ms.unavailable.Swap(true) {
+					toFree = ms.s
+				}
 			}
 		}
 	}
-	// 对应这个id，并保存
+
 	s.id = id
 	ms := &manageSession{s: s}
 	ms.recent.Store(time.Now().UnixNano())
 	T.ss.Set(id, ms)
-	return s
+	return s, toFree
 }
 
-// DelSession 使用id删除的会话
-//
-//	id string   id标识符
+// DelSession 删除指定 id 的会话并 Free。
 func (T *Sessions) DelSession(id string) {
+	T.mu.Lock()
+	defer T.mu.Unlock()
+
 	inf, ok := T.ss.GetHas(id)
 	if !ok {
 		return
@@ -272,18 +355,28 @@ func (T *Sessions) DelSession(id string) {
 	}
 
 	// 先标记不可用：阻断 GetSession 继续读到该条目，也告知 SetSession 无需再 Free
-	ms.unavailable.Store(true)
+	if !ms.unavailable.Swap(true) {
+		// 仅当 id 仍指向 ms 时才删除，避免误删并发 SetSession 写入的新会话
+		T.deleteIfSame(id, ms)
 
-	// 仅当 id 仍指向 ms 时才删除，避免误删并发 SetSession 写入的新会话
-	T.deleteIfSame(id, ms)
-
-	// Free 幂等；若 SetSession 已 Free 过旧条目，这里也会立即返回
-	go ms.s.Free()
+		// Free 幂等；若 SetSession 已 Free 过旧条目，这里也会立即返回
+		ms.s.Reset()
+		ms.s.Free()
+	}
 }
 
-// writeToClient 写入到客户端
-func (T *Sessions) writeToClient(rw http.ResponseWriter, req *http.Request) *Session {
-	if T.Name == "" {
+// Session 是面向 Handler 的便捷入口：
+// 1. 请求 Cookie 有效 → 复用；
+// 2. 响应头已有同名 Set-Cookie → 复用；
+// 3. 否则新建随机会话并写入 Set-Cookie。
+//
+// 返回 Sessioner；Name 为空时返回 nil。
+func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner {
+	T.mu.RLock()
+	name := T.Name
+	T.mu.RUnlock()
+
+	if name == "" {
 		return nil
 	}
 	wh := rw.Header()
@@ -292,7 +385,7 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, req *http.Request) *Ses
 	if req != nil {
 		if id, err := T.SessionID(req); err == nil {
 			if s, ok := T.GetSession(id); ok {
-				stripSetCookieByName(wh, T.Name)
+				stripSetCookieByName(wh, name)
 				return s
 			}
 		}
@@ -300,7 +393,7 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, req *http.Request) *Ses
 
 	// 2. 响应头里已有有效的同名 Set-Cookie（兼容原行为）
 	for _, c := range readSetCookies(wh) {
-		if c.Name != T.Name {
+		if c.Name != name {
 			continue
 		}
 		if s, ok := T.GetSession(c.Value); ok {
@@ -309,17 +402,76 @@ func (T *Sessions) writeToClient(rw http.ResponseWriter, req *http.Request) *Ses
 	}
 
 	// 3. 生成新会话
-	id := T.generateRandSessionID()
-	cookie := &http.Cookie{Name: T.Name, Value: id, Path: "/", HttpOnly: true}
+	s := T.newRandomSession()
+	cookie := &http.Cookie{Name: name, Value: s.Token(), Path: "/", HttpOnly: true}
 	if req != nil && req.TLS != nil {
 		cookie.Secure = true
 	}
-	T.replaceSetCookie(wh, cookie.String())
-	return T.SetSession(id, new(Session))
+	replaceSessionCookie(wh, name, cookie.String())
+	return s
+}
+
+// newRandomSession 生成不冲突的会话 ID（最多重试 8 次，失败则用时间戳兜底并限流警告）。
+func (T *Sessions) newRandomSession() *Session {
+	const maxRetry = 8
+	for i := 0; i < maxRetry; i++ {
+		T.mu.Lock()
+		id := T.generateSessionID()
+		if T.ss.Has(id) {
+			T.mu.Unlock()
+			time.Sleep(time.Millisecond)
+			continue
+		}
+		s, toFree := T.setSessionLocked(id, new(Session))
+		T.mu.Unlock()
+		if toFree != nil {
+			toFree.Reset()
+			toFree.Free()
+		}
+		return s
+	}
+
+	// 重试耗尽：用纳秒时间戳 + 逐次追加保证唯一。
+	T.mu.Lock()
+	id := fmt.Sprintf("%s-%x", T.generateSessionID(), time.Now().UnixNano())
+	for T.ss.Has(id) {
+		id += "-x"
+	}
+	size := T.Size
+	s, toFree := T.setSessionLocked(id, new(Session))
+	T.mu.Unlock()
+	if toFree != nil {
+		toFree.Reset()
+		toFree.Free()
+	}
+	// 限流：首次立刻打印，之后每 1 分钟最多一次。
+	now := time.Now().UnixNano()
+	const warnInterval = int64(time.Minute)
+	if last := T.lastSizeWarn.Load(); now-last >= warnInterval {
+		if T.lastSizeWarn.CompareAndSwap(last, now) {
+			fmt.Printf("vweb: 警告>>会话ID空间耗尽，请加大 Size（当前 %d），已分配临时ID(%s)\n", size, id)
+		}
+	}
+	return s
 }
 
 func stripSetCookieByName(wh http.Header, name string) {
 	vals := wh.Values("Set-Cookie")
+	if len(vals) == 0 {
+		return
+	}
+	// 仅保留同名 Cookie 的最后一个值，避免重复设置。
+	// 既避免无谓的 Header 重排和内存分配，也不改变原有的 Header 顺序。
+	need := false
+	for _, v := range vals {
+		if cookieNameFromSetCookie(v) == name {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return
+	}
 	wh.Del("Set-Cookie")
 	for _, v := range vals {
 		if cookieNameFromSetCookie(v) == name {
@@ -329,22 +481,13 @@ func stripSetCookieByName(wh http.Header, name string) {
 	}
 }
 
-// replaceSetCookie 移除 header 中所有与 newCookie 同名的 Set-Cookie 后追加 newCookie。
-// 用于避免同一响应中重复下发同名 Cookie。
-func (T *Sessions) replaceSetCookie(wh http.Header, newCookie string) {
-	vals := wh.Values("Set-Cookie")
-	wh.Del("Set-Cookie")
-	for _, v := range vals {
-		if cookieNameFromSetCookie(v) == T.Name {
-			continue
-		}
-		wh.Add("Set-Cookie", v)
-	}
-	wh.Add("Set-Cookie", newCookie)
+func replaceSessionCookie(wh http.Header, name, value string) {
+	// 复用已有过滤实现，避免维护两套同名 Cookie 清理代码。
+	stripSetCookieByName(wh, name)
+	wh.Add("Set-Cookie", value)
 }
 
 // cookieNameFromSetCookie 从 Set-Cookie 头值中提取 Cookie 名称。
-// 提取失败时返回空字符串（不匹配任何合法名称，因而不会被误删）。
 func cookieNameFromSetCookie(v string) string {
 	if semi := strings.IndexByte(v, ';'); semi >= 0 {
 		v = v[:semi]
@@ -354,27 +497,4 @@ func cookieNameFromSetCookie(v string) string {
 		return ""
 	}
 	return strings.TrimSpace(v[:eq])
-}
-
-func (T *Sessions) generateRandSessionID() string {
-	var (
-		id      = T.generateSessionID()
-		maxWait = time.Second
-		wait    time.Duration
-	)
-	for T.ss.Has(id) {
-		wait = delay(wait, maxWait)
-		id = T.generateSessionID()
-		if wait >= maxWait {
-			id += "-temp"
-			// ID即将耗尽
-			fmt.Printf("vweb: 警告>>会话ID已耗尽，请尽快加大调整ID长度。本次已为用户分配临时ID(%s)\n", id)
-		}
-	}
-	return id
-}
-
-// Session 会话
-func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner {
-	return T.writeToClient(rw, req)
 }

@@ -1,6 +1,7 @@
 package vweb
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -9,15 +10,18 @@ import (
 	"net/http"
 	"net/textproto"
 	"os"
-	"path"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// maxRangeCount 单个请求允许的 Range 段数上限。
+// "bytes=0-0,2-2,4-4,..." 让每个 1 字节区间都输出一段 multipart 头，
+// 响应远大于文件本身，可被用于放大攻击。超限时忽略 Range，返回全量。
+const maxRangeCount = 100
 
 // blockRange 定义了 HTTP Range 请求中的字节范围信息
 type blockRange struct {
@@ -45,12 +49,6 @@ func (T *serverHandlerStaticHeader) etag() string {
 // ranges 解析 HTTP 请求头中的 "Range" 字段，计算文件的读取位置和长度。
 // 与原生实现相比，这里会对结果排序并合并相邻或重叠区间，避免多个重叠 Range
 // 的总和大于文件大小时被误判为非法 Range，同时减少不必要的分段读取。
-//
-// 参数: ranges - 字符串示例 "bytes=0-499, 1000-1499"
-// 返回:
-//
-//	r - 解析后的切片数组 [{start:0, length:500}, {start:1000, length:500}]
-//	n - 合并后的总有效字节数
 func (T *serverHandlerStaticHeader) ranges(ranges string) (r []blockRange, n int64) {
 	size := T.fileInfo.Size()
 	if size <= 0 {
@@ -186,6 +184,11 @@ func (T *serverHandlerStaticHeader) setPageExpired(pageExpired int64) {
 		T.header.Set("Expires", time.Now().Add(time.Duration(pageExpired)*time.Second).UTC().Format(http.TimeFormat))
 		return
 	}
+	// PageExpired=0 表示未指定过期时间。站点 Header.Static 已写入 Cache-Control 时，
+	// 不能用 no-cache 覆盖它。
+	if T.header.Get("Cache-Control") != "" {
+		return
+	}
 	T.header.Set("Cache-Control", "no-cache")
 }
 
@@ -207,8 +210,13 @@ var copyBufPool = sync.Pool{
 	},
 }
 
-// ServeHTTP 实现 http.Handler 接口，处理文件读取与响应
-// 输入: rw - 响应流, req - HTTP请求
+// ServeHTTP 实现 http.Handler 接口，处理文件读取与响应。
+//
+// 两阶段设计：
+//  1. os.Stat + 基础头 + 缓存协商：命中 304 直接返回，不 Open 文件；
+//  2. 未命中才 Open，并用 fstat 与第一阶段 Stat 对比；若文件在 Stat 与 Open
+//     之间被替换（mtime/size 变化），用新 fileInfo 重做缓存协商与 Range 解析，
+//     保证 Content-Length、ETag、Range 与正文读的是同一个文件版本（S1）。
 func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// 仅允许安全方法
 	switch req.Method {
@@ -220,102 +228,123 @@ func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// 确定页面路径（URL 路径风格）
-	pagePath := T.PagePath
-	if pagePath == "" {
-		pagePath = req.URL.Path
-	}
-	// 使用 path.Clean 规范化 URL 风格路径，并去掉前导斜杠
-	pagePath = path.Clean("/" + pagePath)
-	pagePath = strings.TrimPrefix(pagePath, "/")
-	if pagePath == "" || pagePath == "." {
-		pagePath = "index.html"
-	}
-
-	// 跨平台路径拼接（FromSlash 保证 Windows 上正确）
-	filePath := filepath.Join(T.RootPath, filepath.FromSlash(pagePath))
-
-	// 严格防止路径穿越：最终路径必须位于 RootPath 之下
-	rootAbs, err := filepath.Abs(T.RootPath)
+	_, fileAbs, _, err := resolvePagePath(T.RootPath, T.PagePath, req.URL.Path, "index.html")
 	if err != nil {
-		http.Error(rw, "vweb: invalid RootPath", http.StatusInternalServerError)
-		return
-	}
-	// Clean + Abs 消除符号链接之外的 ".." 与多余分隔符
-	fileAbs, err := filepath.Abs(filepath.Clean(filePath))
-	if err != nil {
-		http.Error(rw, "vweb: invalid file path", http.StatusNotFound)
-		return
-	}
-	rel, err := filepath.Rel(rootAbs, fileAbs)
-	if err != nil || !isLocalPath(rel) {
-		http.Error(rw, "vweb: path traversal detected", http.StatusNotFound)
+		switch {
+		case errors.Is(err, errInvalidRootPath):
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+		case errors.Is(err, errSymlinkEscape):
+			http.Error(rw, "Forbidden", http.StatusForbidden) // ← root 不存在也走这里
+		default:
+			http.Error(rw, err.Error(), http.StatusNotFound)
+		}
 		return
 	}
 
-	fileInfo, err := os.Stat(fileAbs) // 使用绝对路径进行 stat 和后续操作
+	// ---------- 阶段 A：os.Stat + 缓存协商（不 Open） ----------
+	statInfo, err := os.Stat(fileAbs)
 	if err != nil {
 		http.Error(rw, "File not found", http.StatusNotFound)
 		return
 	}
-	if fileInfo.IsDir() {
+	if statInfo.IsDir() {
 		http.Error(rw, "Forbidden", http.StatusForbidden)
 		return
 	}
 	// 仅提供普通文件，避免设备文件、命名管道等非普通文件造成阻塞或安全问题
-	if !fileInfo.Mode().IsRegular() {
+	if !statInfo.Mode().IsRegular() {
 		http.Error(rw, "Forbidden", http.StatusForbidden)
 		return
 	}
 
-	blocks, ok := T.setHeader(rw, req, fileInfo, fileAbs)
+	sh := T.newHeader(rw, statInfo, fileAbs)
+	if T.notModified(rw, req, sh) {
+		return // 304，不 Open
+	}
+
+	// ---------- 阶段 B：Open + fstat，响应头与正文读同一句柄 ----------
+	file, err := os.Open(fileAbs)
+	if err != nil {
+		switch {
+		case os.IsNotExist(err):
+			http.Error(rw, "File not found", http.StatusNotFound)
+		case os.IsPermission(err):
+			http.Error(rw, "Forbidden", http.StatusForbidden)
+		default:
+			http.Error(rw, "Failed to open file", http.StatusInternalServerError)
+		}
+		return
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil || !fileInfo.Mode().IsRegular() {
+		http.Error(rw, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if !sameFile(statInfo, fileInfo) {
+		// Stat 与 Open 之间文件被替换：重建头并重做缓存协商。
+		sh = T.newHeader(rw, fileInfo, fileAbs)
+		if T.notModified(rw, req, sh) {
+			return
+		}
+	}
+
+	blocks, ok := T.serveRange(rw, req, sh)
 	if !ok {
 		return
 	}
-
-	T.body(rw, blocks, fileInfo, fileAbs)
+	T.body(rw, blocks, sh.fileInfo, file, fileAbs)
 }
 
-// setHeader 初始化响应头，并处理 304 Not Modified 协商逻辑
-// 返回: 处理器对象, 若为 Range 请求则返回对应的字节区间列表
-func (T *ServerHandlerStatic) setHeader(rw http.ResponseWriter, req *http.Request, fi os.FileInfo, filePath string) ([]blockRange, bool) {
+// newHeader 创建 sh 并设置基础响应头（不含 Content-Length）。
+func (T *ServerHandlerStatic) newHeader(rw http.ResponseWriter, fi os.FileInfo, filePath string) *serverHandlerStaticHeader {
 	sh := &serverHandlerStaticHeader{
 		fileInfo: fi,
 		header:   rw.Header(),
-		blocks:   make([]blockRange, 0, 1),
 	}
-
 	sh.setContentType(filePath)
 	sh.setDate()
 	sh.setLastModified()
 	sh.setETag()
 	sh.setAcceptRanges()
 	sh.setPageExpired(T.PageExpired)
+	return sh
+}
 
-	size := fi.Size()
+// notModified 做缓存协商；命中写 304 并返回 true。
+func (T *ServerHandlerStatic) notModified(rw http.ResponseWriter, req *http.Request, sh *serverHandlerStaticHeader) bool {
 	etag := sh.etag()
-	modTime := fi.ModTime()
+	modTime := sh.fileInfo.ModTime()
 
-	// 缓存协商: 优先 ETag（If-None-Match）——弱比较
+	// 优先 ETag（If-None-Match）——弱比较
 	if inm := req.Header.Get("If-None-Match"); inm != "" {
 		if etagMatch(inm, etag) {
 			rw.Header().Del("Content-Type")
 			rw.Header().Del("Content-Length")
 			rw.WriteHeader(http.StatusNotModified)
-			return nil, false
+			return true
 		}
-	} else if ims := req.Header.Get("If-Modified-Since"); ims != "" {
+		return false
+	}
+	if ims := req.Header.Get("If-Modified-Since"); ims != "" {
 		if t, err := http.ParseTime(ims); err == nil {
 			// 秒级截断比较，与 RFC 7232 一致。
 			if !modTime.Truncate(time.Second).After(t) {
 				rw.Header().Del("Content-Type")
 				rw.Header().Del("Content-Length")
 				rw.WriteHeader(http.StatusNotModified)
-				return nil, false
+				return true
 			}
 		}
 	}
+	return false
+}
 
+// serveRange 处理空文件、Range、If-Range、HEAD 与 416。
+// 返回待发送区间；ok=false 表示响应已结束（304 已在 notModified 处理）。
+func (T *ServerHandlerStatic) serveRange(rw http.ResponseWriter, req *http.Request, sh *serverHandlerStaticHeader) ([]blockRange, bool) {
+	size := sh.fileInfo.Size()
 	// 空文件在缓存协商完成后直接返回，避免丢失 304 行为
 	if size <= 0 {
 		sh.setContentLength(0)
@@ -328,34 +357,20 @@ func (T *ServerHandlerStatic) setHeader(rw http.ResponseWriter, req *http.Reques
 	if rangeHeader != "" && !strings.HasPrefix(rangeHeader, "bytes=") {
 		rangeHeader = ""
 	}
+	// 段数 = 逗号数 + 1。逗号数 >= maxRangeCount ⇒ 段数 > maxRangeCount；
+	// 超限时忽略 Range 返回全量，防止 "bytes=0-0,2-2,..." 多段放大响应。
+	if strings.Count(rangeHeader, ",") >= maxRangeCount {
+		rangeHeader = ""
+	}
 
 	// 若同时存在 If-Range，需校验后才应用 Range（RFC 7233）
 	if ir := req.Header.Get("If-Range"); ir != "" && rangeHeader != "" {
-		useRange := false
-		if strings.HasPrefix(ir, `W/"`) || strings.HasPrefix(ir, `"`) {
-			// If-Range 中 ETag 必须强比较；服务端生成的是弱 ETag（W/...），
-			// 按 RFC 7233 §3.2，弱 ETag 永远不匹配 If-Range，回退到全量响应。
-			if !strings.HasPrefix(etag, `W/`) && ir == etag {
-				useRange = true
-			}
-		} else if t, err := http.ParseTime(ir); err == nil {
-			// 秒级比较（强校验）
-			if modTime.Unix() == t.Unix() {
-				useRange = true
-			}
-		}
-		if !useRange {
-			// If-Range 不匹配，回退到全量响应
-			sh.setContentLength(size)
-			if req.Method == http.MethodHead {
-				rw.WriteHeader(http.StatusOK)
-				return nil, false
-			}
-			return nil, true
+		if !T.ifRangeMatch(ir, sh) {
+			rangeHeader = ""
 		}
 	}
 
-	// 无 Range 或空文件已处理
+	// 无 Range：全量响应
 	if rangeHeader == "" {
 		sh.setContentLength(size)
 		if req.Method == http.MethodHead {
@@ -364,29 +379,13 @@ func (T *ServerHandlerStatic) setHeader(rw http.ResponseWriter, req *http.Reques
 		}
 		return nil, true
 	}
-	if !strings.HasPrefix(rangeHeader, "bytes=") {
-		sh.setContentRange(fmt.Sprintf("bytes */%d", size))
-		sh.setContentLength(0)
-		rw.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-		return nil, false
-	}
 
-	blocks, total := sh.ranges(rangeHeader)
+	blocks, _ := sh.ranges(rangeHeader)
 	if len(blocks) == 0 {
 		sh.setContentRange(fmt.Sprintf("bytes */%d", size))
 		sh.setContentLength(0)
 		rw.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		return nil, false
-	}
-
-	// RFC 7233 / stdlib: 若请求的总字节数大于文件本身，忽略 Range
-	if total > size {
-		sh.setContentLength(size)
-		if req.Method == http.MethodHead {
-			rw.WriteHeader(http.StatusOK)
-			return nil, false
-		}
-		return nil, true
 	}
 
 	// HEAD 请求仅返回头
@@ -410,15 +409,40 @@ func (T *ServerHandlerStatic) setHeader(rw http.ResponseWriter, req *http.Reques
 	return blocks, true
 }
 
-// body 将文件内容写入 HTTP 响应体，支持分段传输 (Range)
-func (T *ServerHandlerStatic) body(rw http.ResponseWriter, blocks []blockRange, fi os.FileInfo, filePath string) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		http.Error(rw, "Failed to open file", http.StatusInternalServerError)
-		return
-	}
-	defer file.Close()
+// etagStrongMatch 实现强实体标签比较（RFC 7232 §2.3.2）：
+// 两个都是强 ETag（以 " 开头，无 W/ 前缀）且字面相等。
+func etagStrongMatch(a, b string) bool {
+	return a != "" && b != "" && a == b && a[0] == '"'
+}
 
+// ifRangeMatch 校验 If-Range。弱 ETag 永不匹配；时间按秒级比较（强校验）。
+func (T *ServerHandlerStatic) ifRangeMatch(ir string, sh *serverHandlerStaticHeader) bool {
+	// 弱 ETag 永不匹配（RFC 7233 §3.2）。此时必须忽略 Range，返回 200 全量。
+	if strings.HasPrefix(ir, "W/") {
+		return false
+	}
+	// 强 ETag：两端都必须是强 ETag 且字面相等。
+	if strings.HasPrefix(ir, `"`) {
+		return etagStrongMatch(ir, sh.etag())
+	}
+	if t, err := http.ParseTime(ir); err == nil {
+		return sh.fileInfo.ModTime().Unix() == t.Unix()
+	}
+	return false
+}
+
+// sameFile 判断两次 Stat 是否为同一版本（大小与 mtime 一致）。
+// 用于检测 Stat 与 Open 之间文件是否被替换或原地改写。
+func sameFile(a, b os.FileInfo) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
+}
+
+// body 将文件内容写入 HTTP 响应体，支持分段传输 (Range)。
+// 接收 ServeHTTP 已打开的文件，不再二次 Open（S1）。
+func (T *ServerHandlerStatic) body(rw http.ResponseWriter, blocks []blockRange, fi os.FileInfo, file *os.File, filePath string) {
 	size := fi.Size()
 	bufp := copyBufPool.Get().(*[]byte)
 	buf := *bufp
@@ -466,7 +490,9 @@ func (T *ServerHandlerStatic) body(rw http.ResponseWriter, blocks []blockRange, 
 	// 多 Range 时不强制设置 Content-Length（由传输编码决定）
 	rw.Header().Del("Content-Length")
 	rw.WriteHeader(http.StatusPartialContent)
-
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
 	for _, b := range blocks {
 		partH := make(textproto.MIMEHeader)
 		partH.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", b.start, b.start+b.length-1, size))
@@ -494,10 +520,6 @@ func (T *ServerHandlerStatic) body(rw http.ResponseWriter, blocks []blockRange, 
 }
 
 // isClientGone 判断错误是否由客户端主动断开导致（不值得作为服务端错误记录）。
-// io.CopyBuffer 在客户端关闭连接、网络中断时通常返回 broken pipe /
-// connection reset / use of closed network connection；这类错误高频但无服务端价值，
-// 过滤后保留真正需要关注的磁盘/协议错误。用字符串匹配而非 syscall 常量，
-// 避免在 js/wasm、TinyGo 等平台上 syscall 常量不可用的兼容性问题。
 func isClientGone(err error) bool {
 	if err == nil {
 		return false
@@ -506,31 +528,6 @@ func isClientGone(err error) bool {
 	return strings.Contains(s, "broken pipe") ||
 		strings.Contains(s, "connection reset") ||
 		strings.Contains(s, "use of closed network connection")
-}
-
-// isLocalPath 检查相对路径是否安全
-func isLocalPath(rel string) bool {
-	if rel == "" || rel == "." {
-		return true
-	}
-	// 拒绝绝对路径、盘符路径或 UNC 路径
-	if filepath.IsAbs(rel) {
-		return false
-	}
-	if filepath.VolumeName(rel) != "" {
-		return false
-	}
-	if strings.HasPrefix(rel, `\\`) || strings.HasPrefix(rel, "//") {
-		return false
-	}
-
-	// 使用标准库 IsLocal 增强跨平台安全（Go 1.20+）
-	if !filepath.IsLocal(rel) {
-		return false
-	}
-
-	// 检查中间是否存在 ".." 组件（同时兼容 / 与系统分隔符）
-	return !slices.Contains(strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == filepath.Separator }), "..")
 }
 
 // etagMatch 实现弱 ETag 比较（支持多个值与 *）

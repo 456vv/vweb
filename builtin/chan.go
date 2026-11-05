@@ -5,6 +5,7 @@ import (
 	"reflect"
 )
 
+// Chan 类型定义。
 type Chan struct {
 	C reflect.Value
 }

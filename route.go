@@ -11,6 +11,7 @@ import (
 	"sync"
 )
 
+// 路由注册与匹配。
 type Router interface {
 	HandleFunc(url string, handler func(w http.ResponseWriter, r *http.Request))
 	HandleFuncDot(url string, handler ...func(Doter))
@@ -32,6 +33,7 @@ type routePathPlaceholder struct {
 	url string
 }
 
+// Route 类型定义。
 type Route struct {
 	HandlerError http.HandlerFunc // 错误访问处理
 	rt           sync.Map         // 路由表 map[string]*routePathPlaceholder，精确匹配走此表
@@ -58,6 +60,7 @@ func (T *Route) HandleFunc(url string, handler func(w http.ResponseWriter, r *ht
 	T.addHandle(url, http.Handler(http.HandlerFunc(handler)))
 }
 
+// 注册路径与 Handler。
 func (T *Route) HandleFuncDot(url string, handler ...func(Doter)) {
 	if len(handler) == 0 || handler[0] == nil {
 		T.removeHandle(url)
@@ -90,6 +93,7 @@ func (T *Route) removeHandle(url string) {
 	// 关键是不复用原底层数组，避免与正在遍历的快照数据竞争。
 	T.list = newList
 }
+
 
 func (T *Route) addHandle(url string, handle http.Handler) {
 	pathPlaceholder := &routePathPlaceholder{
@@ -202,16 +206,20 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if pathPlaceholder == nil {
 			continue
 		}
-		// 目录性必须一致
-		if pathPlaceholder.isDir != isDir {
-			continue
-		}
 
+		// 正则表达式本身决定是否匹配尾斜杠。
+		// 例如 "^/items/.*/$" 的注册字符串以 "$" 结尾，
+		// 不能用字符串是否以 "/" 结尾来判断其目录性。
 		if pathPlaceholder.isRegexp {
 			if pathPlaceholder.pathRegex.MatchString(userPath) {
 				pathPlaceholder.handle.ServeHTTP(w, r)
 				return
 			}
+			continue
+		}
+
+		// 目录性必须一致
+		if pathPlaceholder.isDir != isDir {
 			continue
 		}
 
@@ -325,15 +333,29 @@ func extractParamsFromSegmentPreparsed(parsedParts []segmentPart, userSeg string
 			continue
 		}
 
-		// 占位符：找到下一个文字的位置作为结束边界
 		var endOfParam int
 		if i+1 < len(parsedParts) {
 			nextLiteral := parsedParts[i+1].value
-			foundIdx := strings.Index(userSeg[userSegIdx:], nextLiteral)
-			if foundIdx == -1 {
-				return nil, false
+
+			if i+1 == len(parsedParts)-1 {
+				// 最后一段文字必须匹配字符串后缀，不能选择第一次出现的位置。
+				// "{name}.json" 应能匹配 "a.json.json"。
+				if !strings.HasSuffix(userSeg[userSegIdx:], nextLiteral) {
+					return nil, false
+				}
+				endOfParam = userSegLen - len(nextLiteral)
+			} else {
+				// 保留中间分隔文字的最早匹配语义；
+				// 后续占位符仍可吸收剩余内容，无需引入递归回溯。
+				foundIdx := strings.Index(
+					userSeg[userSegIdx:],
+					nextLiteral,
+				)
+				if foundIdx == -1 {
+					return nil, false
+				}
+				endOfParam = userSegIdx + foundIdx
 			}
-			endOfParam = userSegIdx + foundIdx
 		} else {
 			endOfParam = userSegLen
 		}

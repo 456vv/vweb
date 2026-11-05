@@ -92,11 +92,11 @@ func TestCompute_DivideByZero(t *testing.T) {
 }
 
 func TestCompute_IntMinDivNegOne(t *testing.T) {
-	if _, err := Compute(math.MinInt64, "/", int64(-1)); err == nil {
-		t.Fatal("min / -1 应报错")
+	if _, err := Compute(math.MinInt64, "/", int64(-1)); err != nil {
+		t.Fatalf("min / -1 等于min，不应报错: %v", err)
 	}
-	if _, err := Compute(math.MinInt64, "%", int64(-1)); err == nil {
-		t.Fatal("min %% -1 应报错")
+	if _, err := Compute(math.MinInt64, "%", int64(-1)); err != nil {
+		t.Fatalf("min %% -1 等于0，不应报错: %v", err)
 	}
 }
 
@@ -159,8 +159,8 @@ func TestCompute_Boundary(t *testing.T) {
 		want    any
 		wantErr bool
 	}{
-		{"int64 MinInt/-1 溢出", math.MinInt64, "/", int64(-1), nil, true},
-		{"int64 MinInt%-1 溢出", math.MinInt64, "%", int64(-1), nil, true},
+		{"int64 MinInt/-1 溢出", math.MinInt64, "/", int64(-1), math.MinInt64, false},
+		{"int64 MinInt%-1 溢出", math.MinInt64, "%", int64(-1), 0, false},
 		{"int+float 按左类型", int(10), "+", float64(10), int(20), false},
 		{"int8(-1)+uint8(1)", int8(-1), "+", uint8(1), int8(0), false},
 		{"uint8 环绕", uint8(0), "-", uint8(1), uint8(255), false},

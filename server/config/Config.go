@@ -27,6 +27,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// HandleFunc 类型定义。
 type HandleFunc func(name string, dsc, src reflect.Value) bool
 
 // configExclude 返回一个过滤函数：跳过零值源字段，或由自定义 handle 决定跳过。
@@ -61,6 +62,7 @@ func configExclude(handle HandleFunc) HandleFunc {
 	}
 }
 
+
 func publicCopy(transit, dsc, src any, handle HandleFunc) bool {
 	if builtin.CopyStructDeep(transit, dsc, nil) != nil {
 		return false
@@ -83,6 +85,7 @@ type SiteForward struct {
 	// forwardWriter 为运行时状态，不属于持久化配置；合并公共配置时不应共享该指针。
 	forwardWriter *vweb.ForwardRewriter
 }
+
 
 func (T *SiteForward) Compile() (fw *vweb.ForwardRewriter, err error) {
 	if T == nil {
@@ -173,9 +176,11 @@ func (T *SitePlugin) clone() *SitePlugin {
 	return &cp
 }
 
+
 func (T *SitePlugin) ConfigPluginHTTPClient(c *vweb.PluginHTTPClient) error {
 	return configHTTPClient(c, T)
 }
+
 
 func (T *SitePlugin) ConfigPluginRPCClient(c *vweb.PluginRPCClient) error {
 	return configRPCClient(c, T)
@@ -289,7 +294,9 @@ func (T *SiteDirectory) RootDir(upath string) string {
 		root      = filepath.FromSlash(T.Root)
 		separator = string(filepath.Separator)
 	)
-
+	if root == "" {
+		root = "."
+	}
 	for _, v := range T.Virtual {
 		if v == "" {
 			continue
@@ -586,7 +593,7 @@ type Server struct {
 	ReadHeaderTimeout            int64      `yaml:"ReadHeaderTimeout"`            // 读取标头超时(毫秒单位）
 	IdleTimeout                  int64      `yaml:"IdleTimeout"`                  // 保持连接空闲超时，如果为0，使用 ReadTimeout,(毫秒单位）
 	MaxHeaderBytes               int        `yaml:"MaxHeaderBytes"`               // 如果0，最大请求头的大小，http.DefaultMaxHeaderBytes
-	KeepAlivesEnabled            bool       `yaml:"KeepAlivesEnabled"`            // 支持客户端Keep-Alive
+	DisableKeepAlives            bool       `yaml:"DisableKeepAlives"`            // 禁止客户端Keep-Alive
 	ShutdownConn                 bool       `yaml:"ShutdownConn"`                 // 服务器关闭监听，不会即时关闭正在下载的连接。空闲后再关闭。(默认即时关闭)
 	DisableGeneralOptionsHandler bool       `yaml:"DisableGeneralOptionsHandler"` // 如果为真，将“OPTIONS *”请求传递给处理程序，否则响应 200 OK 和 Content-Length: 0。
 	TLS                          *ServerTLS `yaml:"TLS"`                          // TLS
