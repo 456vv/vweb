@@ -7,7 +7,6 @@ import (
 	"github.com/456vv/x/vweb_dynamic"
 )
 
-
 func Module(name string) (vweb.DynamicTemplater, error) {
 	switch name {
 	case "yaegi":
@@ -15,7 +14,9 @@ func Module(name string) (vweb.DynamicTemplater, error) {
 	case "igop", "ixgo":
 		return &vweb_dynamic.Ixgo{}, nil
 	case "wasm-01000000", "wasm-02000000":
-		return &vweb_dynamic.Wazero{}, nil
+		return &vweb_dynamic.Wazero{
+			RootAsFirstArg: true,
+		}, nil
 	}
 	return nil, errors.New("vweb: the file type does not support dynamic parsing")
 }
