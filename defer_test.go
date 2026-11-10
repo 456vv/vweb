@@ -2,6 +2,7 @@ package vweb
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -203,4 +204,56 @@ func TestExitCall_Boundary(t *testing.T) {
 			t.Fatal("Free 后 Defer 应报错")
 		}
 	})
+}
+
+// 1. 零变参时 b 应为 nil
+func TestExecCallVariadicZero(t *testing.T) {
+	var got []string
+	err := (&ExecCall{}).Func(func(a int, b ...string) {
+		got = b
+		if a != 1 {
+			t.Fatalf("a = %d", a)
+		}
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatalf("b = %v, want nil", got)
+	}
+}
+
+// 2. 非零变参仍正常
+func TestExecCallVariadicNonZero(t *testing.T) {
+	var got []string
+	ec := &ExecCall{}
+	if err := ec.Func(func(b ...string) {
+		got = b
+	}, "x", "y"); err != nil {
+		t.Fatal(err)
+	}
+	if rvs := ec.Exec(); len(rvs) != 0 { // 顺便校验返回值
+		t.Fatalf("unexpected return values: %v", rvs)
+	}
+	if !slices.Equal(got, []string{"x", "y"}) {
+		t.Fatalf("b = %v", got)
+	}
+}
+
+// 3. Exec 真正执行时也要通过 CallSlice 路径（验证 nil 不会 panic）
+func TestExecCallExecVariadicZero(t *testing.T) {
+	var called bool
+	ec := &ExecCall{}
+	if err := ec.Func(func(b ...string) {
+		called = true
+		if b != nil {
+			t.Fatalf("b = %v", b)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ret := ec.Exec()
+	if !called || len(ret) != 0 {
+		t.Fatalf("called=%v ret=%v", called, ret)
+	}
 }

@@ -220,15 +220,14 @@ func (T *Server) ListenAndServe() error {
 		T.mu.Unlock()
 		return err
 	}
+	// 这里的 listener 由本方法创建，准备失败必须关闭。
+	defer l.Close()
 
 	err = T.prepareServeLocked(l)
 	T.mu.Unlock()
 	if err != nil {
-		// 这里的 listener 由本方法创建，准备失败必须关闭。
-		l.Close()
 		return err
 	}
-
 	return T.servePrepared()
 }
 
@@ -301,8 +300,15 @@ func (T *Server) ConfigConn(cc *config.Conn) error {
 	}
 
 	cp := *cc
-	T.cConn = &cp
-	T.l.upConn(T.cConn)
+	T.cConn = &cp // 仍保存完整配置，供 srvConfigChanged 比较
+
+	probe := cp
+	probe.PublicName = ""
+	if probe == (config.Conn{}) {
+		T.l.upConn(nil)
+	} else {
+		T.l.upConn(T.cConn)
+	}
 	return nil
 }
 
@@ -537,7 +543,7 @@ func (T *siteExtendInfo) publish(c *config.Site, forwards map[string][]compiledF
 			if e != "" && !strings.HasPrefix(e, ".") {
 				e = "." + e
 			}
-			extSet[e] = struct{}{}
+			extSet[strings.ToLower(e)] = struct{}{}
 		}
 	}
 	T.configMu.Lock()
@@ -737,7 +743,6 @@ func (T *Group) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		uPath := r.URL.Path
 		cDir := conf.Dynamic.CacheStaticFileDir
 		if !filepath.IsAbs(cDir) {
-			// 相对路径
 			uPath = path.Join("/", cDir, r.URL.Path)
 			cDir = rootDir(uPath)
 		}
@@ -798,7 +803,7 @@ func (T *Group) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	//** 文件后缀支持
 	var (
-		fileExt = path.Ext(pagePath)
+		fileExt = strings.ToLower(path.Ext(pagePath))
 		header  = conf.Header
 	)
 
@@ -841,7 +846,7 @@ func (T *Group) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		if inf, ok := dCache.GetHas(pagePath); ok {
 			handlerDynamic, _ = inf.(*vweb.ServerHandlerDynamic)
 			if handlerDynamic != nil {
-				if conf.Dynamic.Cache {
+				if conf.Dynamic.Cache && !handlerDynamic.Closed() {
 					if cacheParseTimeout != 0 {
 						// 缓存过期调用函数
 						dCache.SetExpiredCall(pagePath, cacheParseTimeout, func(a any) {
@@ -860,12 +865,14 @@ func (T *Group) serveHTTP(rw http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if handlerDynamic == nil {
+
+		if handlerDynamic == nil || handlerDynamic.Closed() {
 			handlerDynamic = &vweb.ServerHandlerDynamic{
 				RootPath: rootPath,
 				PagePath: pagePath,
 				Module:   T.Module,
 				Site:     site,
+				ErrorLog: T.ErrorLog,
 			}
 			if conf.Dynamic.Cache {
 				se.dynamicMu.Lock()
@@ -1181,22 +1188,34 @@ func (T *Group) updateSitePoolDel(siteEffectiveIdent, siteEffectiveHosts []strin
 
 			// 关闭服务组时需要等待会话 Defer 执行完毕。
 			if wg != nil {
-				site.Sessions().InstantDeadAllInto(wg)
+				wg.Go(func() {
+					var local sync.WaitGroup
+					site.Sessions().InstantDeadAllInto(&local)
+					local.Wait()
+					site.Global().Reset()
+					site.Extend.Reset()
+				})
 			} else {
-				site.Sessions().InstantDeadAll()
+				site.Sessions().InstantDeadAllInto(nil)
+				site.Global().Reset()
+				site.Extend.Reset()
 			}
-			site.Global().Reset()
-			site.Extend.Reset()
 		}
 		return true
 	})
 }
 
 func (T *Group) updateConfigSites(conf config.Sites) error {
+	seen := make(map[string]struct{}, len(conf.Site))
 	for i := range conf.Site {
-		if conf.Site[i].Identity == "" {
+		id := conf.Site[i].Identity
+		if id == "" {
 			return fmt.Errorf("server: 配置中出现站点惟一名(Identity)为 \"\", 需要设定一个名称。")
 		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("server: 站点惟一名(Identity)重复: %q", id)
+		}
+		seen[id] = struct{}{}
 	}
 
 	var (
@@ -1573,6 +1592,8 @@ func (T *Group) Start() error {
 	if T.config != nil {
 		if err := T.updateConfigLocked(T.config); err != nil {
 			T.run.Store(false)
+			// updateConfigServers 可能已经启动监听； Start 失败必须回收，否则端口仍被占用。
+			T.closeServersLocked()
 			if T.exit != nil {
 				close(T.exit)
 				T.exit = nil
@@ -1586,6 +1607,21 @@ func (T *Group) Start() error {
 
 	<-exit
 	return nil
+}
+
+// closeServersLocked 关闭所有服务器。仅用于 Start 失败/Close 的监听回收。
+func (T *Group) closeServersLocked() {
+	var srvs []*Server
+	T.srvMan.Range(func(_, v any) bool {
+		if srv, ok := v.(*Server); ok && srv != nil {
+			srvs = append(srvs, srv)
+		}
+		return true
+	})
+	T.srvMan.Reset()
+	for _, srv := range srvs {
+		_ = srv.Close()
+	}
 }
 
 // initGroupResources 幂等初始化 Group 运行期必需的资源。
@@ -1631,6 +1667,31 @@ func (T *Group) Close() error {
 	T.closing.Store(true)
 	wasRunning := T.run.Swap(false)
 
+	// 关闭监听
+	var srvs []*Server
+	T.srvMan.Range(func(_, v any) bool {
+		if srv, ok := v.(*Server); ok && srv != nil {
+			srvs = append(srvs, srv)
+		}
+		return true
+	})
+	T.srvMan.Reset()
+	for _, srv := range srvs {
+		srv.mu.Lock()
+		graceful := srv.Server != nil && srv.cServer != nil && srv.cServer.ShutdownConn
+		srv.mu.Unlock()
+		// ShutdownConn=true 时先优雅关闭，超时或失败再降级为硬 Close。
+		if graceful {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := srv.Shutdown(ctx); err != nil {
+				srv.Close()
+			}
+			cancel()
+			continue
+		}
+		srv.Close()
+	}
+
 	// 无论是否 running 都执行资源清理（每步都做 nil 判断与幂等）
 	if T.sitePool != nil {
 		var wg sync.WaitGroup
@@ -1642,19 +1703,6 @@ func (T *Group) Close() error {
 		T.sitePool = nil
 	}
 	T.siteMan = nil
-
-	// 关闭监听
-	var srvs []*Server
-	T.srvMan.Range(func(_, v any) bool {
-		if srv, ok := v.(*Server); ok && srv != nil {
-			srvs = append(srvs, srv)
-		}
-		return true
-	})
-	T.srvMan.Reset()
-	for _, srv := range srvs {
-		srv.Close()
-	}
 
 	if T.exit != nil {
 		close(T.exit)

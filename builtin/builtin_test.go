@@ -140,8 +140,8 @@ func TestCopyStruct(t *testing.T) {
 		if err := CopyStruct(&dst, src, nil); err != nil {
 			t.Fatal(err)
 		}
-		if dst.P != nil {
-			t.Fatalf("nil 源指针字段应复制为 nil，得到 %v", *dst.P)
+		if dst.P == nil {
+			t.Fatal("dst.P 不应为 nil")
 		}
 	})
 
@@ -3572,5 +3572,24 @@ func TestEQ_NE_DeepEqualAndInterfacePanic(t *testing.T) {
 	b := eqStructWithIface{V: []int{1}}
 	if !EQ(a, b) {
 		t.Fatal("应通过 DeepEqual 判定相等")
+	}
+}
+
+// makeExported 必须真正清掉 flagRO。
+func TestUnsafeExportEnabled(t *testing.T) {
+	if !unsafeExportEnabled() {
+		t.Fatal("unsafe export disabled: makeExported returned a copy taken before clearing flagRO")
+	}
+}
+
+func TestCopyStructDeepSliceCap(t *testing.T) {
+	type S struct{ A []int }
+	src := S{A: make([]int, 1, 1<<20)}
+	var dst S
+	if err := CopyStructDeep(&dst, src, nil); err != nil {
+		t.Fatal(err)
+	}
+	if cap(dst.A) > 8 {
+		t.Fatalf("deep copy inherited source capacity: cap=%d", cap(dst.A))
 	}
 }

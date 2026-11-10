@@ -97,7 +97,7 @@ func TestRoute_ServeHTTP(t *testing.T) {
 	t.Run("Path placeholder test", func(t *testing.T) {
 		var r Route
 		r.HandleFunc("/test/{a}/b", func(w http.ResponseWriter, r *http.Request) {
-			if params, ok := r.Context().Value("url-params").(map[string]string); ok {
+			if params, ok := r.Context().Value(URLParamsContextKey).(map[string]string); ok {
 				w.Write(fmt.Appendf(nil, "a: %v", params["a"]))
 			}
 		})
@@ -151,7 +151,7 @@ func TestRoute_ExactBeatsPattern(t *testing.T) {
 func TestRoute_PlaceholderOverwrite(t *testing.T) {
 	var r Route
 	r.HandleFunc("/a/{x}/b/{x}/c", func(w http.ResponseWriter, req *http.Request) {
-		params := req.Context().Value("url-params").(map[string]string)
+		params := req.Context().Value(URLParamsContextKey).(map[string]string)
 		w.Write([]byte(params["x"]))
 	})
 	rw := httptest.NewRecorder()

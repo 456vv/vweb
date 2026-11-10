@@ -91,6 +91,7 @@ func (T *ServerHTTP) Serve(l net.Listener) error {
 	}
 	T.Addr = net.JoinHostPort(ip.String(), strconv.Itoa(tcpAddr.Port))
 	T.l.TCPListener = tcpLn
+	T.l.tlsconfig = T.Server.TLSConfig
 	T.Server.Handler = http.HandlerFunc(T.Route.ServeHTTP)
 	T.Server.Handler = vweb.AutoCert(T.AutoCert, T.Server.TLSConfig, T.Server.Handler)
 
@@ -105,14 +106,4 @@ func (T *ServerHTTP) Close() error {
 		return T.Server.Close()
 	}
 	return nil
-}
-
-
-func strSliceContains(ss []string, s string) bool {
-	for _, v := range ss {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

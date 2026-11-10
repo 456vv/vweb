@@ -1,20 +1,30 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"golang.org/x/crypto/acme/autocert"
 )
 
-// loadAutoCertHostPolicy 加载自动申请证书白名单。
-func loadAutoCertHostPolicy(acm *autocert.Manager, p string) error {
-	if acm == nil {
-		return errors.New("autocert.Manager 不能为 nil")
+// newDynamicHostPolicy 返回一个读取 policy 最新值的 autocert.HostPolicy。
+// policy 由调用方持有，通常是 main 中的局部变量，通过闭包共享。
+func newDynamicHostPolicy(policy *atomic.Pointer[autocert.HostPolicy]) autocert.HostPolicy {
+	return func(ctx context.Context, host string) error {
+		if p := policy.Load(); p != nil {
+			return (*p)(ctx, host)
+		}
+		// 默认不支持，需要设置 ssl/auto/host.txt
+		return errors.New("auto cert error")
 	}
+}
 
+// loadAutoCertHostPolicy 加载自动申请证书白名单，并把结果写入 policy。
+func loadAutoCertHostPolicy(policy *atomic.Pointer[autocert.HostPolicy], p string) error {
 	b, err := os.ReadFile(p)
 	if err != nil {
 		log.Printf("(%s)读取失败(%v)", p, err)
@@ -29,7 +39,7 @@ func loadAutoCertHostPolicy(acm *autocert.Manager, p string) error {
 	hosts := make([]string, 0, len(lines))
 	seen := make(map[string]struct{}, len(lines))
 	for _, line := range lines {
-		line = strings.TrimSpace(line) // 同时处理 \r、\t、前后空白
+		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -45,7 +55,8 @@ func loadAutoCertHostPolicy(acm *autocert.Manager, p string) error {
 	}
 
 	log.Printf("加载host文件自动申请证书列表: %v\n", hosts)
-	acm.HostPolicy = autocert.HostWhitelist(hosts...)
+	whitelist := autocert.HostWhitelist(hosts...)
+	policy.Store(&whitelist)
 	return nil
 }
 

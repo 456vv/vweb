@@ -28,6 +28,9 @@ var (
 			return new(bytes.Buffer)
 		},
 	}
+
+	errNotRegularFile = errors.New("vweb: not a regular file")
+	errHandlerClosed  = errors.New("vweb: ServerHandlerDynamic is closed")
 )
 
 // putBuffer 限制放回 pool 的 buffer 大小，防止个别特大页面占用过多常驻内存
@@ -71,7 +74,7 @@ type refCountedTemplater struct {
 	refs      int
 	destroyed bool
 	// 增加 closed 标志保证底层 Close 最多执行一次。
-	closed bool
+	closed atomic.Bool
 }
 
 // Close 从缓存移除并释放缓存持有的那 1 个引用。
@@ -84,9 +87,9 @@ func (r *refCountedTemplater) Close() error {
 	}
 	r.destroyed = true
 	r.refs--
-	shouldClose := r.refs <= 0 && !r.closed
+	shouldClose := r.refs <= 0 && !r.closed.Load()
 	if shouldClose {
-		r.closed = true
+		r.closed.Store(true)
 	}
 	r.mu.Unlock()
 
@@ -111,15 +114,15 @@ func (r *refCountedTemplater) acquire() bool {
 // release 释放当前操作的计数，归 0 且已 destroyed 时真实关闭。
 func (r *refCountedTemplater) release() {
 	r.mu.Lock()
-	if r.closed {
+	if r.closed.Load() {
 		// 底层已关闭，不应再改动计数，避免 refs 变成负数。
 		r.mu.Unlock()
 		return
 	}
 	r.refs--
-	shouldClose := r.refs <= 0 && r.destroyed && !r.closed
+	shouldClose := r.refs <= 0 && r.destroyed && !r.closed.Load()
 	if shouldClose {
-		r.closed = true
+		r.closed.Store(true)
 	}
 	r.mu.Unlock()
 
@@ -171,10 +174,18 @@ type ServerHandlerDynamic struct {
 	//   - 为 nil 时走本地文件系统（os.Stat / os.OpenFile + 符号链接逃逸校验）。
 	ReadFile func(filePath string, u *url.URL) (io.ReadCloser, time.Time, error)
 
+	// ErrorLog 优先于全局 log.Printf。为空时走 log。
+	ErrorLog  *log.Logger
 	mu        sync.RWMutex // 保护 pageCache / pathLocks / closed 的并发安全
 	pageCache map[string]*pageCacheEntry
 	pathLocks map[string]*refLock
 	closed    atomic.Bool
+}
+
+// Closed 报告处理器是否已关闭。供上层（如 Server.go 的 dCache 冷启动路径）
+// 在指针复用窗口里做二次防御。
+func (T *ServerHandlerDynamic) Closed() bool {
+	return T.closed.Load()
 }
 
 // acquirePathLock 获取 pagePath 的串行解析锁并增加一个引用。
@@ -231,44 +242,42 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 
 	tplExec, err := T.getOrCreateExecutor(req)
 	if err != nil {
-		// 与静态处理器共用哨兵错误，按类型映射状态码。
+		// 客户端只收到标准状态文本，避免泄露绝对路径与内部错误。
+		// 内部明细写进日志（优先 T.ErrorLog，其次全局 log）。
+		T.logf("动态页面准备失败 %s: %v", req.URL.Path, err)
 		switch {
+		case errors.Is(err, errHandlerClosed):
+			http.Error(rw, "Service Unavailable", http.StatusServiceUnavailable)
 		case errors.Is(err, errInvalidRootPath):
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
-		case errors.Is(err, errFileNotFound):
+		case errors.Is(err, errFileNotFound), errors.Is(err, errPathTraversal), errors.Is(err, errInvalidFilePath):
 			http.Error(rw, err.Error(), http.StatusNotFound)
-		case errors.Is(err, errPermissionDenied):
+		case errors.Is(err, errPermissionDenied), errors.Is(err, errSymlinkFailure), errors.Is(err, errPathEscapesRoot):
 			http.Error(rw, "Forbidden", http.StatusForbidden)
-		case errors.Is(err, errSymlinkEscape):
-			http.Error(rw, "Forbidden", http.StatusForbidden)
-		case errors.Is(err, errPathTraversal), errors.Is(err, errInvalidFilePath):
-			http.Error(rw, err.Error(), http.StatusNotFound)
 		default:
-			webError(rw, err.Error())
+			webError(rw, http.StatusText(http.StatusInternalServerError))
 		}
 		return
 	}
-
 	defer tplExec.release()
 
-	dock := T.prepareDot(rw, req)
-	defer dock.Close()
-
+	// body 必须在 dock.Close 执行 Defer 回调之后才归还到池，
 	body := bufferPool.Get().(*bytes.Buffer)
 	defer putBuffer(body)
 
+	dock := T.prepareDot(rw, req)
+	defer dock.Close()
 	callName := entryname(req.URL.Path)
 	if stack, err := T.executeWith(tplExec, callName, body, dock); err != nil {
-		log.Printf("执行模板错误 %s: \n%v\n", req.URL.Path, err)
+		T.logf("执行模板错误 %s: \n%v\n", req.URL.Path, err)
 		if stack != nil {
-			log.Println(string(stack))
+			T.logln(string(stack))
 		}
-		if !dock.isWrited() {
-			webError(rw, err.Error())
-			return
+		// statusCode != 0 表示模板已经 WriteHeader，不能再写状态码。
+		if !dock.isWrited() && dock.statusCode() == 0 {
+			webError(rw, http.StatusText(http.StatusInternalServerError))
 		}
-		// 已经开始写入响应，只能尽量把错误信息追加写出
-		io.WriteString(rw, err.Error())
+		// 响应已提交时不再追加错误文本，防止信息泄露和 XSS（B6）。
 		return
 	}
 
@@ -281,7 +290,7 @@ func (T *ServerHandlerDynamic) ServeHTTP(rw http.ResponseWriter, req *http.Reque
 func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCountedTemplater, error) {
 	// 入口二次检查，避免 ServeHTTP 与 Close 之间的窗口。
 	if T.closed.Load() {
-		return nil, errors.New("vweb: ServerHandlerDynamic is closed")
+		return nil, errHandlerClosed
 	}
 
 	// 按存储介质分叉解析：
@@ -312,14 +321,19 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 			return nil, classifyFileError(statErr, rel)
 		}
 		if fi.IsDir() {
-			return nil, fmt.Errorf("vweb: path is a directory: %s", rel)
+			return nil, classifyFileError(errNotRegularFile, rel)
+		}
+		// 与静态处理器对齐：打开前拒绝 FIFO、设备文件等，
+		// 防止 os.OpenFile 在特殊文件上阻塞 goroutine。
+		if !fi.Mode().IsRegular() {
+			return nil, classifyFileError(errNotRegularFile, rel)
 		}
 		modeTime = fi.ModTime()
 	} else {
 		reader, modeTime, err = T.ReadFile(fileAbs, req.URL)
 		if err != nil {
 			T.cleanupCacheEntry(pagePath)
-			return nil, fmt.Errorf("vweb: Failed to read the ReadFile! Error: %s", rel)
+			return nil, classifyFileError(err, rel)
 		}
 		// ReadFile 契约要求 reader 非 nil，否则后续逻辑会误走本地文件系统分支。
 		if reader == nil {
@@ -349,14 +363,42 @@ func (T *ServerHandlerDynamic) getOrCreateExecutor(req *http.Request) (*refCount
 			T.cleanupCacheEntry(pagePath)
 			return nil, classifyFileError(err, rel)
 		}
-		if fi, statErr := f.Stat(); statErr == nil {
-			modeTime = fi.ModTime()
+		fi, statErr := f.Stat()
+		if statErr != nil {
+			f.Close()
+			T.cleanupCacheEntry(pagePath)
+			return nil, classifyFileError(statErr, rel)
 		}
+		// Open 之后的二次模式检查：Stat 与 Open 之间文件可能被替换为 FIFO/设备文件。
+		if !fi.Mode().IsRegular() {
+			f.Close()
+			T.cleanupCacheEntry(pagePath)
+			return nil, classifyFileError(errNotRegularFile, rel)
+		}
+		modeTime = fi.ModTime()
 		reader = f
 		defer reader.Close()
 	}
 
 	return T.parseAndCache(pagePath, reader, modeTime)
+}
+
+// logf 把调试/错误明细写进日志，优先用 T.ErrorLog，其次全局 log。
+func (T *ServerHandlerDynamic) logf(format string, args ...any) {
+	if T.ErrorLog != nil {
+		T.ErrorLog.Printf(format, args...)
+		return
+	}
+	log.Printf(format, args...)
+}
+
+// logln 换行日志，同上。
+func (T *ServerHandlerDynamic) logln(msg string) {
+	if T.ErrorLog != nil {
+		T.ErrorLog.Println(msg)
+		return
+	}
+	log.Println(msg)
 }
 
 // cleanupCacheEntry 安全清理指定缓存条目。
@@ -439,6 +481,14 @@ func (T *ServerHandlerDynamic) parseAndCache(pagePath string, r io.Reader, modeT
 	if T.pageCache == nil {
 		T.pageCache = make(map[string]*pageCacheEntry)
 	}
+	// 如果缓存里已有更新的版本（mtime 更大），本次结果只给当前请求用，不进缓存。
+	// 这样避免并发解析时旧结果覆盖新缓存（低概率，但会导致一次无用解析）。
+	if old, ok := T.pageCache[pagePath]; ok && old.modeTime.After(modeTime) {
+		T.mu.Unlock()
+		wrapped.refs = 1
+		wrapped.destroyed = true
+		return wrapped, nil
+	}
 	var oldExec *refCountedTemplater
 	if old, ok := T.pageCache[pagePath]; ok {
 		oldExec = old.exec
@@ -520,7 +570,7 @@ func entryname(name string) string {
 		base = base[:pos]
 	}
 
-	if base == "" || base == "index" {
+	if base == "" || base == "index" || (base[0] >= '0' && base[0] <= '9') {
 		return "Main"
 	}
 

@@ -1,14 +1,11 @@
 package vweb
 
 import (
-	"context"
-	"crypto/tls"
 	"errors"
 	"io"
 	"net"
 	"net/http"
-	"sync"
-	"time"
+	"strings"
 )
 
 // PluginHTTP http插件接口
@@ -28,7 +25,6 @@ type PluginHTTPClient struct {
 	Scheme string          // 协议（用于默认填充）
 	Host   string          // 请求Host（用于默认填充）
 	Dialer *net.Dialer
-	once   sync.Once
 }
 
 // Connection 快速连接HTTP
@@ -39,40 +35,24 @@ func (T *PluginHTTPClient) Connection() (PluginHTTP, error) {
 	if T.Tr == nil {
 		return nil, errors.New("vweb: Tr字段不可以为空！")
 	}
-	if T.Dialer == nil {
-		T.Dialer = &net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-			DualStack: true,
-		}
-	}
 
-	// 关键：仅当 Addr 非空时才消耗 once；后续补齐 Addr 再次调用仍能配置。
-	if T.Addr != "" {
-		T.once.Do(func() {
-			addr := T.Addr
-			dialer := T.Dialer
-			if T.Tr.DialContext == nil {
-				T.Tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-					return dialer.DialContext(ctx, network, addr)
-				}
-			}
-			if tlsCfg := T.Tr.TLSClientConfig; tlsCfg != nil && T.Tr.DialTLSContext == nil {
-				tlsDialer := &tls.Dialer{NetDialer: dialer, Config: tlsCfg}
-				T.Tr.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-					return tlsDialer.DialContext(ctx, network, addr)
-				}
-			}
-		})
+	phttp := &pluginHTTP{
+		tr:     T.Tr,
+		host:   T.Host,
+		scheme: T.Scheme,
 	}
-	return &pluginHTTP{tr: T.Tr, host: T.Host, scheme: T.Scheme}, nil
+	if T.Addr != "" && T.Tr.Proxy == nil {
+		phttp.rewriteHost = T.Addr
+	}
+	return phttp, nil
 }
 
 // pluginHTTP 连接HTTP
 type pluginHTTP struct {
-	tr     *http.Transport
-	host   string
-	scheme string
+	tr          *http.Transport
+	host        string
+	scheme      string
+	rewriteHost string
 }
 
 // 插件类型
@@ -99,6 +79,7 @@ func (T *pluginHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 删除服务器默认增加的标头，避免泄露默认 Server/Content-Type
 	wh.Del("Content-Type")
 	wh.Del("Server")
+	removeHopHeaders(rh) // 响应侧也剥离逐跳标头
 	for key, values := range rh {
 		for _, value := range values {
 			wh.Add(key, value)
@@ -142,9 +123,11 @@ func (T *pluginHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //	resp *http.Response        响应
 //	err error                  错误
 func (T *pluginHTTP) RoundTrip(r *http.Request) (resp *http.Response, err error) {
+	outreq := r.Clone(r.Context())
+	removeHopHeaders(outreq.Header)
 	// 由于req中的URL不完整，需要补充
-	T.fillCompleteURL(r)
-	return T.tr.RoundTrip(r)
+	T.fillCompleteURL(outreq)
+	return T.tr.RoundTrip(outreq)
 }
 
 // fillCompleteURL 补充完整URL
@@ -155,7 +138,9 @@ func (T *pluginHTTP) fillCompleteURL(r *http.Request) {
 		r.Host = T.host
 		r.Header.Set("Host", r.Host)
 	}
-	if r.URL.Host == "" {
+	if T.rewriteHost != "" {
+		r.URL.Host = T.rewriteHost
+	} else if r.URL.Host == "" {
 		r.URL.Host = r.Host
 	}
 	if r.URL.Scheme == "" {
@@ -181,4 +166,24 @@ func (T *pluginHTTP) CloseIdleConnections() {
 //	rt http.RoundTripper            新代理
 func (T *pluginHTTP) RegisterProtocol(scheme string, rt http.RoundTripper) {
 	T.tr.RegisterProtocol(scheme, rt)
+}
+
+// hopHeaders 是不应在代理间转发的逐跳标头（RFC 7230 §6.1）。
+var hopHeaders = []string{
+	"Connection", "Proxy-Connection", "Keep-Alive",
+	"Proxy-Authenticate", "Proxy-Authorization",
+	"Te", "Trailer", "Transfer-Encoding", "Upgrade",
+}
+
+func removeHopHeaders(h http.Header) {
+	for _, c := range h.Values("Connection") {
+		for _, f := range strings.Split(c, ",") {
+			if f = strings.TrimSpace(f); f != "" {
+				h.Del(f)
+			}
+		}
+	}
+	for _, k := range hopHeaders {
+		h.Del(k)
+	}
 }

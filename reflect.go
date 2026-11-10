@@ -63,6 +63,7 @@ func inspectType(v reflect.Value, floor int, lower bool, depth int, sb *strings.
 				return
 			}
 			visited[addr] = true
+			defer delete(visited, addr)
 		}
 		rv = rv.Elem()
 	}
@@ -124,14 +125,14 @@ func inspectType(v reflect.Value, floor int, lower bool, depth int, sb *strings.
 
 	default:
 		// 基本类型处理
-		if v.CanInterface() {
-			valStr := fmt.Sprintf("%#v", v.Interface())
-			if c := byteSliceComment(v); c != "" {
+		if rv.CanInterface() {
+			valStr := fmt.Sprintf("%#v", rv.Interface())
+			if c := byteSliceComment(rv); c != "" {
 				valStr += " " + c
 			}
 			fmt.Fprintf(sb, "%s %v\n", indent, valStr)
 		} else {
-			fmt.Fprintf(sb, "%s %v\n", indent, v.String())
+			fmt.Fprintf(sb, "%s %v\n", indent, rv.String())
 		}
 	}
 }

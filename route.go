@@ -60,7 +60,7 @@ func (T *Route) HandleFunc(url string, handler func(w http.ResponseWriter, r *ht
 	T.addHandle(url, http.Handler(http.HandlerFunc(handler)))
 }
 
-// 注册路径与 Handler。
+// HandleFuncDot 注册路径与 Handler。
 func (T *Route) HandleFuncDot(url string, handler ...func(Doter)) {
 	if len(handler) == 0 || handler[0] == nil {
 		T.removeHandle(url)
@@ -93,7 +93,6 @@ func (T *Route) removeHandle(url string) {
 	// 关键是不复用原底层数组，避免与正在遍历的快照数据竞争。
 	T.list = newList
 }
-
 
 func (T *Route) addHandle(url string, handle http.Handler) {
 	pathPlaceholder := &routePathPlaceholder{
@@ -238,7 +237,7 @@ func (T *Route) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				segmentsReady = true
 			}
 			if param, ok := parsePathParamsPreparsed(filteredUserSegments, pathPlaceholder.pathSegments, pathPlaceholder.parsedParts); ok {
-				r = r.WithContext(context.WithValue(r.Context(), "url-params", param))
+				r = r.WithContext(context.WithValue(r.Context(), URLParamsContextKey, param))
 				pathPlaceholder.handle.ServeHTTP(w, r)
 				return
 			}

@@ -72,7 +72,7 @@ func (T *Session) Defer(call any, args ...any) error {
 	return T.exitCall.Defer(call, args...)
 }
 
-// Free 执行结束 Defer 和键值有效期清理。
+// Free 执行结束 Defer
 // 幂等：多次调用安全；设置 freed 后禁止再 Defer。
 func (T *Session) Free() {
 	T.freed.Store(true)

@@ -475,8 +475,8 @@ func TestServerPublic_ConfigConn(t *testing.T) {
 		return &ServerPublic{CC: map[string]Conn{
 			"pub": {
 				Deadline: 1000, WriteDeadline: 2000, ReadDeadline: 3000,
-				KeepAlive: true, KeepAlivePeriod: 4000, Linger: 5,
-				NoDelay: true, ReadBuffer: 65536, WriteBuffer: 65536,
+				KeepAlivePeriod: 4000, Linger: 5,
+				Delay: false, ReadBuffer: 65536, WriteBuffer: 65536,
 			},
 		}}
 	}
@@ -496,8 +496,8 @@ func TestServerPublic_ConfigConn(t *testing.T) {
 				want: Conn{
 					PublicName: "pub",
 					Deadline:   1000, WriteDeadline: 2000, ReadDeadline: 3000,
-					KeepAlive: true, KeepAlivePeriod: 4000, Linger: 5,
-					NoDelay: true, ReadBuffer: 65536, WriteBuffer: 65536,
+					KeepAlivePeriod: 4000, Linger: 5,
+					ReadBuffer: 65536, WriteBuffer: 65536,
 				},
 			},
 			{
@@ -507,8 +507,8 @@ func TestServerPublic_ConfigConn(t *testing.T) {
 				want: Conn{
 					PublicName: "pub",
 					Deadline:   9999, WriteDeadline: 2000, ReadDeadline: 3000,
-					KeepAlive: true, KeepAlivePeriod: 4000, Linger: -1,
-					NoDelay: true, ReadBuffer: 65536, WriteBuffer: 65536,
+					KeepAlivePeriod: 4000, Linger: -1,
+					ReadBuffer: 65536, WriteBuffer: 65536,
 				},
 			},
 			{
@@ -519,19 +519,19 @@ func TestServerPublic_ConfigConn(t *testing.T) {
 				want: Conn{
 					PublicName: "pub",
 					Deadline:   1000, WriteDeadline: 2000, ReadDeadline: 3000,
-					KeepAlive: true, KeepAlivePeriod: 4000, Linger: 5,
-					NoDelay: true, ReadBuffer: 65536, WriteBuffer: 65536,
+					KeepAlivePeriod: 4000, Linger: 5,
+					ReadBuffer: 65536, WriteBuffer: 65536,
 				},
 			},
 			{
 				name:   "bool 零值无法关闭公共开关",
 				pub:    newPub(),
-				origin: Conn{PublicName: "pub", KeepAlive: false, NoDelay: false},
+				origin: Conn{PublicName: "pub"},
 				want: Conn{
 					PublicName: "pub",
 					Deadline:   1000, WriteDeadline: 2000, ReadDeadline: 3000,
-					KeepAlive: true, KeepAlivePeriod: 4000, Linger: 5,
-					NoDelay: true, ReadBuffer: 65536, WriteBuffer: 65536,
+					KeepAlivePeriod: 4000, Linger: 5,
+					ReadBuffer: 65536, WriteBuffer: 65536,
 				},
 			},
 		}
@@ -1815,11 +1815,10 @@ func TestCipherSuitesAuto_MinGreaterThanMax(t *testing.T) {
 func TestConfigHTTPClient_Basic(t *testing.T) {
 	c := &vweb.PluginHTTPClient{}
 	conf := &SitePlugin{
-		Addr:      "127.0.0.1:8080",
-		Host:      "example.com",
-		Scheme:    "http",
-		Timeout:   5000,
-		KeepAlive: 30000,
+		Addr:    "127.0.0.1:8080",
+		Host:    "example.com",
+		Scheme:  "http",
+		Timeout: 5000,
 	}
 	if err := configHTTPClient(c, conf); err != nil {
 		t.Fatal(err)
@@ -1856,12 +1855,11 @@ func TestConfigHTTPClient_BadProxyURL(t *testing.T) {
 func TestConfigRPCClient_Basic(t *testing.T) {
 	c := &vweb.PluginRPCClient{}
 	conf := &SitePlugin{
-		Addr:      "127.0.0.1:8080",
-		Path:      "/rpc",
-		IdeConn:   5,
-		MaxConn:   10,
-		Timeout:   5000,
-		KeepAlive: 30000,
+		Addr:    "127.0.0.1:8080",
+		Path:    "/rpc",
+		IdeConn: 5,
+		MaxConn: 10,
+		Timeout: 5000,
 	}
 	if err := configRPCClient(c, conf); err != nil {
 		t.Fatal(err)

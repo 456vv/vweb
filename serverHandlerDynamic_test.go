@@ -264,7 +264,7 @@ func TestServerHandlerDynamic_ServeHTTP_ReadFileError(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "Failed to read the ReadFile") {
+	if !strings.Contains(rw.Body.String(), "Internal Server Error") {
 		t.Errorf("Expected ReadFile error message, got %q", rw.Body.String())
 	}
 }
@@ -386,7 +386,7 @@ func TestServerHandlerDynamic_ServeHTTP_ParseError(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "unsupported type") {
+	if !strings.Contains(rw.Body.String(), "Internal Server Error") {
 		t.Errorf("Expected parse error message, got %q", rw.Body.String())
 	}
 }
@@ -414,7 +414,7 @@ func TestServerHandlerDynamic_ServeHTTP_ExecuteError_NotWrited(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "execute failed") {
+	if !strings.Contains(rw.Body.String(), "Internal Server Error") {
 		t.Errorf("Expected execute error message, got %q", rw.Body.String())
 	}
 }
@@ -591,7 +591,7 @@ func TestServerHandlerDynamic_ServeHTTP_CompilerNil(t *testing.T) {
 	if rw.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rw.Code)
 	}
-	if !strings.Contains(rw.Body.String(), "vweb: Module is nil; cannot determine dynamic file type\n") {
+	if !strings.Contains(rw.Body.String(), "Internal Server Error") {
 		t.Errorf("Expected 'not recognized' error, got %q", rw.Body.String())
 	}
 }
@@ -664,7 +664,7 @@ func TestServerHandlerDynamic_ServeHTTP_ExecutePanic(t *testing.T) {
 		t.Errorf("Expected status 500, got %d", rw.Code)
 	}
 	body := rw.Body.String()
-	if !strings.Contains(body, "vweb: Dynamic code execute error. template panic!\n") {
+	if !strings.Contains(body, "Internal Server Error\n") {
 		t.Errorf("Expected panic recovery error message, got %q", body)
 	}
 }

@@ -35,19 +35,31 @@ func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) h
 		return ac.HTTPHandler(handler)
 	}
 
-	// GetCertificate 的 会话在多个连接上并发调用 Get，，必须用锁保护。
-	// TLS 握手会在多个连接上并发调用 GetCertificate，必须用锁保护。
+	// 私有证书快照。crypto/tls 在 GetCertificate 返回 (nil, nil) 时会无锁读取
+	// tlsconf.Certificates，因此不能再原地改写该切片。
 	var certMu sync.Mutex
+	certs := slices.Clone(tlsconf.Certificates)
 
+	// 保存先前安装的 GetCertificate，匹配失败时回退调用，
+	// 避免覆盖共享 tlsconf 上的其它证书逻辑。
+	prevGetCert := tlsconf.GetCertificate
 	tlsconf.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		now := time.Now().Add(ac.RenewBefore)
+		// TLS-ALPN-01 验证握手必须由 autocert 应答
+		if slices.Contains(hello.SupportedProtos, acme.ALPNProto) {
+			return ac.GetCertificate(hello)
+		}
+
+		now := time.Now()
+		renewAt := now.Add(ac.RenewBefore)
 
 		certMu.Lock()
-		certs := tlsconf.Certificates
 		pos := -1
 		for i := range certs {
 			cert := &certs[i]
 			if cert.Leaf == nil {
+				if len(cert.Certificate) == 0 {
+					continue // 空证书链，原实现在这里越界 panic
+				}
 				leaf, err := x509.ParseCertificate(cert.Certificate[0])
 				if err != nil {
 					continue
@@ -55,37 +67,46 @@ func AutoCert(ac *autocert.Manager, tlsconf *tls.Config, handler http.Handler) h
 				cert.Leaf = leaf
 			}
 			if hello.SupportsCertificate(cert) == nil {
-				if !now.Before(cert.Leaf.NotBefore) && !now.After(cert.Leaf.NotAfter) {
+				if !now.Before(cert.Leaf.NotBefore) && !renewAt.After(cert.Leaf.NotAfter) {
+					// 返回副本：之后替换 certs[pos] 不会改写正在握手中使用的对象。
+					c := *cert
 					certMu.Unlock()
-					return cert, nil
+					return &c, nil
 				}
-				// 记录过期证书位置（包含 0 号位）
-				pos = i
+				pos = i // 记录即将过期的证书位置（包含 0 号位）
 			}
 		}
 		certMu.Unlock()
 
-		// 自动证书
 		cert, err := ac.GetCertificate(hello)
 		if err != nil {
-			// 返回 nil,nil 让 tls 继续使用默认逻辑
+			if prevGetCert != nil {
+				return prevGetCert(hello)
+			}
 			log.Println(err)
+			// 返回 nil,nil 让 tls 继续使用 tlsconf.Certificates
 			return nil, nil
 		}
 		if pos >= 0 {
 			certMu.Lock()
-			if pos < len(tlsconf.Certificates) {
-				tlsconf.Certificates[pos] = *cert
+			if pos < len(certs) {
+				certs[pos] = *cert
 			}
 			certMu.Unlock()
 		}
 		return cert, nil
 	}
 
-	// 没有配置 "acme-tls/1" 协议，自动添加
-	if !slices.Contains(tlsconf.NextProtos, acme.ALPNProto) {
-		tlsconf.NextProtos = append(tlsconf.NextProtos, acme.ALPNProto)
+	// TLS-ALPN-01 挑战要求服务端 NextProtos 包含 acme-tls/1；
+	// 正常访问需要 http/1.1 作为最小兼容基线，缺失时补上（不自动补 h2：
+	// 用户自定义 CipherSuites 时 http.Server 可能未启用 HTTP/2）。
+	if !slices.Contains(tlsconf.NextProtos, "http/1.1") {
+		tlsconf.NextProtos = append(slices.Clone(tlsconf.NextProtos), "http/1.1")
 	}
+	if !slices.Contains(tlsconf.NextProtos, acme.ALPNProto) {
+		tlsconf.NextProtos = append(slices.Clone(tlsconf.NextProtos), acme.ALPNProto)
+	}
+
 	return ac.HTTPHandler(handler)
 }
 
@@ -239,7 +260,7 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 	if !isDir {
 		fi, err = os.Stat(path.Join(root, pc))
 		if err != nil {
-			return nil, "", fmt.Errorf(errStr, p)
+			return nil, "", fmt.Errorf("%s", fmt.Sprintf(errStr, p))
 		}
 		isDir = fi.IsDir()
 		if !isDir {
@@ -256,7 +277,7 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 			return fi, pi, nil
 		}
 	}
-	return nil, "", fmt.Errorf(errStr, p)
+	return nil, "", fmt.Errorf("%s", fmt.Sprintf(errStr, p))
 }
 
 func delay(wait, maxDelay time.Duration) time.Duration {

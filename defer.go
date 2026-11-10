@@ -24,7 +24,6 @@ func (T *ExecCall) Func(call any, args ...any) error {
 	// 1. 快速检查：是否为函数且非空
 	if fn.IsValid() && fn.Kind() == reflect.Pointer {
 		if fn.IsNil() {
-			// 区分"传了 nil 指针"和"传了非函数类型"。
 			return fmt.Errorf("vweb: function pointer is nil")
 		}
 		fn = fn.Elem()
@@ -55,33 +54,46 @@ func (T *ExecCall) Func(call any, args ...any) error {
 		}
 	}
 
-	// 3. 预分配 reflect.Value 切片，减少多次 append 的内存分配
-	// 我们统一使用 Call() 而不是 CallSlice()，这样逻辑更清晰，性能差异微乎其微
-	prepArgs := make([]reflect.Value, argLen)
-
-	for i := range argLen {
-		var targetType reflect.Type
-		if isVariadic && i >= numIn-1 {
-			targetType = ft.In(numIn - 1).Elem() // 可变参数的元素类型
-		} else {
-			targetType = ft.In(i)
+	// 3. 预分配 reflect.Value 切片
+	var prepArgs []reflect.Value
+	if isVariadic {
+		fixed := numIn - 1
+		prepArgs = make([]reflect.Value, numIn)
+		for i := range fixed {
+			v, err := convertArg(args[i], ft.In(i), i)
+			if err != nil {
+				return err
+			}
+			prepArgs[i] = v
 		}
 
-		if args[i] == nil {
-			// 处理 nil 参数
-			prepArgs[i] = reflect.Zero(targetType)
+		// 可变参数：对齐 Go 原生语义
+		//   - 零个可变参数 → nil 切片（reflect.Zero）
+		//   - 至少一个可变参数 → MakeSlice 逐元素填充
+		sliceType := ft.In(fixed)
+		nVar := argLen - fixed
+		if nVar == 0 {
+			prepArgs[fixed] = reflect.Zero(sliceType)
 		} else {
-			argV := reflect.ValueOf(args[i])
-			argT := argV.Type()
-
-			// 类型检查与转换
-			if argT.AssignableTo(targetType) {
-				prepArgs[i] = argV
-			} else if argV.CanConvert(targetType) {
-				prepArgs[i] = argV.Convert(targetType)
-			} else {
-				return fmt.Errorf("vweb: arg[%d] type mismatch: cannot convert %s to %s", i, argT, targetType)
+			elemType := sliceType.Elem()
+			sliceVal := reflect.MakeSlice(sliceType, nVar, nVar)
+			for i := range nVar {
+				v, err := convertArg(args[fixed+i], elemType, fixed+i)
+				if err != nil {
+					return err
+				}
+				sliceVal.Index(i).Set(v)
 			}
+			prepArgs[fixed] = sliceVal
+		}
+	} else {
+		prepArgs = make([]reflect.Value, argLen)
+		for i := range argLen {
+			v, err := convertArg(args[i], ft.In(i), i)
+			if err != nil {
+				return err
+			}
+			prepArgs[i] = v
 		}
 	}
 
@@ -90,14 +102,44 @@ func (T *ExecCall) Func(call any, args ...any) error {
 	return nil
 }
 
+// [FIX-Bug1] convertArg 抽出原 Func() 内的单参数类型转换逻辑，
+// 便于固定参数与可变参数两条路径复用，避免逻辑重复。
+func convertArg(a any, targetType reflect.Type, idx int) (reflect.Value, error) {
+	if a == nil {
+		return reflect.Zero(targetType), nil
+	}
+	argV := reflect.ValueOf(a)
+	argT := argV.Type()
+
+	if argT.AssignableTo(targetType) {
+		return argV, nil
+	}
+	// 数字↔字符串的 reflect.Convert 语义是 rune，不是文本，显式拒绝。
+	if argT.Kind() == reflect.String || targetType.Kind() == reflect.String {
+		if argT.Kind() != targetType.Kind() {
+			return reflect.Value{}, fmt.Errorf("vweb: arg[%d] 拒绝字符串与%s间的隐式转换", idx, argT.Kind())
+		}
+		return argV.Convert(targetType), nil
+	}
+	if argV.CanConvert(targetType) {
+		return argV.Convert(targetType), nil
+	}
+	return reflect.Value{}, fmt.Errorf("vweb: arg[%d] type mismatch: cannot convert %s to %s", idx, argT, targetType)
+}
+
 // Exec 执行函数
 func (T *ExecCall) Exec() []any {
 	if !T.fun.IsValid() {
 		return nil
 	}
 
-	// 无论是否是可变参数函数，只要参数已经展开平铺，都可以直接用 Call
-	rvs := T.fun.Call(T.arg)
+	ft := T.fun.Type()
+	var rvs []reflect.Value
+	if ft.IsVariadic() {
+		rvs = T.fun.CallSlice(T.arg)
+	} else {
+		rvs = T.fun.Call(T.arg)
+	}
 	if len(rvs) == 0 {
 		return nil
 	}

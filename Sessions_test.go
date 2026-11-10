@@ -309,12 +309,6 @@ func TestSessions_FreeOutsideLock(t *testing.T) {
 }
 
 // TestSessions_newRandomSession_Conflict 合并冲突下唯一性与兜底触发。
-//
-// ⚠ 源码 newRandomSession 在 8 次随机冲突后使用 `id += "-x"` 追加后缀；
-//
-//	若期望固定后缀 "-temp-"，会与源码不符导致失败。此处改为只校验：
-//	- 兜底后 ID 仍然唯一；
-//	- 兜底后 ID 与 encodeStd 单字符 ID 集合不相交（说明确实是兜底而非随机命中）。
 func TestSessions_newRandomSession_Conflict(t *testing.T) {
 	t.Parallel()
 	ss := &Sessions{Size: 1} // 只产生 64 种 ID，冲突概率极高

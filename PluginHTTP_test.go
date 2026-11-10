@@ -17,23 +17,6 @@ func TestPluginHTTPClient_NilTr(t *testing.T) {
 	}
 }
 
-func TestPluginHTTPClient_AddrEmptyDoesNotConsumeOnce(t *testing.T) {
-	c := &PluginHTTPClient{Tr: &http.Transport{}}
-	if _, err := c.Connection(); err != nil {
-		t.Fatal(err)
-	}
-	if c.Tr.DialContext != nil {
-		t.Fatal("Addr 为空时不应设置 DialContext")
-	}
-	c.Addr = "127.0.0.1:1"
-	if _, err := c.Connection(); err != nil {
-		t.Fatal(err)
-	}
-	if c.Tr.DialContext == nil {
-		t.Fatal("补齐 Addr 后应设置 DialContext")
-	}
-}
-
 func TestPluginHTTP_EndToEnd(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Backend", "ok")
@@ -169,20 +152,6 @@ func TestPluginHTTP_Boundary(t *testing.T) {
 			t.Fatal("Tr nil 应报错")
 		}
 	})
-
-	t.Run("Addr 空不消耗 once", func(t *testing.T) {
-		c := &PluginHTTPClient{Tr: &http.Transport{}}
-		c.Connection()
-		if c.Tr.DialContext != nil {
-			t.Fatal("Addr 空时不应设置 DialContext")
-		}
-		c.Addr = "127.0.0.1:1"
-		c.Connection()
-		if c.Tr.DialContext == nil {
-			t.Fatal("补齐 Addr 后应设置")
-		}
-	})
-
 	t.Run("上游失败 504", func(t *testing.T) {
 		ln, _ := net.Listen("tcp", "127.0.0.1:0")
 		addr := ln.Addr().String()

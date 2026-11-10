@@ -15,7 +15,6 @@ import (
 // HandleFunc 类型定义。
 type HandleFunc []func(Doter)
 
-
 func (T HandleFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	site, _ := r.Context().Value(SiteContextKey).(*Site)
 	d := &Dot{
@@ -64,7 +63,7 @@ type Dot struct {
 	W        http.ResponseWriter // 响应
 	res      *response
 	Site     *Site           // 网站配置
-	exchange vmap.Map        // 缓存映射
+	exchange *vmap.Map       // 缓存映射
 	ec       ExitCall        // 退回调用函数
 	ctx      context.Context // 上下文
 }
@@ -103,7 +102,6 @@ func (T *Dot) Header() http.Header {
 	return T.W.Header()
 }
 
-
 func (T *Dot) response() *response {
 	if T.res == nil {
 		if res, ok := T.W.(*response); ok {
@@ -119,9 +117,12 @@ func (T *Dot) response() *response {
 	return T.res
 }
 
-
 func (T *Dot) isWrited() bool {
 	return T.response().isWrited
+}
+
+func (T *Dot) statusCode() int {
+	return T.response().statusCode
 }
 
 // Response 数据写入响应
@@ -165,7 +166,12 @@ func (T *Dot) Cookie() Cookier {
 //
 //	Swaper  映射
 func (T *Dot) Swap() *vmap.Map {
-	return &T.exchange
+	if T.exchange == nil {
+		vm := vmap.NewMap()
+		T.exchange = vm
+		return vm
+	}
+	return T.exchange
 }
 
 // Defer 在用户会话时间过期后，将被调用。
@@ -183,7 +189,9 @@ func (T *Dot) Defer(call any, args ...any) error {
 // Close 释放
 func (T *Dot) Close() error {
 	T.ec.Free()
-	T.exchange.Reset()
+	if T.exchange != nil {
+		T.exchange.Reset()
+	}
 	return nil
 }
 
@@ -268,8 +276,8 @@ type staticFileStorage struct {
 	staticDir string
 	file      *os.File
 	closed    bool
+	writeErr  error // 记录写入失败，禁止发布半成品
 }
-
 
 func (t *staticFileStorage) Write(p []byte) (n int, err error) {
 	if t.closed {
@@ -281,9 +289,15 @@ func (t *staticFileStorage) Write(p []byte) (n int, err error) {
 			return 0, err
 		}
 	}
-	return t.file.Write(p)
+	n, err = t.file.Write(p)
+	if err != nil || n != len(p) {
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		t.writeErr = err
+	}
+	return n, err
 }
-
 
 func (t *staticFileStorage) Close() error {
 	if t.closed {
@@ -297,11 +311,19 @@ func (t *staticFileStorage) Close() error {
 	}
 
 	tempPath := t.file.Name()
-	// 关闭失败说明内容未可靠提交，此时不能发布到目标文件名。
-	if err := t.file.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		return err
+	closeErr := t.file.Close()
+	if closeErr != nil || t.writeErr != nil {
+		os.Remove(tempPath)
+		if closeErr != nil && t.writeErr != nil {
+			return errors.Join(closeErr, t.writeErr)
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		return t.writeErr
 	}
+	// CreateTemp 以 0600 创建，静态文件通常需要被前置服务器（Nginx 等）读取。
+	os.Chmod(tempPath, 0o644)
 	if err := os.Rename(tempPath, filepath.Join(t.staticDir, t.name)); err != nil {
 		_ = os.Remove(tempPath)
 		return err

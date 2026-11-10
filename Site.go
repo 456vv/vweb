@@ -64,6 +64,12 @@ func (T *SitePool) NewSite(name string) *Site {
 		},
 	}
 	actual, loaded := T.pool.LoadOrStore(name, site)
+	if T.closed.Load() {
+		if !loaded {
+			T.pool.Delete(name)
+		}
+		panic("vweb: The website pool has been closed")
+	}
 	if loaded {
 		return actual.(*Site)
 	}
@@ -136,22 +142,19 @@ func (T *SitePool) Close() error {
 			close(T.exit)
 		}
 
-		var sessions []*Sessions
+		var sites []*Site
 		T.pool.Range(func(key, value any) bool {
 			if site, ok := value.(*Site); ok {
-				sessions = append(sessions, site.sessions)
-				// 清除全局数据
-				site.global.ExpireAll()
-				// 清除网站扩展数据
-				site.Extend.ExpireAll()
+				sites = append(sites, site)
 			}
 			return true
 		})
+		T.pool.Clear()
 
-		if len(sessions) > 0 {
+		if len(sites) > 0 {
 			var wg sync.WaitGroup
-			for _, s := range sessions {
-				s.InstantDeadAllInto(&wg)
+			for _, s := range sites {
+				s.sessions.InstantDeadAllInto(&wg)
 			}
 
 			done := make(chan struct{})
@@ -166,7 +169,15 @@ func (T *SitePool) Close() error {
 			case <-ctx.Done():
 			}
 			cancel()
+
+			for _, site := range sites {
+				// 清除全局数据
+				site.global.ExpireAll()
+				// 清除网站扩展数据
+				site.Extend.ExpireAll()
+			}
 		}
+
 		return nil
 	}
 	return errors.New("SitePool is closed")

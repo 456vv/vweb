@@ -33,12 +33,12 @@ type manageSession struct {
 //	ss := &Sessions{Expired: 20 * time.Minute, Name: "VID", Size: 64}
 //	sess := ss.Session(w, r) // 自动读 Cookie 或新建并 Set-Cookie
 type Sessions struct {
-	Expired time.Duration // 保存 session 时间长
-	Name    string        // Cookie 名
-	Size    int           // 会话 ID 长度
-	Salt    string        // 加盐
-	ss      vmap.Map      // map[id]*manageSession
-	mu      sync.RWMutex
+	Expired      time.Duration // 保存 session 时间长
+	Name         string        // Cookie 名
+	Size         int           // 会话 ID 长度
+	Salt         string        // 加盐
+	ss           vmap.Map      // map[id]*manageSession
+	mu           sync.RWMutex
 	lastSizeWarn atomic.Int64 // 限流警告时间戳
 }
 
@@ -92,28 +92,29 @@ func (T *Sessions) instantDeadAll(wg *sync.WaitGroup) {
 		return
 	}
 
-	workers := min(freeWorkerLimit, len(frees))
-	ch := make(chan *Session, len(frees))
-	for _, s := range frees {
-		ch <- s
-	}
-	close(ch)
-
 	if wg != nil {
-		wg.Add(workers)
-	}
-	for i := 0; i < workers; i++ {
-		go func() {
-			if wg != nil {
-				defer wg.Done()
-			}
-			for s := range ch {
-				s.Reset()
-				// freed=true 表示已禁止继续使用；
-				// Free 仍负责执行 ExitCall，不能在此省略。
-				s.Free()
-			}
-		}()
+		ch := make(chan *Session, len(frees))
+		for _, s := range frees {
+			ch <- s
+		}
+		close(ch)
+		for range min(len(frees), freeWorkerLimit) {
+			wg.Go(func() {
+				for s := range ch {
+					// freed=true 表示已禁止继续使用；
+					// Free 仍负责执行 ExitCall，不能在此省略。
+					s.Free()
+					s.Reset()
+				}
+			})
+		}
+	} else {
+		for _, s := range frees {
+			// freed=true 表示已禁止继续使用；
+			// Free 仍负责执行 ExitCall，不能在此省略。
+			s.Free()
+			s.Reset()
+		}
 	}
 }
 
@@ -157,8 +158,8 @@ func (T *Sessions) CheckDeadAll() []any {
 
 	// Range 结束后统一 Free。
 	for _, s := range toFree {
-		s.Reset()
 		s.Free()
+		s.Reset()
 	}
 
 	if len(expired) == 0 {
@@ -195,21 +196,17 @@ func (T *Sessions) deleteIfSame(id any, ms *manageSession) bool {
 // generateSessionID 生成会话标识符（crypto 随机 + 可选 Salt）。
 // Size<=0 时回退 64。
 func (T *Sessions) generateSessionID() string {
-	// 零值/负值回退到 64 字节，保证生成的 ID 有足够熵并避免 panic。
 	size := T.Size
 	if size <= 0 {
 		size = 64
 	}
 	rnd := make([]byte, size)
-	err := GenerateRandomID(rnd)
-	if err != nil {
+	if err := GenerateRandomID(rnd); err != nil {
 		panic(err)
 	}
-	if T.Salt != "" {
-		return AddSalt(rnd, T.Salt)
-	}
-	id := fmt.Sprintf("%x", rnd)
-	return id[:size]
+	// AddSalt 在 salt 为空时只做 encodeStd 映射，
+	// 返回长度恰好为 size，与有盐时保持一致。
+	return AddSalt(rnd, T.Salt)
 }
 
 // SessionID 从请求 Cookie 中读取会话标识。
@@ -243,8 +240,8 @@ func (T *Sessions) NewSession(id string) *Session {
 	s, toFree := T.setSessionLocked(id, new(Session))
 	T.mu.Unlock()
 	if toFree != nil {
-		toFree.Reset()
 		toFree.Free()
+		toFree.Reset()
 	}
 	return s
 }
@@ -277,8 +274,8 @@ func (T *Sessions) getSessionLocked(id string) (*Session, bool) {
 		if dead {
 			if toFree != nil {
 				go func(s *Session) {
-					s.Reset()
 					s.Free()
+					s.Reset()
 				}(toFree)
 			}
 			return nil, false
@@ -307,8 +304,8 @@ func (T *Sessions) SetSession(id string, s *Session) *Session {
 	result, toFree := T.setSessionLocked(id, s)
 	T.mu.Unlock()
 	if toFree != nil {
-		toFree.Reset()
 		toFree.Free()
+		toFree.Reset()
 	}
 	return result
 }
@@ -343,26 +340,24 @@ func (T *Sessions) setSessionLocked(id string, s *Session) (result, toFree *Sess
 // DelSession 删除指定 id 的会话并 Free。
 func (T *Sessions) DelSession(id string) {
 	T.mu.Lock()
-	defer T.mu.Unlock()
-
 	inf, ok := T.ss.GetHas(id)
 	if !ok {
+		T.mu.Unlock()
 		return
 	}
 	ms, ok := inf.(*manageSession)
-	if !ok || ms == nil {
+	// 先标记不可用：阻断 GetSession，也告知 SetSession 无需再 Free
+	if !ok || ms == nil || ms.s == nil || ms.unavailable.Swap(true) {
+		T.mu.Unlock()
 		return
 	}
+	// 仅当 id 仍指向 ms 时才删除，避免误删并发 SetSession 写入的新会话
+	T.deleteIfSame(id, ms)
+	T.mu.Unlock()
 
-	// 先标记不可用：阻断 GetSession 继续读到该条目，也告知 SetSession 无需再 Free
-	if !ms.unavailable.Swap(true) {
-		// 仅当 id 仍指向 ms 时才删除，避免误删并发 SetSession 写入的新会话
-		T.deleteIfSame(id, ms)
-
-		// Free 幂等；若 SetSession 已 Free 过旧条目，这里也会立即返回
-		ms.s.Reset()
-		ms.s.Free()
-	}
+	// 用户 Defer 可能回调 Sessions 方法，必须在锁外执行（与 CheckDeadAll/SetSession 一致）。
+	ms.s.Free()
+	ms.s.Reset()
 }
 
 // Session 是面向 Handler 的便捷入口：
@@ -381,11 +376,11 @@ func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner 
 	}
 	wh := rw.Header()
 
-	// 1. 请求 Cookie 里已有有效会话：复用，并清理响应头里会覆盖它的同名 Set-Cookie
+	// 1. 请求 Cookie 里已有有效会话：复用。
 	if req != nil {
 		if id, err := T.SessionID(req); err == nil {
 			if s, ok := T.GetSession(id); ok {
-				stripSetCookieByName(wh, name)
+				stripForeignSetCookie(wh, name, s.Token())
 				return s
 			}
 		}
@@ -403,11 +398,19 @@ func (T *Sessions) Session(rw http.ResponseWriter, req *http.Request) Sessioner 
 
 	// 3. 生成新会话
 	s := T.newRandomSession()
-	cookie := &http.Cookie{Name: name, Value: s.Token(), Path: "/", HttpOnly: true}
-	if req != nil && req.TLS != nil {
+	cookie := &http.Cookie{
+		Name:     name,
+		Value:    s.Token(),
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	if req != nil && (req.TLS != nil || strings.EqualFold(req.Header.Get("X-Forwarded-Proto"), "https")) {
 		cookie.Secure = true
 	}
-	replaceSessionCookie(wh, name, cookie.String())
+	if s := cookie.String(); s != "" { // 名称非法时 String() 返回空串
+		replaceSessionCookie(wh, name, s)
+	}
 	return s
 }
 
@@ -425,8 +428,8 @@ func (T *Sessions) newRandomSession() *Session {
 		s, toFree := T.setSessionLocked(id, new(Session))
 		T.mu.Unlock()
 		if toFree != nil {
-			toFree.Reset()
 			toFree.Free()
+			toFree.Reset()
 		}
 		return s
 	}
@@ -441,8 +444,8 @@ func (T *Sessions) newRandomSession() *Session {
 	s, toFree := T.setSessionLocked(id, new(Session))
 	T.mu.Unlock()
 	if toFree != nil {
-		toFree.Reset()
 		toFree.Free()
+		toFree.Reset()
 	}
 	// 限流：首次立刻打印，之后每 1 分钟最多一次。
 	now := time.Now().UnixNano()
@@ -460,8 +463,7 @@ func stripSetCookieByName(wh http.Header, name string) {
 	if len(vals) == 0 {
 		return
 	}
-	// 仅保留同名 Cookie 的最后一个值，避免重复设置。
-	// 既避免无谓的 Header 重排和内存分配，也不改变原有的 Header 顺序。
+	// 删除所有同名 Set-Cookie，由调用方重新写入
 	need := false
 	for _, v := range vals {
 		if cookieNameFromSetCookie(v) == name {
@@ -497,4 +499,42 @@ func cookieNameFromSetCookie(v string) string {
 		return ""
 	}
 	return strings.TrimSpace(v[:eq])
+}
+
+// stripForeignSetCookie 仅删除“同名且值不同”的 Set-Cookie。
+// [FIX-P0-03] 新增函数；stripSetCookieByName 保留不动，供既有调用方使用。
+func stripForeignSetCookie(wh http.Header, name, keepValue string) {
+	vals := wh.Values("Set-Cookie")
+	if len(vals) == 0 {
+		return
+	}
+	need := false
+	for _, v := range vals {
+		if cookieNameFromSetCookie(v) == name && cookieValueFromSetCookie(v) != keepValue {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return
+	}
+	wh.Del("Set-Cookie")
+	for _, v := range vals {
+		if cookieNameFromSetCookie(v) == name && cookieValueFromSetCookie(v) != keepValue {
+			continue
+		}
+		wh.Add("Set-Cookie", v)
+	}
+}
+
+// cookieValueFromSetCookie 从 Set-Cookie 头值中提取 Cookie 值。
+func cookieValueFromSetCookie(v string) string {
+	if semi := strings.IndexByte(v, ';'); semi >= 0 {
+		v = v[:semi]
+	}
+	eq := strings.IndexByte(v, '=')
+	if eq <= 0 {
+		return ""
+	}
+	return strings.TrimSpace(v[eq+1:])
 }

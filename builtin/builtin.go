@@ -94,7 +94,8 @@ func makeExported(v reflect.Value) (out reflect.Value) {
 		}
 	}()
 	vh.flag &^= flagRO
-	return v
+	out = v
+	return
 }
 
 func init() {
@@ -1126,10 +1127,20 @@ func Len(a any) int {
 	case []byte:
 		return len(x)
 	}
+
 	v := inDirect(asValue(a))
 	if !v.IsValid() {
 		return 0
 	}
+
+	// 与 Cap 对齐：nil 的 *[N]T，长度在类型上，返回 N。
+	if v.Kind() == reflect.Pointer && v.IsNil() {
+		if elem := v.Type().Elem(); elem.Kind() == reflect.Array {
+			return elem.Len()
+		}
+		return 0
+	}
+
 	switch v.Kind() {
 	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice, reflect.String:
 		return v.Len()
@@ -1226,6 +1237,18 @@ func copyStructTransactional(dsc, src any, exclude func(name string, dsc, src re
 		return fmt.Errorf("无效的值，dsc(%v)，src(%v)", dv.Kind(), sv.Kind())
 	}
 
+	// 正常调用 CopyStruct(&dst, src) 时 dv 是 *T，
+	// 必须先解引用到真正可写的结构体，否则事务 shadow 永远不会被使用。
+	for dv.Kind() == reflect.Pointer {
+		if dv.IsNil() {
+			return fmt.Errorf("copy: destination pointer is nil")
+		}
+		dv = dv.Elem()
+	}
+	if dv.Kind() != reflect.Struct {
+		return fmt.Errorf("copy: destination must be struct, got %s", dv.Kind())
+	}
+
 	// 目标必须可通过指针修改。若不可设置：
 	//   - 能通过 makeSettable（unsafe）处理则先处理；
 	//   - 仍不行则退回 copyStruct，让调用方收到原实现的精确错误。
@@ -1238,12 +1261,18 @@ func copyStructTransactional(dsc, src any, exclude func(name string, dsc, src re
 		}
 	}
 
-	// 1. 创建私有 shadow，并从 dst 复制当前值。
-	//    复制是为了保留"src 字段为空时 dst 的原值仍保留"的语义。
+	// 1. 创建私有 shadow
 	shadow := reflect.New(dv.Type()).Elem()
-	if err := trySet(shadow, dv); err != nil {
-		// 极少数情况（如 dst 内部状态非法）：退回旧实现，
-		// 事务性让位于兼容性。
+
+	// 纯值类型结构体用廉价浅拷贝；含引用类型时才做真正的深拷贝，保证事务性。
+	var err error
+	if needsDeepShadow(dv.Type()) {
+		err = cloneElemInto(shadow, dv, "", nil, make(map[copyVisit]reflect.Value), 0)
+	} else {
+		err = trySet(shadow, dv)
+	}
+	if err != nil {
+		// 极少数情况（如 dst 内部状态非法）：退回旧实现，事务性让位于兼容性。
 		return copyStruct(dv, sv, "", exclude, deep, copyStructVisited(deep))
 	}
 
@@ -1257,6 +1286,44 @@ func copyStructTransactional(dsc, src any, exclude func(name string, dsc, src re
 	// 3. 成功：一次性替换 dst 的全部字段。
 	//    trySet 内部有 recover 兜底，避免极端情况 panic 外泄。
 	return trySet(dv, shadow)
+}
+
+// needsDeepShadow 判断类型（及其嵌套字段）是否包含可能被 copyStruct 写穿的引用类型。
+// 只要存在 map/slice/pointer/interface/chan/func，就需要真正的深拷贝 shadow 才能保证事务性。
+func needsDeepShadow(t reflect.Type) bool {
+	if t == nil {
+		return false
+	}
+	// 防止递归类型死循环
+	seen := make(map[reflect.Type]struct{})
+	var walk func(reflect.Type) bool
+	walk = func(tt reflect.Type) bool {
+		if tt == nil {
+			return false
+		}
+		if _, ok := seen[tt]; ok {
+			return false
+		}
+		seen[tt] = struct{}{}
+
+		switch tt.Kind() {
+		case reflect.Map, reflect.Slice, reflect.Pointer, reflect.Interface,
+			reflect.Chan, reflect.Func, reflect.UnsafePointer:
+			return true
+		case reflect.Array:
+			return walk(tt.Elem())
+		case reflect.Struct:
+			for field := range tt.Fields() {
+				if walk(field.Type) {
+					return true
+				}
+			}
+			return false
+		default:
+			return false
+		}
+	}
+	return walk(t)
 }
 
 // copyStructVisited 深拷贝返回空的环检测 map，浅拷贝返回 nil，
@@ -1705,7 +1772,7 @@ func copyStruct(dsc, src reflect.Value, name string, exclude func(name string, d
 				dstType = srcSlice.Type()
 			}
 			n := srcSlice.Len()
-			nv := reflect.MakeSlice(dstType, n, max(srcSlice.Cap(), n))
+			nv := reflect.MakeSlice(dstType, n, n)
 			elemDst := dstType.Elem()
 			if deep {
 				for j := range n {
@@ -1802,6 +1869,15 @@ func copyStruct(dsc, src reflect.Value, name string, exclude func(name string, d
 				return setField(dst, src.Convert(dst.Type()))
 			} else {
 				return fmt.Errorf("copy: field %s cannot convert %s to %s: %w", fieldName, src.Type(), dst.Type(), err)
+			}
+		}
+		// 浅复制（!deep）时，源为 nil 指针/接口/func/chan 不应覆盖目标，
+		// 与 CopyStruct 文档"src 字段为空时不覆盖 dst"一致。
+		// 深复制（CopyStructDeep）保持原语义：空值也写入。
+		if !deep && !srcHasValue(bvField) {
+			switch bvField.Kind() {
+			case reflect.Pointer, reflect.Interface, reflect.Func, reflect.Chan:
+				continue
 			}
 		}
 		switch {
@@ -2400,6 +2476,16 @@ func setIndexable(sv reflect.Value, args []any, growable bool, allowUnexported b
 			return fmt.Errorf("%w: [%d] with length %d", ErrIndexOutOfRange, idx, sv.Len())
 		}
 
+		// 在扩容前先备份，扩容后若下标仍在旧长度内，用备份值。
+		var old reflect.Value
+		if idx >= 0 && idx < sv.Len() {
+			old = reflect.New(et).Elem()
+			if err := trySet(old, sv.Index(idx)); err != nil {
+				rollback()
+				return err
+			}
+		}
+
 		// 自动扩容（仅 slice）
 		if growable && idx >= sv.Len() {
 			if idx == math.MaxInt {
@@ -2439,16 +2525,6 @@ func setIndexable(sv reflect.Value, args []any, growable bool, allowUnexported b
 		if !elem.CanSet() {
 			rollback()
 			return ErrUnaddressable
-		}
-
-		// 保存旧值。扩容新增的下标靠恢复切片头丢弃，不能再 Index。
-		var old reflect.Value
-		if idx < sv.Len() {
-			old = reflect.New(et).Elem()
-			if err := trySet(old, elem); err != nil {
-				rollback()
-				return err
-			}
 		}
 
 		converted, err := autoConvert(et, args[i+1])
@@ -2774,7 +2850,11 @@ func convertKey(key any, target reflect.Type) (reflect.Value, bool) {
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 			return normalizeMapKey(reflect.ValueOf(strconv.FormatUint(kv.Uint(), 10)), target)
 		case reflect.Float32, reflect.Float64:
-			return normalizeMapKey(reflect.ValueOf(strconv.FormatFloat(kv.Float(), 'f', -1, 64)), target)
+			bitSize := 64
+			if kv.Kind() == reflect.Float32 {
+				bitSize = 32
+			}
+			return normalizeMapKey(reflect.ValueOf(strconv.FormatFloat(kv.Float(), 'f', -1, bitSize)), target)
 		case reflect.Bool:
 			return normalizeMapKey(reflect.ValueOf(strconv.FormatBool(kv.Bool())), target)
 		default:
@@ -2931,7 +3011,8 @@ func buildFieldIndex(t reflect.Type, allow bool) fieldIndex {
 	}
 
 	m := make(fieldIndex, t.NumField()*2)
-	// 同一遍里先登记的 tag 会占掉后面字段的精确名。
+	// 先登记精确名，再登记 tag，避免 tag 占掉后面字段的精确名。
+	// walkFields 内部已按"本层字段先于嵌入字段"分层，保证浅字段优先。
 	walkFields(t, nil, nil, allow, m, false)
 	walkFields(t, nil, nil, allow, m, true)
 
@@ -2943,73 +3024,90 @@ func buildFieldIndex(t reflect.Type, allow bool) fieldIndex {
 	return actual.(fieldIndex)
 }
 
-func walkFields(tt reflect.Type, path []int, stack []reflect.Type, allow bool, m fieldIndex, tagsOnly bool) {
-	if tt == nil || tt.Kind() != reflect.Struct {
+func walkFields(root reflect.Type, _ []int, _ []reflect.Type, allow bool, m fieldIndex, tagsOnly bool) {
+	if root == nil || root.Kind() != reflect.Struct {
 		return
 	}
-	for _, seen := range stack {
-		if seen == tt {
-			// type A struct { *A } 一类递归嵌入会无限递归。
-			return
-		}
+	type frame struct {
+		tt    reflect.Type
+		path  []int
+		stack []reflect.Type
 	}
-	// append 可能复用父栈底层数组，兄弟嵌入会互相覆盖环检测记录。
-	nextStack := make([]reflect.Type, len(stack)+1)
-	copy(nextStack, stack)
-	nextStack[len(stack)] = tt
+	// 按层推进（BFS）：同一层内本层字段先登记，浅层整体先于深层，
+	// 与 Go 的字段提升规则一致。原实现 DFS 会让某个嵌入分支的深层字段
+	// 抢先于同级其它嵌入的浅层字段登记。
+	queue := []frame{{tt: root, path: nil, stack: nil}}
+	for len(queue) > 0 {
+		next := make([]frame, 0, len(queue))
+		for _, fr := range queue {
+			tt := fr.tt
+			if tt == nil || tt.Kind() != reflect.Struct {
+				continue
+			}
+			recursive := false
+			for _, seen := range fr.stack {
+				if seen == tt {
+					recursive = true
+					break
+				}
+			}
+			if recursive {
+				continue
+			}
+			nextStack := make([]reflect.Type, len(fr.stack)+1)
+			copy(nextStack, fr.stack)
+			nextStack[len(fr.stack)] = tt
 
-	n := tt.NumField()
-	// embedInfo 类型定义。
-	type embedInfo struct {
-		ft  reflect.Type
-		idx []int
-	}
-	var embeds []embedInfo
-	for i := range n {
-		sf := tt.Field(i)
-		unexported := sf.PkgPath != ""
-		// 与 Go 选择规则对齐：
-		// - 未导出且非匿名：不登记、不提升
-		// - 未导出但匿名：不登记该字段名本身，仍递归以提升其中的导出字段
-		// - allow=true：未导出字段也可登记
-		if unexported && !allow && !sf.Anonymous {
-			continue
-		}
-		idx := make([]int, len(path)+1)
-		copy(idx, path)
-		idx[len(path)] = i
-		if !unexported || allow {
-			if !tagsOnly {
-				if _, exists := m[sf.Name]; !exists {
-					m[sf.Name] = idx
+			n := tt.NumField()
+			type embedInfo struct {
+				ft  reflect.Type
+				idx []int
+			}
+			var embeds []embedInfo
+			for i := range n {
+				sf := tt.Field(i)
+				unexported := sf.PkgPath != ""
+				if unexported && !allow && !sf.Anonymous {
+					continue
 				}
-			} else {
-				for _, tagName := range []string{"json", "mapstructure", "yaml", "toml", "bson"} {
-					tag := sf.Tag.Get(tagName)
-					if tag == "" {
-						continue
-					}
-					name, _, _ := strings.Cut(tag, ",")
-					name = strings.TrimSpace(name)
-					if name == "" || name == "-" {
-						continue
-					}
-					if _, exists := m[name]; !exists {
-						m[name] = idx
+				idx := make([]int, len(fr.path)+1)
+				copy(idx, fr.path)
+				idx[len(fr.path)] = i
+				if !unexported || allow {
+					if !tagsOnly {
+						if _, exists := m[sf.Name]; !exists {
+							m[sf.Name] = idx
+						}
+					} else {
+						for _, tagName := range []string{"json", "mapstructure", "yaml", "toml", "bson"} {
+							tag := sf.Tag.Get(tagName)
+							if tag == "" {
+								continue
+							}
+							name, _, _ := strings.Cut(tag, ",")
+							name = strings.TrimSpace(name)
+							if name == "" || name == "-" {
+								continue
+							}
+							if _, exists := m[name]; !exists {
+								m[name] = idx
+							}
+						}
 					}
 				}
+				if sf.Anonymous {
+					ft := sf.Type
+					if ft.Kind() == reflect.Pointer {
+						ft = ft.Elem()
+					}
+					embeds = append(embeds, embedInfo{ft: ft, idx: idx})
+				}
+			}
+			for _, e := range embeds {
+				next = append(next, frame{tt: e.ft, path: e.idx, stack: nextStack})
 			}
 		}
-		if sf.Anonymous {
-			ft := sf.Type
-			if ft.Kind() == reflect.Pointer {
-				ft = ft.Elem()
-			}
-			embeds = append(embeds, embedInfo{ft: ft, idx: idx})
-		}
-	}
-	for _, e := range embeds {
-		walkFields(e.ft, e.idx, nextStack, allow, m, tagsOnly)
+		queue = next
 	}
 }
 
@@ -3299,7 +3397,7 @@ func Copy(a any, b any) any {
 func Append(a any, vals ...any) any {
 	v := inDirect(asValue(a))
 	if v.Kind() != reflect.Slice {
-		panic("Append: first argument must be a slice")
+		panic(fmt.Sprintf("Append: first argument must be a slice, got %s", v.Kind()))
 	}
 	elemType := v.Type().Elem()
 	elems := make([]reflect.Value, len(vals))

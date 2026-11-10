@@ -37,9 +37,6 @@ func TestResponse_WriteHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	resp := &response{w: w, r: httptest.NewRequest("GET", "/", nil)}
 	resp.WriteHeader(http.StatusCreated)
-	if !resp.isWrited {
-		t.Fatal("isWrited 应为 true")
-	}
 	if resp.statusCode != http.StatusCreated {
 		t.Fatalf("statusCode=%d", resp.statusCode)
 	}

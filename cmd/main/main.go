@@ -1,13 +1,13 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"flag"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/456vv/vweb/v3/cmd/main/internal/base"
@@ -29,9 +29,9 @@ var (
 	fAllowCertHost = flag.String("AllowCertHost", "ssl/auto/host.txt", "允许自动申请证书文件路径")
 )
 
-
 func main() {
-	log.Printf("程序版本：%s | %s\n", server.Version, version)
+	nlog := log.New(os.Stdout, "", log.LstdFlags)
+	nlog.Printf("程序版本：%s | %s\n", server.Version, version)
 
 	// 文件行参数
 	flag.Parse()
@@ -50,7 +50,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	log.Printf("根目录：%s\n", dir)
+	nlog.Printf("根目录：%s\n", dir)
 
 	// 配置文件绝对地址
 	if !filepath.IsAbs(*fConfigFile) {
@@ -65,11 +65,15 @@ func main() {
 	}
 	logFile, err := os.OpenFile(*fLogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		log.Println(err)
+		nlog.Println(err)
 		return
 	}
 	defer logFile.Close()
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.SetOutput(io.MultiWriter(logFile, os.Stdout))
 
+	// 局部变量：通过闭包共享给 HostPolicy 与热重载逻辑
+	var hostPolicy atomic.Pointer[autocert.HostPolicy]
 	// 服务器
 	group := server.NewGroup()
 	group.ErrorLog.SetOutput(logFile)
@@ -78,30 +82,28 @@ func main() {
 		Prompt:      autocert.AcceptTOS,
 		RenewBefore: time.Hour * 7 * 24, // 7天
 		Cache:       autocert.DirCache(*fCertCache),
-		HostPolicy: func(ctx context.Context, host string) error {
-			// 默认不支持，需要设置ssl/auto/host.txt
-			return errors.New("auto cert error")
-		},
+		HostPolicy:  newDynamicHostPolicy(&hostPolicy),
 	}
+
 	var closeOnce sync.Once
 	closeGroup := func() {
 		closeOnce.Do(func() {
 			if err := group.Close(); err != nil {
-				log.Printf("关闭服务组出现错误：%v\n", err)
+				nlog.Printf("关闭服务组出现错误：%v\n", err)
 			}
 		})
 	}
 	defer closeGroup()
 
 	// 加载自动证书允许文件
-	if err := loadAutoCertHostPolicy(group.CertManager, *fAllowCertHost); err != nil {
-		log.Printf("加载自动证书允许文件失败：%v\n", err)
+	if err := loadAutoCertHostPolicy(&hostPolicy, *fAllowCertHost); err != nil {
+		nlog.Printf("加载自动证书允许文件失败：%v\n", err)
 	}
 
 	// 文件看守
 	watcher, err := watch.NewWatch()
 	if err != nil {
-		log.Println(err)
+		nlog.Println(err)
 		return
 	}
 	defer watcher.Close()
@@ -115,14 +117,14 @@ func main() {
 		var next config.Config
 		// 始终从主配置重建全部子配置，子配置删除后不会残留在旧对象中。
 		if err := next.ParseFiles(*fConfigFile); err != nil {
-			log.Printf("加载配置文件出现错误: %s\n", err)
+			nlog.Printf("加载配置文件出现错误: %s\n", err)
 			return
 		}
 		if err := group.UpdateConfig(&next); err != nil {
-			log.Printf("更新配置出现错误: %s\n", err)
+			nlog.Printf("更新配置出现错误: %s\n", err)
 			return
 		}
-		log.Printf("加载配置文件成功: %s\n", *fConfigFile)
+		nlog.Printf("加载配置文件成功: %s\n", *fConfigFile)
 	}
 	updateConfig()
 
@@ -138,7 +140,7 @@ func main() {
 		}
 		updateConfig()
 	}); err != nil {
-		log.Printf("监视配置目录出现错误：%v\n", err)
+		nlog.Printf("监视配置目录出现错误：%v\n", err)
 	}
 
 	if err := watcher.Monitor(filepath.Clean(*fAllowCertHost), func(event fsnotify.Event) {
@@ -147,21 +149,25 @@ func main() {
 		if event.Op&(fsnotify.Create|fsnotify.Write) == 0 {
 			return
 		}
-		if err := loadAutoCertHostPolicy(group.CertManager, event.Name); err != nil {
-			log.Printf("重新加载自动证书允许文件失败：%v\n", err)
+		if err := loadAutoCertHostPolicy(&hostPolicy, event.Name); err != nil {
+			nlog.Printf("重新加载自动证书允许文件失败：%v\n", err)
 		}
 	}); err != nil {
-		log.Printf("监视证书白名单出现错误：%v\n", err)
+		nlog.Printf("监视证书白名单出现错误：%v\n", err)
 	}
 
 	base.StartSigHandlers()
 	go func() {
 		<-base.Interrupted
-		log.Println("收到退出信号，正在优雅关闭...")
+		nlog.Println("收到退出信号，正在优雅关闭...")
 		closeGroup()
+
+		<-base.Interrupted
+		nlog.Println("再次收到退出信号，强制结束")
+		os.Exit(1)
 	}()
 
 	if err := group.Start(); err != nil {
-		log.Printf("启动失败：%s\n", err)
+		nlog.Printf("启动失败：%s\n", err)
 	}
 }

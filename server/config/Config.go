@@ -62,7 +62,6 @@ func configExclude(handle HandleFunc) HandleFunc {
 	}
 }
 
-
 func publicCopy(transit, dsc, src any, handle HandleFunc) bool {
 	if builtin.CopyStructDeep(transit, dsc, nil) != nil {
 		return false
@@ -85,7 +84,6 @@ type SiteForward struct {
 	// forwardWriter 为运行时状态，不属于持久化配置；合并公共配置时不应共享该指针。
 	forwardWriter *vweb.ForwardRewriter
 }
-
 
 func (T *SiteForward) Compile() (fw *vweb.ForwardRewriter, err error) {
 	if T == nil {
@@ -176,11 +174,9 @@ func (T *SitePlugin) clone() *SitePlugin {
 	return &cp
 }
 
-
 func (T *SitePlugin) ConfigPluginHTTPClient(c *vweb.PluginHTTPClient) error {
 	return configHTTPClient(c, T)
 }
-
 
 func (T *SitePlugin) ConfigPluginRPCClient(c *vweb.PluginRPCClient) error {
 	return configRPCClient(c, T)
@@ -313,9 +309,13 @@ func (T *SiteDirectory) RootDir(upath string) string {
 		pos := strings.LastIndex(v, separator)
 		if pos >= 0 && strings.HasPrefix(p+separator, separator+v[pos+1:]+separator) {
 			if pos == 0 {
-				pos = 1
+				continue
 			}
 			root = v[:pos]
+			// Windows 下 "D:\static" 取到的 "D:" 是盘符相对路径，补成 "D:\"。
+			if vol := filepath.VolumeName(v); vol != "" && root == vol {
+				root = vol + separator
+			}
 			break
 		}
 	}
@@ -341,7 +341,7 @@ type SiteSession struct {
 	PublicName string `yaml:"PublicName"` // 引用公共配置的名字
 	Name       string `yaml:"Name"`       // 会话名称
 	Expired    int64  `yaml:"Expired"`    // 过期时间（秒单位，默认 20 分钟）
-	Size       int    `yaml:"Size"`       // 会话 ID 长度（默认 40）
+	Size       int    `yaml:"Size"`       // 会话 ID 长度（默认 64）
 	Salt       string `yaml:"Salt"`       // 加盐（伪随机数补充熵，可为空）
 }
 
@@ -602,16 +602,16 @@ type Server struct {
 // Conn 连接相关参数
 type Conn struct {
 	// 引用公共配置后，该以结构中的CC和CS如果也有设置，将会使用优先使用。
-	PublicName      string `yaml:"PublicName"`      // 引用公共配置的名字
-	Deadline        int64  `yaml:"Deadline"`        // 设置读写超时(毫秒单位)
-	WriteDeadline   int64  `yaml:"WriteDeadline"`   // 设置写入超时(毫秒单位)
-	ReadDeadline    int64  `yaml:"ReadDeadline"`    // 设置读取超时(毫秒单位)
-	KeepAlive       bool   `yaml:"KeepAlive"`       // 即使没有任何通信，一个客户端可能希望保持连接到服务器的状态。
-	KeepAlivePeriod int64  `yaml:"KeepAlivePeriod"` // 保持连接超时(毫秒单位)
-	Linger          int    `yaml:"Linger"`          // 连接关闭后，等待发送或待确认的数据（秒单位)。如果 sec > 0，经过sec秒后，所有剩余的未发送数据都可能会被丢弃。则与sec < 0 一样在后台发送数据。
-	NoDelay         bool   `yaml:"NoDelay"`         // 设置操作系统是否延迟发送数据包,建议设置为true(无延迟)
-	ReadBuffer      int    `yaml:"ReadBuffer"`      // 在缓冲区读取数据大小
-	WriteBuffer     int    `yaml:"WriteBuffer"`     // 写入数据到缓冲区大小
+	PublicName       string `yaml:"PublicName"`       // 引用公共配置的名字
+	Deadline         int64  `yaml:"Deadline"`         // 设置读写超时(毫秒单位)
+	WriteDeadline    int64  `yaml:"WriteDeadline"`    // 设置写入超时(毫秒单位)
+	ReadDeadline     int64  `yaml:"ReadDeadline"`     // 设置读取超时(毫秒单位)
+	DisableKeepAlive bool   `yaml:"DisableKeepAlive"` // 禁止长连接
+	KeepAlivePeriod  int64  `yaml:"KeepAlivePeriod"`  // 保持连接超时(毫秒单位)
+	Linger           int    `yaml:"Linger"`           // 连接关闭后，等待发送或待确认的数据（秒单位)。如果 sec > 0，经过sec秒后，所有剩余的未发送数据都可能会被丢弃。则与sec < 0 一样在后台发送数据。
+	Delay            bool   `yaml:"Delay"`            // 设置操作系统是否延迟发送数据包,(false 无延迟)
+	ReadBuffer       int    `yaml:"ReadBuffer"`       // 在缓冲区读取数据大小
+	WriteBuffer      int    `yaml:"WriteBuffer"`      // 写入数据到缓冲区大小
 }
 
 // ServerPublic 公共服务器配置
@@ -849,6 +849,31 @@ func (T *Config) ParseReaderYAML(r io.Reader) error {
 	return nil
 }
 
+// http.Transport 的超时基线，取自 http.DefaultTransport。
+// 保证"配置为 0 等于 Go 默认值"，既不是 0=永不超时，也不会残留上一次的配置。
+var httpTransportTimeout = func() (t struct {
+	tlsHandshake   time.Duration
+	responseHeader time.Duration
+	idleConn       time.Duration
+	expectContinue time.Duration
+},
+) {
+	if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+		t.tlsHandshake = dt.TLSHandshakeTimeout
+		t.responseHeader = dt.ResponseHeaderTimeout
+		t.idleConn = dt.IdleConnTimeout
+		t.expectContinue = dt.ExpectContinueTimeout
+	}
+	return
+}()
+
+func timeoutOr(ms int64, def time.Duration) time.Duration {
+	if ms <= 0 {
+		return def
+	}
+	return millis(ms)
+}
+
 // configHTTPClient 配置HTTP插件客户端。
 //
 // 并发说明：
@@ -907,9 +932,12 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 
 	// ---------- Transport 配置 ----------
 	if c.Tr == nil {
-		c.Tr = new(http.Transport)
-		// 默认从环境变量读取代理（HTTP_PROXY / HTTPS_PROXY / NO_PROXY）。
-		c.Tr.Proxy = http.ProxyFromEnvironment
+		if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+			// 支持从环境变量读取代理（HTTP_PROXY / HTTPS_PROXY / NO_PROXY）。
+			c.Tr = dt.Clone() // Clone 已带 ProxyFromEnvironment
+		} else {
+			c.Tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
+		}
 	}
 
 	if conf.ProxyURL != "" {
@@ -933,19 +961,10 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 	c.Tr.WriteBufferSize = conf.WriteBufferSize
 	c.Tr.ForceAttemptHTTP2 = conf.ForceAttemptHTTP2
 
-	// 仅在配置了非零值时才覆盖默认超时，避免意外将超时设为 0。
-	if d := conf.ResponseHeaderTimeout; d != 0 {
-		c.Tr.ResponseHeaderTimeout = millis(d)
-	}
-	if d := conf.ExpectContinueTimeout; d != 0 {
-		c.Tr.ExpectContinueTimeout = millis(d)
-	}
-	if d := conf.IdleConnTimeout; d != 0 {
-		c.Tr.IdleConnTimeout = millis(d)
-	}
-	if d := conf.TLSHandshakeTimeout; d != 0 {
-		c.Tr.TLSHandshakeTimeout = millis(d)
-	}
+	c.Tr.ResponseHeaderTimeout = timeoutOr(conf.ResponseHeaderTimeout, httpTransportTimeout.responseHeader)
+	c.Tr.ExpectContinueTimeout = timeoutOr(conf.ExpectContinueTimeout, httpTransportTimeout.expectContinue)
+	c.Tr.IdleConnTimeout = timeoutOr(conf.IdleConnTimeout, httpTransportTimeout.idleConn)
+	c.Tr.TLSHandshakeTimeout = timeoutOr(conf.TLSHandshakeTimeout, httpTransportTimeout.tlsHandshake)
 
 	// ProxyConnectHeader 使用 Clone，防止外部修改影响已配置的 Transport（并发安全）。
 	if len(conf.ProxyConnectHeader) != 0 {
@@ -1015,8 +1034,21 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 	}
 	c.Tr.TLSClientConfig = tlsConfig
 
-	// 在配置阶段绑定 DialContext，避免 PluginHTTPClient.Connection 首次并发写 Transport 字段。
-	if conf.Addr != "" {
+	// 环境代理也属于代理；存在代理时不能安装
+	// 忽略目标地址的定向 DialContext，否则会把代理请求直连到后端。
+	usingProxy := conf.ProxyURL != ""
+	if !usingProxy {
+		for _, key := range []string{
+			"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+			"http_proxy", "https_proxy", "all_proxy",
+		} {
+			if strings.TrimSpace(os.Getenv(key)) != "" {
+				usingProxy = true
+				break
+			}
+		}
+	}
+	if conf.Addr != "" && !usingProxy {
 		addr := conf.Addr
 		dialer := c.Dialer
 		c.Tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -1030,6 +1062,10 @@ func configHTTPClient(c *vweb.PluginHTTPClient, conf *SitePlugin) error {
 		} else {
 			c.Tr.DialTLSContext = nil
 		}
+	} else {
+		// 复用 Transport 时清掉旧的定向拨号，回到标准解析 + 代理逻辑。
+		c.Tr.DialContext = nil
+		c.Tr.DialTLSContext = nil
 	}
 
 	return nil

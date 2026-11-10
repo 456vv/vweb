@@ -233,7 +233,7 @@ func (T *ServerHandlerStatic) ServeHTTP(rw http.ResponseWriter, req *http.Reques
 		switch {
 		case errors.Is(err, errInvalidRootPath):
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
-		case errors.Is(err, errSymlinkEscape):
+		case errors.Is(err, errSymlinkFailure):
 			http.Error(rw, "Forbidden", http.StatusForbidden) // ← root 不存在也走这里
 		default:
 			http.Error(rw, err.Error(), http.StatusNotFound)

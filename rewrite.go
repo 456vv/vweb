@@ -42,9 +42,13 @@ func (T *Forward) Compile() (*ForwardRewriter, error) {
 		if err != nil {
 			return nil, fmt.Errorf("vweb: 无效的正则表达式(%s): %w", p, err)
 		}
-		// 完整字面量（含空字符串）放入 exact，避免空正则匹配一切的问题
-		if prefix, complete := re.LiteralPrefix(); complete {
-			r.excludeExact[prefix] = struct{}{}
+		prefix, complete := re.LiteralPrefix()
+		// 空正则 LiteralPrefix 是 ("", true)，但 MatchString 匹配任意文本。空模式直接拒绝。
+		if complete && prefix == "" {
+			return nil, fmt.Errorf("vweb: 空的重写表达式(%s)", p)
+		}
+		if complete {
+			r.excludeExact[prefix] = struct{}{} // Path 分支同样处理
 		} else {
 			r.excludeRegex = append(r.excludeRegex, re)
 		}

@@ -15,7 +15,7 @@ var (
 	errInvalidRootPath = errors.New("vweb: invalid RootPath")
 	errInvalidFilePath = errors.New("vweb: invalid file path")
 	errPathTraversal   = errors.New("vweb: path traversal detected")
-	errSymlinkEscape   = errors.New("vweb: path traversal detected")
+	errSymlinkFailure  = errors.New("vweb: path symlink failure")
 
 	// 文件级错误，供动态/静态处理器映射状态码。
 	errFileNotFound     = errors.New("vweb: file not found")
@@ -45,7 +45,7 @@ func evalPathWithinRoot(rootAbs, targetAbs string) (string, error) {
 
 	realExisting, err := filepath.EvalSymlinks(existing)
 	if err != nil {
-		return "", err
+		return "", errSymlinkFailure
 	}
 
 	realTarget := realExisting
@@ -91,10 +91,7 @@ func resolvePagePath(rootPath, pagePath, urlPath, defaultPage string) (cleanPage
 	}
 	fileAbs, err = evalPathWithinRoot(rootAbs, fileAbs)
 	if err != nil {
-		if errors.Is(err, errInvalidRootPath) {
-			return "", "", "", errInvalidRootPath
-		}
-		return "", "", "", errSymlinkEscape
+		return "", "", "", err
 	}
 	return pagePath, fileAbs, rel, nil
 }

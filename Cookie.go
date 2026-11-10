@@ -3,6 +3,7 @@ package vweb
 import (
 	"net/http"
 	"net/textproto"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -85,7 +86,10 @@ func (c *Cookie) Add(name, value, path, domain string, maxAge int, secure, only 
 		HttpOnly: only,
 		SameSite: sameSite,
 	}
-	c.W.Header().Add("Set-Cookie", cookie.String())
+	// cookie.String() 在名称非法时返回空串；空串写进响应头会产生无意义的 Set-Cookie。
+	if s := cookie.String(); s != "" {
+		c.W.Header().Add("Set-Cookie", s)
+	}
 }
 
 // Del 删除，删除指定的Cookie
@@ -94,8 +98,16 @@ func (c *Cookie) Add(name, value, path, domain string, maxAge int, secure, only 
 func (c *Cookie) Del(name string) {
 	// MaxAge<0 会让浏览器立即删除；同时显式清空 value/path/domain 便于覆盖同名 Cookie。
 	c.Add(name, "", "/", "", -1, false, false, http.SameSiteDefaultMode)
-}
 
+	if c.R == nil || c.R.URL == nil {
+		return
+	}
+	// 除 Path=/ 外，再按当前请求目录删一次。
+	dir := path.Dir(c.R.URL.Path)
+	if dir != "" && dir != "/" && dir != "." {
+		c.Add(name, "", dir, "", -1, false, false, http.SameSiteDefaultMode)
+	}
+}
 
 func readCookies(h http.Header, filter string) []*http.Cookie {
 	lines := h["Cookie"]
@@ -109,7 +121,7 @@ func readCookies(h http.Header, filter string) []*http.Cookie {
 
 		var part string
 		for len(line) > 0 {
-			if splitIndex := strings.Index(line, ";"); splitIndex > 0 {
+			if splitIndex := strings.Index(line, ";"); splitIndex >= 0 {
 				part, line = line[:splitIndex], line[splitIndex+1:]
 			} else {
 				part, line = line, ""
@@ -241,7 +253,6 @@ func readSetCookies(h http.Header) []*http.Cookie {
 	return cookies
 }
 
-
 func parseCookieValue(raw string, allowDoubleQuote bool) (string, bool) {
 	if allowDoubleQuote && len(raw) > 1 && raw[0] == '"' && raw[len(raw)-1] == '"' {
 		raw = raw[1 : len(raw)-1]
@@ -254,7 +265,6 @@ func parseCookieValue(raw string, allowDoubleQuote bool) (string, bool) {
 	return raw, true
 }
 
-
 func isCookieNameValid(raw string) bool {
 	if raw == "" {
 		return false
@@ -262,11 +272,9 @@ func isCookieNameValid(raw string) bool {
 	return strings.IndexFunc(raw, isNotToken) < 0
 }
 
-
 func isNotToken(r rune) bool {
 	return !httpguts.IsTokenRune(r)
 }
-
 
 func validCookieValueByte(b byte) bool {
 	return 0x20 <= b && b < 0x7f && b != '"' && b != ';' && b != '\\'

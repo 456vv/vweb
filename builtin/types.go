@@ -44,7 +44,6 @@ var builtinTypes = map[string]reflect.Type{
 	"type":        reflect.TypeFor[reflect.Type](),
 }
 
-
 func inDirect(v reflect.Value) reflect.Value {
 	// 快路径：0~2 层解引用不分配 map
 	for i := 0; i < 2; i++ {
@@ -82,7 +81,6 @@ func asValue(v any) reflect.Value {
 	return reflect.ValueOf(v)
 }
 
-
 func isSignedKind(k reflect.Kind) bool {
 	switch k {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -90,7 +88,6 @@ func isSignedKind(k reflect.Kind) bool {
 	}
 	return false
 }
-
 
 func isUnsignedKind(k reflect.Kind) bool {
 	switch k {
@@ -100,21 +97,17 @@ func isUnsignedKind(k reflect.Kind) bool {
 	return false
 }
 
-
 func isFloatKind(k reflect.Kind) bool {
 	return k == reflect.Float32 || k == reflect.Float64
 }
-
 
 func isComplexKind(k reflect.Kind) bool {
 	return k == reflect.Complex64 || k == reflect.Complex128
 }
 
-
 func isNumericKind(k reflect.Kind) bool {
 	return isSignedKind(k) || isUnsignedKind(k) || isFloatKind(k) || isComplexKind(k)
 }
-
 
 func isIntKind(k reflect.Kind) bool {
 	return isSignedKind(k) || isUnsignedKind(k)
@@ -144,7 +137,6 @@ func autoConvert(telem reflect.Type, v any) (reflect.Value, error) {
 	return autoConvertReflect(telem, asValue(v))
 }
 
-
 func autoConvertReflect(telem reflect.Type, val reflect.Value) (rv reflect.Value, err error) {
 	// recover 只放在顶层，避免嵌套容器每层 defer。
 	defer func() {
@@ -155,7 +147,6 @@ func autoConvertReflect(telem reflect.Type, val reflect.Value) (rv reflect.Value
 	}()
 	return autoConvertReflectN(telem, val, 0)
 }
-
 
 func autoConvertReflectN(telem reflect.Type, val reflect.Value, depth int) (reflect.Value, error) {
 	if depth > maxConvertDepth {
@@ -265,7 +256,11 @@ func autoConvertReflectN(telem reflect.Type, val reflect.Value, depth int) (refl
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 			return reflect.ValueOf(strconv.FormatUint(val.Uint(), 10)).Convert(telem), nil
 		case reflect.Float32, reflect.Float64:
-			return reflect.ValueOf(strconv.FormatFloat(val.Float(), 'f', -1, 64)).Convert(telem), nil
+			bitSize := 64
+			if val.Kind() == reflect.Float32 {
+				bitSize = 32
+			}
+			return reflect.ValueOf(strconv.FormatFloat(val.Float(), 'f', -1, bitSize)).Convert(telem), nil
 		case reflect.Bool:
 			return reflect.ValueOf(strconv.FormatBool(val.Bool())).Convert(telem), nil
 		case reflect.Complex64, reflect.Complex128:
@@ -489,7 +484,6 @@ func checkComplex64Overflow(c complex128) error {
 	return nil
 }
 
-
 func isZeroValue(v reflect.Value) bool {
 	if !v.IsValid() {
 		return true
@@ -624,7 +618,6 @@ func convertContainer(telem reflect.Type, val reflect.Value, depth int) (reflect
 	return reflect.Value{}, nil, false
 }
 
-
 func typeString(a any) string {
 	if a == nil {
 		return "nil"
@@ -638,11 +631,9 @@ func typeString(a any) string {
 	return reflect.TypeOf(a).String()
 }
 
-
 func panicUnsupportedOp2(op string, a, b any) any {
 	panic("unsupported operator: " + typeString(a) + op + typeString(b))
 }
-
 
 func isTrue(val reflect.Value) bool {
 	if !val.IsValid() {
@@ -679,7 +670,6 @@ func typeSelect(v reflect.Value) (r any) {
 	}()
 	return typeSelect1(v, 0, nil)
 }
-
 
 func typeSelect1(v reflect.Value, depth int, inProg map[uintptr]struct{}) any {
 	if depth > maxConvertDepth || !v.IsValid() {
@@ -863,7 +853,6 @@ func typeInit(v reflect.Value, isZero bool, args ...any) bool {
 func initChain(v reflect.Value, isZero bool, args ...any) bool {
 	return initChainDepth(v, isZero, 0, args...)
 }
-
 
 func initChainDepth(v reflect.Value, isZero bool, depth int, args ...any) bool {
 	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
@@ -1065,7 +1054,6 @@ func canConvertSafely(src reflect.Value, typ reflect.Type) bool {
 	return true
 }
 
-
 func isArrayOrArrayPtr(t reflect.Type) bool {
 	return t.Kind() == reflect.Array || (t.Kind() == reflect.Pointer && t.Elem().Kind() == reflect.Array)
 }
@@ -1124,4 +1112,3 @@ func typeConvert(dst, src reflect.Value) (ok bool) {
 
 	return trySet(target, converted) == nil
 }
-
