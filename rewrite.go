@@ -96,9 +96,10 @@ func (T *ForwardRewriter) Rewrite(upath string) (string, bool) {
 
 	// 4. 检查包含路径 (正则匹配)
 	for _, reg := range T.pathRegex {
-		if reg.MatchString(upath) {
-			// 使用正则官方替换，完整支持 $0/$1/$2… 以及 $$ 转义
-			return reg.ReplaceAllString(upath, T.rePath), true
+		// 使用正则官方替换，完整支持 $0/$1/$2… 以及 $$ 转义
+		loc := reg.FindStringSubmatchIndex(upath)
+		if loc != nil {
+			return string(reg.ExpandString(nil, T.rePath, upath, loc)), true
 		}
 	}
 	return upath, false

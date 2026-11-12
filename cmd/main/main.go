@@ -110,7 +110,7 @@ func main() {
 
 	// 加载配置文件，支持子配置文件。
 	var reloadMu sync.Mutex
-	updateConfig := func() {
+	updateConfig := func(filePath string) {
 		reloadMu.Lock()
 		defer reloadMu.Unlock()
 
@@ -124,9 +124,9 @@ func main() {
 			nlog.Printf("更新配置出现错误: %s\n", err)
 			return
 		}
-		nlog.Printf("加载配置文件成功: %s\n", *fConfigFile)
+		nlog.Printf("加载配置文件成功: %s\n", filePath)
 	}
-	updateConfig()
+	updateConfig(*fConfigFile)
 
 	if err := watcher.Monitor(filepath.Dir(*fConfigFile), func(e fsnotify.Event) {
 		// fsnotify.Op 是位掩码，Write|Chmod 等组合值不是独立 case。
@@ -138,7 +138,7 @@ func main() {
 		if name != filepath.Base(*fConfigFile) && !watchedSubConfig(name) {
 			return
 		}
-		updateConfig()
+		updateConfig(e.Name)
 	}); err != nil {
 		nlog.Printf("监视配置目录出现错误：%v\n", err)
 	}

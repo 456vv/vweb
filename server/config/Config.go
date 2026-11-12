@@ -131,7 +131,7 @@ type SitePlugin struct {
 	Addr          string `yaml:"Addr"`          // 地址
 	LocalAddr     string `yaml:"LocalAddr"`     // 本地拨号 IP
 	Timeout       int64  `yaml:"Timeout"`       // 拨号超时（毫秒单位）
-	KeepAlive     int64  `yaml:"KeepAlive"`     // 保持连接超时（毫秒单位）
+	KeepAlive     int64  `yaml:"KeepAlive"`     // 指定活动网络连接的保持活动探测之间的间隔（毫秒单位）
 	FallbackDelay int64  `yaml:"FallbackDelay"` // 后退延时，等待双协议栈延时，（毫秒单位，默认 300ms）
 	IdeConn       int    `yaml:"IdeConn"`       // 空闲连接数（历史字段名，保持导出兼容）
 

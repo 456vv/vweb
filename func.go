@@ -260,7 +260,7 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 	if !isDir {
 		fi, err = os.Stat(path.Join(root, pc))
 		if err != nil {
-			return nil, "", fmt.Errorf("%s", fmt.Sprintf(errStr, p))
+			return nil, "", fmt.Errorf(errStr, p)
 		}
 		isDir = fi.IsDir()
 		if !isDir {
@@ -277,7 +277,7 @@ func PagePath(root, p string, index []string) (os.FileInfo, string, error) {
 			return fi, pi, nil
 		}
 	}
-	return nil, "", fmt.Errorf("%s", fmt.Sprintf(errStr, p))
+	return nil, "", fmt.Errorf(errStr, p)
 }
 
 func delay(wait, maxDelay time.Duration) time.Duration {

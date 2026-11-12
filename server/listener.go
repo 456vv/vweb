@@ -99,7 +99,7 @@ func (T *listener) applyConnConfig(tc *net.TCPConn, cfg *config.Conn) {
 	// 先 Enable KeepAlive，再设 Period；KeepAlive=false 时设 Period 在部分平台会反向打开保活。
 	tc.SetKeepAlive(!cfg.DisableKeepAlive)
 	if !cfg.DisableKeepAlive && cfg.KeepAlivePeriod > 0 {
-		// 注意：Windows 10 1709 之前会重置 KeepAliveInterval 为系统默认值
+		// 注意，在Windows 10版本1709之前的Windows上调用此方法将使KeepAliveInterval重置为默认系统值，通常为1秒。
 		tc.SetKeepAlivePeriod(millis(cfg.KeepAlivePeriod))
 	}
 	if d := cfg.ReadBuffer; d != 0 {

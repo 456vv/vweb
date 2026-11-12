@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/Microsoft/go-winio/pkg/fs"
 )
 
 var (
@@ -24,7 +26,7 @@ var (
 
 // evalPathWithinRoot 返回 targetAbs 解析符号链接后的真实路径，并保证其位于 rootAbs 下。
 func evalPathWithinRoot(rootAbs, targetAbs string) (string, error) {
-	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	rootReal, err := fs.ResolvePath(rootAbs) // 替代filepath.EvalSymlinks
 	if err != nil {
 		return "", errInvalidRootPath
 	}
@@ -43,7 +45,7 @@ func evalPathWithinRoot(rootAbs, targetAbs string) (string, error) {
 		existing = parent
 	}
 
-	realExisting, err := filepath.EvalSymlinks(existing)
+	realExisting, err := fs.ResolvePath(existing) // 替代filepath.EvalSymlinks
 	if err != nil {
 		return "", errSymlinkFailure
 	}
